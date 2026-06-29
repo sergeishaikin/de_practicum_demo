@@ -1,0 +1,88 @@
+name: de-practicum-demo
+
+networks:
+  de_demo_net:
+    name: de_demo_net
+    driver: bridge
+
+volumes:
+  de_demo_pg_data:
+    name: de_demo_pg_data
+  de_demo_airflow_logs:
+    name: de_demo_airflow_logs
+
+services:
+  de-demo-postgres:
+    image: postgres:15
+    container_name: de-demo-postgres
+    hostname: de-demo-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
+      POSTGRES_DB: ${POSTGRES_DB:-dwh}
+      TZ: ${TZ:-Europe/Moscow}
+    ports:
+      - "15432:5432"
+    volumes:
+      - de_demo_pg_data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+      - ./db/demo_sql:/demo_sql:ro
+      - ./db/tasks:/tasks:ro
+      - ./db/task_checks:/task_checks:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app} -d ${POSTGRES_DB:-dwh}"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 15s
+    restart: unless-stopped
+    networks:
+      - de_demo_net
+
+  de-demo-airflow:
+    image: local/airflow:2.9.3-lab
+    pull_policy: never
+    container_name: de-demo-airflow
+    hostname: de-demo-airflow
+    depends_on:
+      de-demo-postgres:
+        condition: service_healthy
+    environment:
+      TZ: ${TZ:-Europe/Moscow}
+      AIRFLOW__CORE__EXECUTOR: SequentialExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "True"
+      AIRFLOW__CORE__DEFAULT_TIMEZONE: ${TZ:-Europe/Moscow}
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: sqlite:////opt/airflow/airflow.db
+      AIRFLOW__WEBSERVER__DEFAULT_UI_TIMEZONE: ${TZ:-Europe/Moscow}
+      AIRFLOW__WEBSERVER__SECRET_KEY: de-practicum-demo-local-secret
+      DWH_HOST: de-demo-postgres
+      DWH_PORT: "5432"
+      DWH_DB: ${POSTGRES_DB:-dwh}
+      DWH_USER: ${POSTGRES_USER:-app}
+      DWH_PASSWORD: ${POSTGRES_PASSWORD:-app}
+    ports:
+      - "18085:8080"
+    volumes:
+      - ./dags:/opt/airflow/dags:ro
+      - ./db:/opt/airflow/project/db:ro
+      - ./data/raw:/opt/airflow/project/data/raw:ro
+      - de_demo_airflow_logs:/opt/airflow/logs
+    command:
+      - bash
+      - -lc
+      - |
+        set -euo pipefail
+        airflow db migrate
+        airflow users create \
+          --username admin \
+          --password admin \
+          --firstname Demo \
+          --lastname Admin \
+          --role Admin \
+          --email admin@example.com || true
+        airflow scheduler &
+        exec airflow webserver --port 8080
+    restart: unless-stopped
+    networks:
+      - de_demo_net

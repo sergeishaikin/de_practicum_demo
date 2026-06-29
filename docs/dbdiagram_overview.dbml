@@ -1,0 +1,104 @@
+// Data Engineering Practicum Demo: overview diagram
+// Use this shorter version for quick overview screenshots.
+
+Project de_practicum_demo_overview {
+  database_type: 'PostgreSQL'
+  Note: '''
+  Short diagram for the public demo: staging tables are loaded from CSV,
+  core tables are rebuilt by Airflow, marts expose the result and checks.
+  '''
+}
+
+Table stg.orders {
+  order_id varchar
+  customer_id varchar
+  order_purchase_timestamp timestamp
+  ingest_date date
+
+  indexes {
+    (order_id, ingest_date) [pk]
+  }
+
+  Note: 'Loaded from data/raw/olist_orders_dataset.csv.'
+}
+
+Table stg.order_items {
+  order_id varchar
+  order_item_id int
+  price numeric(12,2)
+  freight_value numeric(12,2)
+  ingest_date date
+
+  indexes {
+    (order_id, order_item_id, ingest_date) [pk]
+  }
+
+  Note: 'Loaded from data/raw/olist_order_items_dataset.csv.'
+}
+
+Table stg.order_payments {
+  order_id varchar
+  payment_sequential int
+  payment_type varchar
+  payment_value numeric(12,2)
+  ingest_date date
+
+  indexes {
+    (order_id, payment_sequential, ingest_date) [pk]
+  }
+
+  Note: 'Loaded from data/raw/olist_order_payments_dataset.csv.'
+}
+
+Table core.orders {
+  order_id varchar [pk]
+  customer_id varchar
+  order_purchase_date date
+  payment_value numeric(12,2)
+  main_payment_type varchar
+  ingest_date date
+
+  Note: 'Clean order grain: one row per order.'
+}
+
+Table core.order_items {
+  order_id varchar
+  order_item_id int
+  order_purchase_date date
+  customer_id varchar
+  price numeric(12,2)
+  freight_value numeric(12,2)
+
+  indexes {
+    (order_id, order_item_id) [pk]
+  }
+
+  Note: 'Clean item grain: one row per order item.'
+}
+
+Table marts.v_sales_daily {
+  sales_date date
+  orders_cnt bigint
+  items_cnt bigint
+  gross_sales numeric(12,2)
+  freight_sum numeric(12,2)
+
+  Note: 'View for the report and SQL checks.'
+}
+
+Table marts.pipeline_runs {
+  run_id varchar [pk]
+  run_ts timestamptz
+  status varchar
+  stg_orders int
+  core_order_items int
+  mart_sales_days int
+  max_reconcile_diff numeric(12,2)
+
+  Note: 'Audit row written by Airflow after each DAG run.'
+}
+
+Ref: stg.order_items.order_id > stg.orders.order_id
+Ref: stg.order_payments.order_id > stg.orders.order_id
+Ref: core.order_items.order_id > core.orders.order_id
+Ref: marts.v_sales_daily.sales_date > core.order_items.order_purchase_date

@@ -1,0 +1,50 @@
+# Local environment
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.ipynb_checkpoints/
+
+# IDE and OS files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Airflow and local runtime artifacts
+logs/
+airflow.db
+airflow-webserver.pid
+standalone_admin_password.txt
+webserver_config.py
+*.log
+*.pid
+*.db
+*.sqlite
+*.sqlite3
+
+# Generated outputs
+reports/
+tmp/
+temp/
+*.tmp
+*.bak
+*.orig
+*.rej
+
+# Local scratch data, not part of the demo dataset
+data/parquet/
+data/tmp/
+db/work/

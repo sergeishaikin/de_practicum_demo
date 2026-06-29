@@ -1,0 +1,205 @@
+// Data Engineering Practicum Demo
+// Copy this file into https://dbdiagram.io/
+// DBML docs: https://dbml.dbdiagram.io/docs/
+
+Project de_practicum_demo {
+  database_type: 'PostgreSQL'
+  Note: '''
+  Demo pipeline: CSV files are loaded into stg, transformed into core,
+  exposed as marts views, then checked by SQL smoke tests.
+  Objects named marts.v_* are PostgreSQL views, shown as tables for diagramming.
+  '''
+}
+
+Table stg.orders {
+  order_id varchar
+  customer_id varchar
+  order_status varchar
+  order_purchase_timestamp timestamp
+  order_approved_at timestamp
+  order_delivered_carrier_date timestamp
+  order_delivered_customer_date timestamp
+  order_estimated_delivery_date timestamp
+  ingest_date date [not null]
+
+  indexes {
+    (order_id, ingest_date) [pk]
+    customer_id
+  }
+
+  Note: 'Landing table loaded from olist_orders_dataset.csv.'
+}
+
+Table stg.order_items {
+  order_id varchar
+  order_item_id int
+  product_id varchar
+  seller_id varchar
+  shipping_limit_date timestamp
+  price numeric(12,2)
+  freight_value numeric(12,2)
+  ingest_date date [not null]
+
+  indexes {
+    (order_id, order_item_id, ingest_date) [pk]
+  }
+
+  Note: 'Landing table loaded from olist_order_items_dataset.csv.'
+}
+
+Table stg.order_payments {
+  order_id varchar
+  payment_sequential int
+  payment_type varchar
+  payment_installments int
+  payment_value numeric(12,2)
+  ingest_date date [not null]
+
+  indexes {
+    (order_id, payment_sequential, ingest_date) [pk]
+    order_id
+  }
+
+  Note: 'Landing table loaded from olist_order_payments_dataset.csv.'
+}
+
+Table stg.customers {
+  customer_id varchar
+  customer_unique_id varchar
+  customer_zip_code_prefix varchar
+  customer_city varchar
+  customer_state varchar
+  ingest_date date [not null]
+
+  indexes {
+    (customer_id, ingest_date) [pk]
+  }
+
+  Note: 'Landing table loaded from olist_customers_dataset.csv.'
+}
+
+Table core.orders {
+  order_id varchar [pk]
+  customer_id varchar [not null]
+  customer_state varchar
+  order_status varchar
+  order_purchase_date date
+  payment_value numeric(12,2)
+  main_payment_type varchar
+  max_installments int
+  ingest_date date [not null]
+
+  Note: 'One row per order. Payments are aggregated from stg.order_payments.'
+}
+
+Table core.order_items {
+  order_id varchar [not null]
+  order_item_id int [not null]
+  order_purchase_date date
+  order_status varchar
+  customer_id varchar [not null]
+  customer_state varchar
+  product_id varchar [not null]
+  seller_id varchar [not null]
+  price numeric(12,2)
+  freight_value numeric(12,2)
+  ingest_date date [not null]
+
+  indexes {
+    (order_id, order_item_id) [pk]
+  }
+
+  Note: 'One row per order item, enriched with order and customer attributes.'
+}
+
+Table marts.v_order_items_wide {
+  order_id varchar
+  order_item_id int
+  order_purchase_date date
+  order_status varchar
+  customer_id varchar
+  customer_state varchar
+  product_id varchar
+  seller_id varchar
+  price numeric(12,2)
+  freight_value numeric(12,2)
+  order_payment_value numeric(12,2)
+  main_payment_type varchar
+  ingest_date date
+
+  Note: 'View. Wide mart for item-level analysis.'
+}
+
+Table marts.v_sales_daily {
+  sales_date date
+  orders_cnt bigint
+  items_cnt bigint
+  gross_sales numeric(12,2)
+  freight_sum numeric(12,2)
+
+  Note: 'View. Daily sales mart.'
+}
+
+Table marts.v_customer_state_daily {
+  sales_date date
+  customer_state varchar
+  orders_cnt bigint
+  items_cnt bigint
+  gross_sales numeric(12,2)
+
+  Note: 'View. Daily sales by customer state.'
+}
+
+Table marts.v_reconcile_sales_daily {
+  sales_date date
+  mart_gross_sales numeric(12,2)
+  source_gross_sales numeric(12,2)
+  diff_amount numeric(12,2)
+
+  Note: 'View. Reconciles marts.v_sales_daily with stg source data.'
+}
+
+Table marts.pipeline_runs {
+  run_id varchar [pk]
+  run_ts timestamptz
+  status varchar
+  stg_orders int
+  stg_order_items int
+  core_order_items int
+  mart_sales_days int
+  duplicate_grain_rows int
+  null_key_rows int
+  max_reconcile_diff numeric(12,2)
+
+  Note: 'Audit table written by the Airflow DAG after each successful run.'
+}
+
+Table marts.v_smoke_last_run {
+  run_id varchar
+  run_ts timestamptz
+  status varchar
+  stg_orders int
+  stg_order_items int
+  core_order_items int
+  mart_sales_days int
+  duplicate_grain_rows int
+  null_key_rows int
+  max_reconcile_diff numeric(12,2)
+
+  Note: 'View. Latest row from marts.pipeline_runs.'
+}
+
+// Source-level relationships. In SQL the real joins also use ingest_date where needed.
+Ref: stg.orders.customer_id > stg.customers.customer_id
+Ref: stg.order_items.order_id > stg.orders.order_id
+Ref: stg.order_payments.order_id > stg.orders.order_id
+
+// Core and mart lineage relationships.
+Ref: core.orders.customer_id > stg.customers.customer_id
+Ref: core.order_items.order_id > core.orders.order_id
+Ref: marts.v_order_items_wide.order_id > core.orders.order_id
+Ref: marts.v_order_items_wide.order_item_id > core.order_items.order_item_id
+Ref: marts.v_sales_daily.sales_date > core.order_items.order_purchase_date
+Ref: marts.v_customer_state_daily.sales_date > core.order_items.order_purchase_date
+Ref: marts.v_reconcile_sales_daily.sales_date > marts.v_sales_daily.sales_date
+Ref: marts.v_smoke_last_run.run_id > marts.pipeline_runs.run_id
