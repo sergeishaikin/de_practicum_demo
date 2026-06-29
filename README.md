@@ -1,3 +1,5 @@
+![hero.png](imgs/hero.png)
+
 # Data Engineering Practicum Demo
 
 Локальный demo-стенд курса без Spark, MinIO и Jupyter. Внутри только Postgres, Airflow, 4 CSV-файла и короткий pipeline: `data/raw` -> `stg` -> `core` -> `marts`.
