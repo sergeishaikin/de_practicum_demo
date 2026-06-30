@@ -1,6 +1,7 @@
 ![hero.png](imgs/hero.png)
 
-# Data Engineering Practicum Demo
+Это открытое demo облегченной версии стенда.  
+Полная программа практикума: https://kuzmin-dmitry.ru/de_practicum
 
 Локальный demo-стенд курса без Spark, MinIO и Jupyter. Внутри только Postgres, Airflow, 4 CSV-файла и короткий pipeline: `data/raw` -> `stg` -> `core` -> `marts`.
 
@@ -156,6 +157,12 @@ reports\demo_quality_report.html
 scripts\check_task_sql.cmd
 scripts\check_task_airflow.cmd
 ```
+
+## Что дальше
+
+Если demo зашло и хочешь пройти полный путь с Docker, Airflow, Postgres, MinIO, Spark и витринами данных, посмотри полную программу практикума:
+
+https://kuzmin-dmitry.ru/de_practicum
 
 ## Справка
 
