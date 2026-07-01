@@ -1,4 +1,4 @@
-![hero.png](imgs/hero.png)
+![DE Practicum Demo](imgs/hero_2.png)
 
 Это открытое demo облегченной версии стенда.  
 Полная программа практикума: https://kuzmin-dmitry.ru/de_practicum

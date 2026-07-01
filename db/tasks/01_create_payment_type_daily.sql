@@ -1,16 +1,16 @@
--- Task 1: create marts.v_payment_type_daily.
+-- Задание 1: создай marts.v_payment_type_daily.
 --
--- Edit this file, then run:
+-- Отредактируй этот файл, затем запусти проверку:
 -- scripts\check_task_sql.cmd
 --
--- Required columns:
+-- Обязательные колонки:
 --   sales_date
 --   main_payment_type
 --   orders_cnt
 --   payment_sum
 --   avg_payment
 --
--- Source table:
+-- Таблица-источник:
 --   core.orders
 
 create or replace view marts.v_payment_type_daily as
