@@ -1,12 +1,12 @@
-# Quickstart for Windows
+# Quickstart for macOS and Linux
 
-Полный путь от пустой машины до отчета.
+Полный путь от чистой машины до отчета.
 
 ## 1. Поставь инструменты
 
 Обязательно:
 
-- Docker Desktop for Windows
+- Docker Desktop или Docker Engine с Docker Compose v2
 - Git
 
 Удобно, но не обязательно:
@@ -14,70 +14,52 @@
 - VS Code или PyCharm
 - DBeaver для просмотра Postgres
 
-Если Docker Desktop попросит войти в аккаунт, войди или зарегистрируйся. Публиковать образы никуда не нужно.
+На macOS проще всего поставить Docker Desktop. На Linux проверь, что команда `docker compose version` работает без старого `docker-compose`.
 
 ## 2. Проверь Docker
 
-Открой Docker Desktop и дождись рабочего состояния engine.
+Запусти Docker Desktop или Docker Engine.
 
-В PowerShell:
-
-```powershell
+```bash
 docker --version
 docker compose version
+docker info
 ```
 
-Если Docker пишет про WSL, открой PowerShell от имени администратора:
-
-```powershell
-wsl --update
-```
-
-После этого перезапусти Docker Desktop.
+Если `docker info` падает, сначала почини Docker. Дальше demo не запустится.
 
 ## 3. Скачай репозиторий
 
-```powershell
-cd D:\
+```bash
 git clone https://github.com/dim4eg91/de_practicum_demo.git de_practicum_demo
-cd D:\de_practicum_demo
+cd de_practicum_demo
 ```
 
 Проверь, что ты в корне проекта:
 
-```powershell
-dir docker-compose.yml
+```bash
+ls docker-compose.yml
 ```
-
-Если файла нет, ты не там. Дальше команды запускать бессмысленно.
 
 Файл `.env` создавать не обязательно. Настройки по умолчанию уже есть в `docker-compose.yml`. Пример лежит в `.env.example`.
 
 ## 4. Запусти doctor
 
-```powershell
-scripts\doctor.cmd
+```bash
+bash scripts/doctor.sh
 ```
 
 Doctor проверит Docker, Compose, CSV-файлы, порты `15432` и `18085`.
 
 ## 5. Подними demo-стенд
 
-```powershell
+```bash
 docker compose up -d
 ```
 
-Если Docker Hub падает с `EOF`, а у тебя уже собран основной учебный стенд:
-
-```powershell
-docker compose -f docker-compose.local-airflow.yml up -d
-```
-
-Это запасной локальный вариант. Для обычного публичного запуска используй `docker compose up -d`.
-
 Проверь контейнеры:
 
-```powershell
+```bash
 docker compose ps
 ```
 
@@ -88,8 +70,8 @@ docker compose ps
 
 ## 6. Посмотри состояние до DAG
 
-```powershell
-scripts\show_layers.cmd
+```bash
+bash scripts/show_layers.sh
 ```
 
 До запуска DAG в БД должны быть пустые слои: `stg`, `core`, `marts`.
@@ -106,8 +88,6 @@ http://localhost:18085
 
 Пароль: `admin`
 
-Если Airflow показывает желтые предупреждения про SQLite metadata DB и SequentialExecutor, это нормально для demo. Здесь Airflow упрощен ради первого локального запуска.
-
 В Airflow:
 
 1. Найди `demo_core_marts_pipeline`.
@@ -117,8 +97,8 @@ http://localhost:18085
 
 ## 8. Проверь результат
 
-```powershell
-scripts\run_checks.cmd
+```bash
+bash scripts/run_checks.sh
 ```
 
 Ожидаемо:
@@ -131,32 +111,26 @@ scripts\run_checks.cmd
 
 ## 9. Собери отчет
 
-```powershell
-scripts\build_report.cmd
+```bash
+bash scripts/build_report.sh
 ```
 
 Открой:
 
 ```text
-reports\demo_quality_report.html
+reports/demo_quality_report.html
 ```
 
-Схема demo-пайплайна:
+На macOS:
 
-```text
-docs\schema.md
+```bash
+open reports/demo_quality_report.html
 ```
 
-Короткая DBML-схема для dbdiagram.io:
+На Linux:
 
-```text
-docs\dbdiagram_overview.dbml
-```
-
-Полная DBML-схема:
-
-```text
-docs\dbdiagram_demo.dbml
+```bash
+xdg-open reports/demo_quality_report.html
 ```
 
 ## 10. Сделай задания руками
@@ -164,7 +138,7 @@ docs\dbdiagram_demo.dbml
 Открой:
 
 ```text
-docs\exercises.md
+docs/exercises.md
 ```
 
 Там два задания:
@@ -174,19 +148,19 @@ docs\exercises.md
 
 Проверки:
 
-```powershell
-scripts\check_task_sql.cmd
-scripts\check_task_airflow.cmd
+```bash
+bash scripts/check_task_sql.sh
+bash scripts/check_task_airflow.sh
 ```
 
 ## 11. Останови стенд
 
-```powershell
+```bash
 docker compose down
 ```
 
 Удалить все demo-данные:
 
-```powershell
+```bash
 docker compose down -v
 ```

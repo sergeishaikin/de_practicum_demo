@@ -3,9 +3,44 @@
 Это открытое demo облегченной версии стенда.  
 Полная программа практикума: https://kuzmin-dmitry.ru/de_practicum
 
-Локальный demo-стенд курса без Spark, MinIO и Jupyter. Внутри только Postgres, Airflow, 4 CSV-файла и короткий pipeline: `data/raw` -> `stg` -> `core` -> `marts`.
+Локальный demo-стенд курса без Spark, MinIO и Jupyter. Внутри только Postgres, Airflow, 4 CSV-файла и короткий путь: `data/raw` -> `stg` -> `core` -> `marts` -> проверки -> HTML-отчет.
 
-Полный путь для Windows лежит в [docs/quickstart_windows.md](docs/quickstart_windows.md).
+Быстрый старт:
+
+- Windows: [docs/quickstart_windows.md](docs/quickstart_windows.md)
+- macOS/Linux: [docs/quickstart_macos_linux.md](docs/quickstart_macos_linux.md)
+
+## Что ты поймешь после demo
+
+Это не упражнение “написать один select”. Смысл demo в том, чтобы руками пройти маленький DE-процесс:
+
+- как CSV-файлы попадают в `stg`
+- зачем нужен отдельный `core`-слой
+- чем витрина `marts` отличается от сырой таблицы
+- где появляются grain checks, null-key checks и reconcile
+- зачем нужен Airflow, если SQL уже умеет считать данные
+- почему витрина без проверки качества опасна
+- как выглядит маленький, но настоящий data engineering pipeline
+
+Короткая схема лежит в [docs/schema.md](docs/schema.md).
+
+## Три маршрута
+
+Не обязательно проходить все сразу.
+
+**Маршрут 1. Запустить pipeline и посмотреть слои**
+
+Подними стенд, запусти DAG, проверь, что данные прошли путь `CSV -> stg -> core -> marts`. Это основной сценарий demo.
+
+**Маршрут 2. SQL-задача**
+
+Добавь новую витрину `marts.v_payment_type_daily`. Это маршрут для тех, кто уже знает SQL и хочет увидеть, чем витрина отличается от разового запроса.
+
+**Маршрут 3. Airflow-задача**
+
+Добавь quality gate в DAG. Это маршрут на рост: чуть Python, чуть Airflow, реальная проверка перед audit.
+
+Задания лежат в [docs/exercises.md](docs/exercises.md).
 
 ## Пререквизиты
 
@@ -23,36 +58,23 @@
 
 Настройки по умолчанию уже зашиты в `docker-compose.yml`. Если хочешь переопределить пользователя, пароль или timezone, скопируй `.env.example` в `.env` и измени значения.
 
-## Что внутри
+## Быстрая диагностика
 
-Схема demo-проекта специально короткая:
+Перед запуском можно проверить окружение:
 
-```text
-CSV files -> stg tables -> core tables -> marts views -> checks -> HTML report
-```
-
-
-## Что есть до DAG
-
-После `docker compose up -d` в Postgres уже есть схемы и объекты:
-
-- `stg`: пустые приемные таблицы для CSV
-- `core`: пустые очищенные таблицы
-- `marts`: пустые витрины и smoke-таблица запусков
-
-
-
-CSV лежат в `data/raw`. В БД данных еще нет, пока не запущен DAG.
-
-Проверить пустое состояние:
+Windows:
 
 ```powershell
-scripts\show_layers.cmd
+scripts\doctor.cmd
 ```
 
-Ожидаемо увидишь `rows_count = 0` и `no data` по слоям.
+macOS/Linux:
 
-![show_layers.png](imgs/show_layers.png)
+```bash
+bash scripts/doctor.sh
+```
+
+Doctor проверяет, что ты в корне проекта, Docker отвечает, Compose доступен, CSV-файлы на месте, а порты `15432` и `18085` не заняты чужими процессами.
 
 ## Запуск
 
@@ -90,31 +112,51 @@ Postgres для DBeaver или psql:
 
 ![pg_connection.png](imgs/pg_connection.png)
 
-## Сценарий
+## Маршрут 1. Pipeline
+
+До запуска DAG в Postgres уже есть схемы и объекты, но данных еще нет.
+
+Windows:
+
+```powershell
+scripts\show_layers.cmd
+```
+
+macOS/Linux:
+
+```bash
+bash scripts/show_layers.sh
+```
+
+Ожидаемо увидишь `rows_count = 0` и `no data` по слоям.
+
+![show_layers.png](imgs/show_layers.png)
+
+Дальше:
 
 1. Открой Airflow.
 2. Найди DAG `demo_core_marts_pipeline`.
 3. Включи DAG переключателем.
 4. Нажми Trigger DAG.
-5. После успешного run выполни проверки.
+5. Дождись успешного run.
 
 ![demo_core_marts_pipeline.png](imgs/demo_core_marts_pipeline.png)
 
 Проверки после DAG:
 
+Windows:
+
 ```powershell
 scripts\run_checks.cmd
 ```
 
-![show_layers_after.png](imgs/show_layers_after.png)
+macOS/Linux:
 
-Если нужен именно PowerShell-скрипт:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\run_checks.ps1
+```bash
+bash scripts/run_checks.sh
 ```
 
-## Что должно получиться
+![show_layers_after.png](imgs/show_layers_after.png)
 
 После DAG данные появятся в слоях:
 
@@ -128,35 +170,71 @@ Smoke-проверка должна показать `status = success`, `duplic
 
 ## Отчет
 
-После успешного DAG можно собрать HTML-отчет:
+После успешного DAG можно собрать HTML-отчет.
+
+Windows:
 
 ```powershell
 scripts\build_report.cmd
 ```
 
+macOS/Linux:
+
+```bash
+bash scripts/build_report.sh
+```
+
 Открой файл:
 
 ```text
-reports\demo_quality_report.html
+reports/demo_quality_report.html
 ```
 
 Отчет показывает слои загрузки, quality scorecard, grain/null-key проверки, reconcile и smoke последнего запуска.
 
-## Задания руками
+## Маршрут 2 и 3. Задания руками
 
-После базового демо можно сделать два маленьких задания:
+После базового demo можно сделать два маленьких задания:
 
 - SQL: добавить витрину `marts.v_payment_type_daily`
 - Airflow: добавить quality gate `check_payment_reconcile`
 
 Инструкция: [docs/exercises.md](docs/exercises.md).
 
-Проверки:
+Проверки для Windows:
 
 ```powershell
 scripts\check_task_sql.cmd
 scripts\check_task_airflow.cmd
 ```
+
+Проверки для macOS/Linux:
+
+```bash
+bash scripts/check_task_sql.sh
+bash scripts/check_task_airflow.sh
+```
+
+## Если застрял
+
+Сначала запусти doctor:
+
+```text
+scripts\doctor.cmd
+bash scripts/doctor.sh
+```
+
+Если проблема осталась, создай issue в репозитории или пришли диагностику:
+
+```text
+docker compose ps
+docker compose logs --tail=100 de-demo-postgres
+docker compose logs --tail=100 de-demo-airflow
+scripts\doctor.cmd
+scripts\run_checks.cmd
+```
+
+Для macOS/Linux замени `.cmd` на `.sh`.
 
 ## Что дальше
 
@@ -167,6 +245,7 @@ https://kuzmin-dmitry.ru/de_practicum
 ## Справка
 
 - [docs/quickstart_windows.md](docs/quickstart_windows.md)
+- [docs/quickstart_macos_linux.md](docs/quickstart_macos_linux.md)
 - [docs/schema.md](docs/schema.md)
 - [docs/exercises.md](docs/exercises.md)
 - [docs/docker_desktop_windows.md](docs/docker_desktop_windows.md)

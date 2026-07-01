@@ -2,6 +2,22 @@
 
 Базовое демо уже показывает готовый pipeline. Эти задания нужны, чтобы сделать что-то руками.
 
+## Как проходить
+
+Есть три нормальных маршрута. Не надо считать провалом, если ты прошел только первый или первые два.
+
+**Маршрут 1. Запустить pipeline и посмотреть слои**
+
+Подними стенд, запусти DAG, посмотри, как данные прошли путь `CSV -> stg -> core -> marts`, и прогони базовые проверки.
+
+**Маршрут 2. SQL-задача**
+
+Добавь новую витрину поверх `core.orders`. Это маршрут для тех, кто уже умеет SQL и хочет понять, как разовый запрос превращается в проверяемую витрину.
+
+**Маршрут 3. Airflow-задача**
+
+Добавь quality gate в DAG. Это уже не просто SQL: здесь появляется оркестрация, task chain и остановка pipeline при плохом качестве данных.
+
 Сначала пройди основной сценарий:
 
 ```powershell
@@ -13,6 +29,12 @@ scripts\show_layers.cmd
 
 ```powershell
 scripts\run_checks.cmd
+```
+
+macOS/Linux:
+
+```bash
+bash scripts/run_checks.sh
 ```
 
 ## Как откатиться, если сломал файл
@@ -79,6 +101,12 @@ core.orders
 
 ```powershell
 scripts\check_task_sql.cmd
+```
+
+macOS/Linux:
+
+```bash
+bash scripts/check_task_sql.sh
 ```
 
 Что проверяется:
@@ -173,10 +201,26 @@ load_raw_csv_to_stg -> rebuild_core_and_marts -> check_payment_reconcile -> writ
 2. Посчитать сумму `payment_value` в `core.orders`.
 3. Если разница больше `0.01`, упасть с `AirflowException`.
 
+Контрольные точки:
+
+- DAG открывается в Airflow без import error.
+- В списке tasks появился `check_payment_reconcile`.
+- Новый task стоит между `rebuild_core_and_marts` и `write_audit`.
+- Если суммы совпадают, DAG test проходит.
+- Если quality gate падает, ошибка должна быть понятной: stg sum, core sum, diff.
+
+В файле DAG есть TODO-комментарии рядом с `write_audit`. Это не готовое решение, а рельсы, чтобы не искать точку входа вслепую.
+
 Проверка:
 
 ```powershell
 scripts\check_task_airflow.cmd
+```
+
+macOS/Linux:
+
+```bash
+bash scripts/check_task_airflow.sh
 ```
 
 Что проверяется:

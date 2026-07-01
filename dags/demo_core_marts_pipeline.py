@@ -123,6 +123,13 @@ def demo_core_marts_pipeline():
         with _connect() as conn:
             _execute_sql_file(conn, SQL_DIR / "10_rebuild_core.sql")
 
+    # Task 2 guide. Add the quality gate here, between rebuild_core_and_marts and write_audit.
+    # TODO 1: create task check_payment_reconcile with @task.
+    # TODO 2: query sums from stg.order_payments and core.orders.
+    # TODO 3: calculate diff = abs(stg_payment_sum - core_payment_sum).
+    # TODO 4: raise AirflowException if diff > 0.01.
+    # TODO 5: insert check_payment_reconcile into the task chain below.
+
     @task
     def write_audit(airflow_run_id: str) -> None:
         audit_sql = """

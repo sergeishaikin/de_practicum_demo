@@ -2,6 +2,22 @@
 
 Короткая диагностика demo-стенда.
 
+## Быстрая проверка через doctor
+
+Windows:
+
+```powershell
+scripts\doctor.cmd
+```
+
+macOS/Linux:
+
+```bash
+bash scripts/doctor.sh
+```
+
+Doctor проверяет корень проекта, Docker, Docker Compose, CSV-файлы, порты `15432` и `18085`, и показывает текущие Compose-контейнеры.
+
 ## Ты в корне проекта?
 
 ```powershell
@@ -121,10 +137,24 @@ docker compose up -d
 
 Одним сообщением:
 
+Windows:
+
 ```powershell
+scripts\doctor.cmd
 docker compose ps
 docker compose logs --tail=100 de-demo-postgres
 docker compose logs --tail=100 de-demo-airflow
 scripts\show_layers.cmd
 scripts\run_checks.cmd
+```
+
+macOS/Linux:
+
+```bash
+bash scripts/doctor.sh
+docker compose ps
+docker compose logs --tail=100 de-demo-postgres
+docker compose logs --tail=100 de-demo-airflow
+bash scripts/show_layers.sh
+bash scripts/run_checks.sh
 ```
