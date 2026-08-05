@@ -1,0 +1,117 @@
+services:
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    container_name: de-demo-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio123}
+    ports:
+      - "19000:9000"
+      - "19001:9001"
+    volumes:
+      - de_demo_minio_data:/data
+    networks:
+      - de_demo_net
+
+  spark-master:
+    build:
+      context: ./spark
+      dockerfile: Dockerfile
+    container_name: de-demo-spark-master
+    hostname: spark-master
+    command:
+      - /opt/spark/sbin/start-master.sh
+    environment:
+      SPARK_NO_DAEMONIZE: "true"
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minio}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minio123}
+      S3_ENDPOINT: http://minio:9000
+    ports:
+      - "18080:8080"
+      - "17077:7077"
+    volumes:
+      - ./spark/jobs:/opt/spark/jobs
+      - ./data:/opt/spark/data
+    depends_on:
+      - minio
+    networks:
+      - de_demo_net
+
+  spark-worker:
+    build:
+      context: ./spark
+      dockerfile: Dockerfile
+    container_name: de-demo-spark-worker
+    hostname: spark-worker
+    command:
+      - /opt/spark/sbin/start-worker.sh
+      - spark://spark-master:7077
+    environment:
+      SPARK_NO_DAEMONIZE: "true"
+      SPARK_WORKER_CORES: "2"
+      SPARK_WORKER_MEMORY: 2g
+      SPARK_MASTER_URL: spark://spark-master:7077
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minio}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minio123}
+      S3_ENDPOINT: http://minio:9000
+    ports:
+      - "18081:8081"
+    volumes:
+      - ./spark/jobs:/opt/spark/jobs
+      - ./data:/opt/spark/data
+    depends_on:
+      - spark-master
+    networks:
+      - de_demo_net
+
+  jupyter:
+    build:
+      context: ./jupyter
+      dockerfile: Dockerfile
+    container_name: de-demo-jupyter
+    environment:
+      SPARK_MASTER: spark://spark-master:7077
+      PYSPARK_PYTHON: python3
+      PYSPARK_DRIVER_PYTHON: python3
+      POSTGRES_HOST: de-demo-postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-dwh}
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minio}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minio123}
+      S3_ENDPOINT: http://minio:9000
+    ports:
+      - "18888:8888"
+    volumes:
+      - ./jupyter:/home/jovyan/work
+      - ./spark/jobs:/home/jovyan/work/jobs
+      - ./data:/home/jovyan/work/data
+    depends_on:
+      - spark-master
+      - spark-worker
+      - minio
+    networks:
+      - de_demo_net
+
+  metabase:
+    image: metabase/metabase:v0.54.6
+    container_name: de-demo-metabase
+    ports:
+      - "13000:3000"
+    volumes:
+      - de_demo_metabase_data:/metabase-data
+    environment:
+      MB_DB_FILE: /metabase-data/metabase.db
+    networks:
+      - de_demo_net
+
+volumes:
+  de_demo_minio_data:
+  de_demo_metabase_data:
+
+networks:
+  de_demo_net:
+    external: true
+    name: de_demo_net
