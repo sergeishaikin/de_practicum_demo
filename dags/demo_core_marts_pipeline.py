@@ -3,10 +3,12 @@ from __future__ import annotations
 import os
 from datetime import datetime
 from pathlib import Path
+from airflow.models.baseoperator import chain
 
 import psycopg2
 from airflow.decorators import dag, task
 from airflow.exceptions import AirflowException
+from decimal import Decimal
 
 
 PROJECT_DIR = Path("/opt/airflow/project")
@@ -131,6 +133,37 @@ def demo_core_marts_pipeline():
     # TODO 5: вставь check_payment_reconcile в цепочку задач ниже.
 
     @task
+    def check_payment_reconcile() -> None:
+        reconcile_sql = """
+        select
+            coalesce(
+                (select sum(payment_value)
+                 from stg.order_payments),
+                0
+            )::numeric(18, 2) as stg_payment_sum,
+            coalesce(
+                (select sum(payment_value)
+                 from core.orders),
+                0
+            )::numeric(18, 2) as core_payment_sum
+        """
+
+        with _connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(reconcile_sql)
+                stg_payment_sum, core_payment_sum = cur.fetchone()
+
+        diff = abs(stg_payment_sum - core_payment_sum)
+
+        if diff > Decimal("0.01"):
+            raise AirflowException(
+                "Payment reconciliation failed: "
+                f"stg_payment_sum={stg_payment_sum}, "
+                f"core_payment_sum={core_payment_sum}, "
+                f"diff={diff}"
+            )
+        
+    @task
     def write_audit(airflow_run_id: str) -> None:
         audit_sql = """
         with metrics as (
@@ -218,7 +251,11 @@ def demo_core_marts_pipeline():
                 f"max_reconcile_diff={max_diff}"
             )
 
-    load_raw_csv_to_stg() >> rebuild_core_and_marts() >> write_audit("{{ run_id }}")
+    load_stg = load_raw_csv_to_stg()
+    rebuild = rebuild_core_and_marts()
+    payment_check = check_payment_reconcile()
+    audit = write_audit("{{ run_id }}")
 
+    chain(load_stg, rebuild, payment_check, audit)
 
 demo_core_marts_pipeline()
