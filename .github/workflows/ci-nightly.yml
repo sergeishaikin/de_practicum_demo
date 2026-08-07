@@ -49,7 +49,7 @@ jobs:
           exit 1
       - name: Integration layer
         run: python -m pytest tests/integration -m integration
-      - name: Deterministic Kafka/Spark E2E (lands with its own todo)
+      - name: Deterministic Kafka/Spark E2E
         run: |
           if [ -d tests/e2e ]; then
             python -m pytest tests/e2e -m e2e
@@ -71,6 +71,7 @@ jobs:
           path: |
             stack-logs.txt
             base-logs.txt
+            artifacts/e2e-logs/**
       - name: Cleanup
         if: always()
         run: |

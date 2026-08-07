@@ -131,6 +131,24 @@ def upsert_postgres(batch_df: DataFrame, batch_id: int) -> None:
     )
 
     merge_sql = """
+    with deduped as (
+        select
+            order_id,
+            customer,
+            amount,
+            country,
+            status,
+            event_time,
+            kafka_timestamp,
+            kafka_partition,
+            kafka_offset,
+            batch_id,
+            row_number() over (
+                partition by order_id
+                order by kafka_offset desc
+            ) as rn
+        from stg.streaming_orders_batch
+    )
     insert into marts.streaming_orders (
         order_id,
         customer,
@@ -156,7 +174,8 @@ def upsert_postgres(batch_df: DataFrame, batch_id: int) -> None:
         kafka_offset,
         batch_id,
         now()
-    from stg.streaming_orders_batch
+    from deduped
+    where rn = 1
     on conflict (order_id) do update set
         customer = excluded.customer,
         amount = excluded.amount,

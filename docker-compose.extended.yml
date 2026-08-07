@@ -421,6 +421,9 @@ services:
 
     volumes:
       - ./spark/jobs:/opt/spark/jobs:ro
+      # Warms the Ivy cache at stack-up; the nightly E2E mounts the same volume
+      # so its ad-hoc spark-submit does not re-download the --packages set.
+      - de_demo_spark_ivy_cache:/tmp/spark-ivy
 
     depends_on:
       kafka:
@@ -499,6 +502,10 @@ volumes:
   de_demo_superset_home:
   de_demo_iceberg_catalog:
   de_demo_iceberg_writer_state:
+  # Explicit name: the E2E test mounts this by name from a plain `docker run`,
+  # so it must not carry the Compose project-name prefix.
+  de_demo_spark_ivy_cache:
+    name: de_demo_spark_ivy_cache
 
 networks:
   de_demo_net:

@@ -225,7 +225,7 @@ def run_quality_checks(df: pa.Table) -> dict[str, int]:
         checks["order_id_null"] = count(pc.is_null(df["order_id"]))
     if "amount" in df.column_names:
         checks["amount_null_or_nonpositive"] = count(
-            pc.or_(pc.is_null(df["amount"]), pc.less_equal(df["amount"], 0))
+            pc.or_kleene(pc.is_null(df["amount"]), pc.less_equal(df["amount"], 0))
         )
     if "country" in df.column_names:
         checks["country_null"] = count(pc.is_null(df["country"]))

@@ -240,6 +240,20 @@ class TestRunQualityChecks:
             "event_time_null": 1,
         }
 
+    def test_null_amount_counted_with_nonpositive(self) -> None:
+        # Regression: pc.or_ propagates the null produced by less_equal(None, 0),
+        # silently dropping the null-amount violation. Must use Kleene OR.
+        df = pa.table(
+            {
+                "order_id": ["a", "b", "c"],
+                "amount": [None, -1.0, 5.0],
+                "country": ["US", "US", "US"],
+                "status": ["paid", "paid", "paid"],
+                "event_time": [TS, TS, TS],
+            }
+        )
+        assert m.run_quality_checks(df) == {"amount_null_or_nonpositive": 2}
+
     def test_clean_rows_no_violations(self) -> None:
         df = pa.table(
             {

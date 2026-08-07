@@ -47,6 +47,9 @@ temp/
 # Generated at container startup from trino/etc/catalog/iceberg.properties.template
 trino/etc/catalog/iceberg.properties
 
+# Failed E2E run diagnostics, preserved for CI artifact upload
+artifacts/
+
 # Local scratch data, not part of the demo dataset
 data/parquet/
 data/tmp/

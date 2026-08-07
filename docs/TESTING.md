@@ -57,6 +57,29 @@ bash scripts/check_task_airflow.sh  # macOS/Linux
 
 There is no single "run all tests" command; `scripts/run_checks.cmd` is the closest to a full suite for the batch pipeline.
 
+### Deterministic E2E
+
+`tests/e2e/test_lakehouse_e2e.py` drives the whole chain (Kafka → Spark → landing → bronze → silver → gold → Trino → metrics) from a fixed 100-event fixture and asserts exact counts. It is excluded from the fast suite; the full stack must be up:
+
+```bash
+python -m pytest tests/e2e -m e2e
+```
+
+Each run is hermetic. Nothing is shared with the always-on random producer:
+
+| Resource | Per-run value |
+| --- | --- |
+| Kafka topic | `orders_e2e_<run_id>` |
+| Landing prefix | `s3://de-practicum/e2e/<run_id>/` |
+| Iceberg namespace | `e2e_<run_id>` |
+| Postgres | `e2e` database (sink **and** `marts.lakehouse_metrics`) |
+
+The canonical `dwh` database is asserted to gain neither fixture orders nor fixture metrics. Medallion metrics carry no load-id, so that assertion is scoped by a Postgres-side `now()` watermark taken just before the medallion starts — without it, rows from a previous run would satisfy the check.
+
+On failure the run's temp directory is preserved as a self-contained bundle under `artifacts/e2e-logs/<run_id>/` (traceback, helper logs, streaming container log, writer state, `docker ps`, Trino schemas); the nightly workflow uploads it. Successful runs clean up.
+
+The ad-hoc Spark container shares the `de_demo_spark_ivy_cache` volume with `orders-streaming`, which warms it at stack-up, so the `--packages` set is not re-resolved from Maven Central inside the landing timeout. The volume is declared with an explicit `name:` so a plain `docker run` can mount it without the Compose project prefix, and `spark/Dockerfile` pre-creates `/tmp/spark-ivy` owned by `spark` (uid 185) so the volume is not seeded as root.
+
 ## Lakehouse verification
 
 Check the observability rows (one row per writer batch / medallion cycle):
