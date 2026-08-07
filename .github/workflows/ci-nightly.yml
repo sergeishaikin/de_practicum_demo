@@ -46,14 +46,18 @@ jobs:
       - name: Wait for core services
         run: |
           for i in $(seq 1 90); do
-            ok=1
-            curl -fsS http://localhost:18181/v1/config >/dev/null 2>&1 || ok=0
-            docker exec de-demo-trino trino --execute "SELECT 1" >/dev/null 2>&1 || ok=0
-            docker exec de-demo-kafka kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1 || ok=0
-            if [ "$ok" = "1" ]; then echo "stack ready"; exit 0; fi
+            pending=""
+            curl -fsS http://localhost:18181/v1/config >/dev/null 2>&1 || pending="$pending iceberg-rest"
+            docker exec de-demo-trino trino --execute "SELECT 1" >/dev/null 2>&1 || pending="$pending trino"
+            # Full path: the Kafka scripts are NOT on $PATH in this image, so a
+            # bare `kafka-topics.sh` can never succeed and the loop would always
+            # burn its full 15 minutes. Matches tests/e2e/test_lakehouse_e2e.py.
+            docker exec de-demo-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1 || pending="$pending kafka"
+            if [ -z "$pending" ]; then echo "stack ready after $((i * 10))s"; exit 0; fi
+            echo "attempt $i/90 — still waiting for:$pending"
             sleep 10
           done
-          echo "stack did not become ready"
+          echo "stack did not become ready; outstanding:$pending"
           docker compose -f docker-compose.extended.yml logs --no-color || true
           exit 1
       - name: Integration layer
