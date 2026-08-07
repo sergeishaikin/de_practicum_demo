@@ -54,3 +54,9 @@ artifacts/
 data/parquet/
 data/tmp/
 db/work/
+
+# Architecture Audit Kit, installed locally by
+# scripts/install-architecture-audit-kit.ps1 (Codex) or as a Claude plugin.
+# The kit is versioned in its own repository, not vendored here.
+.agents/
+.claude/
