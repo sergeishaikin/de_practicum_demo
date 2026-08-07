@@ -350,3 +350,35 @@ class TestRun:
             assert catalog.tables["silver.orders_clean"].df.num_rows == 2
         finally:
             monkeypatch.undo()
+
+
+class TestCatalogAndMain:
+    def test_get_catalog_returns_rest_catalog(self, monkeypatch) -> None:
+        class FakeRestCatalog:
+            def __init__(self, name: str, **kwargs) -> None:
+                self.name = name
+                self.kwargs = kwargs
+
+        monkeypatch.setattr(m, "RestCatalog", FakeRestCatalog)
+        cat = m.get_catalog()
+        assert isinstance(cat, FakeRestCatalog)
+        assert cat.name == "default"
+        assert cat.kwargs["s3.endpoint"] == m.S3_ENDPOINT
+
+    def test_main_loop_handles_run_errors(self, monkeypatch, capsys) -> None:
+        monkeypatch.setattr(m, "Metrics", lambda: FakeMetrics())
+        monkeypatch.setattr(m, "get_catalog", lambda: object())
+        calls = {"n": 0}
+
+        def fake_run(catalog, metrics) -> None:
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError("boom")
+            raise SystemExit()
+
+        monkeypatch.setattr(m, "run", fake_run)
+        monkeypatch.setattr(m.time, "sleep", lambda s: None)
+        with pytest.raises(SystemExit):
+            m.main()
+        assert calls["n"] == 2
+        assert "Medallion error: boom" in capsys.readouterr().err

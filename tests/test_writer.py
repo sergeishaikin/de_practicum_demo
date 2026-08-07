@@ -101,7 +101,7 @@ class TestIsSettled:
         monkeypatch.setattr(w, "SETTLE_SECONDS", 5)
         now = datetime.now(timezone.utc)
         naive = (now - timedelta(seconds=10)).replace(tzinfo=None)
-        assert w.is_settled(FileInfo("x", mtime=naive))
+        assert w.is_settled(SimpleNamespace(mtime=naive))
 
 
 class TestListNewFiles:
@@ -199,6 +199,85 @@ class TestRecoverPending:
         assert catalog.table is None
 
 
+class EnsureCatalog:
+    def __init__(self) -> None:
+        self.namespaces: list[str] = []
+        self.tables: dict[str, object] = {}
+
+    def create_namespace_if_not_exists(self, namespace: str) -> None:
+        self.namespaces.append(namespace)
+
+    def load_table(self, identifier: str) -> object:
+        if identifier not in self.tables:
+            raise NoSuchTableError(identifier)
+        return self.tables[identifier]
+
+    def create_table(self, identifier: str, **kwargs) -> object:
+        self.tables[identifier] = object()
+        return self.tables[identifier]
+
+
+class TestFsCatalogAndBatch:
+    def test_get_fs_returns_s3_filesystem(self, monkeypatch) -> None:
+        from pyarrow.fs import S3FileSystem
+
+        monkeypatch.setattr(w, "ACCESS_KEY", "minio")
+        monkeypatch.setattr(w, "SECRET_KEY", "minio123")
+        assert isinstance(w.get_fs(), S3FileSystem)
+
+    def test_get_catalog_returns_rest_catalog(self, monkeypatch) -> None:
+        class FakeRestCatalog:
+            def __init__(self, name: str, **kwargs) -> None:
+                self.name = name
+                self.kwargs = kwargs
+
+        monkeypatch.setattr(w, "RestCatalog", FakeRestCatalog)
+        cat = w.get_catalog()
+        assert isinstance(cat, FakeRestCatalog)
+        assert cat.name == "default"
+        assert cat.kwargs["s3.endpoint"] == w.S3_ENDPOINT
+
+    def test_ensure_table_existing_is_noop(self) -> None:
+        catalog = EnsureCatalog()
+        catalog.tables["bronze.orders"] = object()
+        w.ensure_table(catalog)
+        assert catalog.namespaces == ["bronze"]
+        assert len(catalog.tables) == 1
+
+    def test_ensure_table_creates_when_missing(self) -> None:
+        catalog = EnsureCatalog()
+        w.ensure_table(catalog)
+        assert catalog.namespaces == ["bronze"]
+        assert "bronze.orders" in catalog.tables
+
+    def test_read_batch_reads_hive_partitioned_parquet(self, tmp_path) -> None:
+        import pyarrow.parquet as pq
+        from pyarrow.fs import LocalFileSystem
+
+        partition_dir = tmp_path / "data" / "event_date=2026-01-01"
+        partition_dir.mkdir(parents=True)
+        ts = datetime(2026, 1, 1, 12, 0, 0)
+        pq.write_table(
+            pa.table(
+                {
+                    "order_id": ["a", "b"],
+                    "amount": pa.array([10.0, 20.0], type=pa.float64()),
+                    "status": ["paid", "paid"],
+                    "event_time": pa.array([ts, ts], type=pa.timestamp("us")),
+                    "kafka_offset": pa.array([1, 2], type=pa.int64()),
+                }
+            ),
+            partition_dir / "part-00000.parquet",
+        )
+        result = w.read_batch(
+            LocalFileSystem(),
+            [SimpleNamespace(path=str(partition_dir / "part-00000.parquet"))],
+        )
+        assert result.num_rows == 2
+        assert "event_date" in result.column_names
+        assert pa.types.is_date32(result.schema.field("event_date").type)
+
+
 def _main_setup(monkeypatch, tmp_path, table: FakeTable | None = None):
     monkeypatch.setattr(w, "Metrics", lambda: FakeMetrics())
     monkeypatch.setattr(w, "STATE_FILE", tmp_path / "state.json")
@@ -257,12 +336,38 @@ class TestMain:
         assert state["pending"] == {}
 
     def test_error_path_marks_committed_load_done(self, monkeypatch, tmp_path) -> None:
-        fixed_load = "a" * 32
+        fixed_load = uuid.UUID(int=0).hex
         monkeypatch.setattr(w.uuid, "uuid4", lambda: uuid.UUID(int=0))
         table = FakeTable([FakeSnap({"load-id": fixed_load})])
+        table.append_failures = 10**6
         _main_setup(monkeypatch, tmp_path, table)
         with pytest.raises(SystemExit):
             w.main()
         state = json.loads((tmp_path / "state.json").read_text(encoding="utf-8"))
         assert state["done"] == ["a.parquet"]
         assert state["pending"] == {}
+
+    def test_simulated_crash_before_commit(self, monkeypatch, tmp_path) -> None:
+        monkeypatch.setattr(w, "SIMULATE_CRASH_BEFORE_COMMIT", True)
+        monkeypatch.setattr(
+            w.os, "_exit", lambda code: (_ for _ in ()).throw(SystemExit(code))
+        )
+        _main_setup(monkeypatch, tmp_path, FakeTable())
+        with pytest.raises(SystemExit) as exc:
+            w.main()
+        assert exc.value.code == 2
+
+    def test_simulated_crash_after_commit_keeps_pending(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        monkeypatch.setattr(w, "SIMULATE_CRASH_AFTER_COMMIT", True)
+        monkeypatch.setattr(
+            w.os, "_exit", lambda code: (_ for _ in ()).throw(SystemExit(code))
+        )
+        _main_setup(monkeypatch, tmp_path, FakeTable())
+        with pytest.raises(SystemExit) as exc:
+            w.main()
+        assert exc.value.code == 3
+        state = json.loads((tmp_path / "state.json").read_text(encoding="utf-8"))
+        assert state["done"] == []
+        assert len(state["pending"]) == 1

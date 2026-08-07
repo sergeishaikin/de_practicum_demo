@@ -147,6 +147,18 @@ class TestMetrics:
         assert fake.conn.close_called is True
         assert m.conn is None
 
+    def test_close_swallows_close_errors(self) -> None:
+        class BoomCloseConn:
+            closed = 1
+
+            def close(self) -> None:
+                raise RuntimeError("close boom")
+
+        m = ops.Metrics()
+        m.conn = BoomCloseConn()
+        m.close()
+        assert m.conn is None
+
     def test_close_without_connection(self) -> None:
         m = ops.Metrics()
         m.enabled = False
