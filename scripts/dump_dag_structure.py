@@ -5,11 +5,14 @@ Run inside the airflow container (python -). Purely diagnostic: no side effects.
 
 import importlib
 import json
+import logging
 import sys
 
-sys.path.insert(0, "/opt/airflow/dags")
-
 from airflow.models import DagBag
+
+logging.disable(logging.CRITICAL)
+
+sys.path.insert(0, "/opt/airflow/dags")
 
 db = DagBag(dag_folder="/opt/airflow/dags", include_examples=False)
 
@@ -19,8 +22,11 @@ out = {
 }
 
 for dag_id, dag in db.dags.items():
+    schedule = getattr(dag, "schedule", None)
+    if schedule is None:
+        schedule = getattr(dag, "schedule_interval", None)
     out["dags"][dag_id] = {
-        "schedule": str(dag.schedule),
+        "schedule": str(schedule),
         "catchup": bool(dag.catchup),
         "max_active_runs": dag.max_active_runs,
         "tasks": {
