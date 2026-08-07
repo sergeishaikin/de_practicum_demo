@@ -23,7 +23,15 @@ jobs:
         run: |
           cp .env.example .env
           sed -i 's/^MINIO_ROOT_PASSWORD=.*/MINIO_ROOT_PASSWORD=minio123/' .env
-          printf 'SUPERSET_SECRET_KEY=nightly-secret\n' >> .env
+          # Leading newline: never let this concatenate onto an unterminated
+          # last line (that produced `TRINO_HOST_PORT=18082SUPERSET_SECRET_KEY=...`
+          # and a compose "invalid hostPort" failure).
+          printf '\nSUPERSET_SECRET_KEY=nightly-secret\n' >> .env
+      - name: Create shared network
+        # The merged config resolves de_demo_net to external: true (the
+        # extended file's declaration wins), so nothing creates it on a fresh
+        # runner. ci-integration.yml does the same.
+        run: docker network create de_demo_net || true
       - name: Build and start full stack
         run: docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml up -d --build
       - name: Ensure warehouse bucket
