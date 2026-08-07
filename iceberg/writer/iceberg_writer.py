@@ -161,12 +161,14 @@ def read_batch(fs: S3FileSystem, files: list[FileInfo]) -> object:
         pa.timestamp("us", tz=None) if pa.types.is_timestamp(f.type) else f.type
         for f in arrow_table.schema
     ]
-    return arrow_table.cast(pa.schema(
-        [
-            (f.name, target_type)
-            for f, target_type in zip(arrow_table.schema, target_types, strict=True)
-        ]
-    ))
+    return arrow_table.cast(
+        pa.schema(
+            [
+                (f.name, target_type)
+                for f, target_type in zip(arrow_table.schema, target_types, strict=True)
+            ]
+        )
+    )
 
 
 def get_catalog() -> RestCatalog:

@@ -108,7 +108,9 @@ def _landing_path(landing_prefix: str, filename: str) -> str:
     return f"{BUCKET}/{landing_prefix}/{filename}"
 
 
-def _snapshot_count_and_rows(namespace: str, table: str, cat: RestCatalog) -> tuple[int, int]:
+def _snapshot_count_and_rows(
+    namespace: str, table: str, cat: RestCatalog
+) -> tuple[int, int]:
     ice = cat.load_table(f"{namespace}.{table}")
     snapshots = list(ice.metadata.snapshots)
     return len(snapshots), ice.scan().to_arrow().num_rows

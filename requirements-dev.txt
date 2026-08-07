@@ -1,0 +1,10 @@
+# Dev / CI dependencies: unit suite, lint, and live-stack test suites.
+# The Airflow image pins its own deps (see airflow.Dockerfile); trino is only
+# needed inside the airflow container, not on the host.
+pytest==8.4.2
+pytest-cov==7.1.0
+ruff==0.12.0
+black==25.9.0
+pyiceberg==0.11.1
+pyarrow==21.0.0
+psycopg2-binary==2.9.12

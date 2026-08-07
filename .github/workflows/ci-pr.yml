@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint + compose validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dev dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: Validate Compose files
+        run: >
+          docker compose --env-file .env.example
+          -f docker-compose.yml -f docker-compose.extended.yml config --quiet
+      - name: Ruff
+        run: python -m ruff check .
+      - name: Black
+        run: python -m black --check .
+
+  unit:
+    name: Unit tests + coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dev dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: Fast unit suite with coverage gate (>= 90%)
+        run: python -m pytest tests --cov=iceberg --cov-report=term-missing --cov-fail-under=90
+
+  airflow-dags:
+    name: Airflow DAG validation
+    runs-on: ubuntu-latest
+    env:
+      AIRFLOW_IMAGE_TAG: de-practicum-demo-airflow:0.1.0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install pytest
+        run: python -m pip install pytest
+      - name: Cache Airflow image layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: airflow-image-${{ hashFiles('airflow.Dockerfile') }}
+          restore-keys: airflow-image-
+      - name: Build Airflow image (layer-cached)
+        run: |
+          docker buildx create --use
+          docker buildx build --file airflow.Dockerfile \
+            --tag "$AIRFLOW_IMAGE_TAG" \
+            --cache-from=type=local,src=/tmp/.buildx-cache \
+            --cache-to=type=local,dest=/tmp/.buildx-cache,mode=max \
+            .
+      - name: Start base stack (postgres + airflow)
+        run: docker compose --env-file .env.example up -d --no-build de-demo-postgres de-demo-airflow
+      - name: Wait for airflow container ready
+        run: |
+          for i in $(seq 1 60); do
+            if docker exec de-demo-airflow python -c 'import airflow' >/dev/null 2>&1; then
+              echo "airflow ready"
+              exit 0
+            fi
+            sleep 5
+          done
+          docker compose logs --no-color de-demo-airflow || true
+          echo "airflow did not become ready"
+          exit 1
+      - name: DagBag tests
+        run: python -m pytest tests/test_dags.py -m airflow
+      - name: Cleanup
+        if: always()
+        run: docker compose down --remove-orphans

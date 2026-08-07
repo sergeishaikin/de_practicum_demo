@@ -162,7 +162,7 @@ def demo_core_marts_pipeline():
                 f"core_payment_sum={core_payment_sum}, "
                 f"diff={diff}"
             )
-        
+
     @task
     def write_audit(airflow_run_id: str) -> None:
         audit_sql = """
@@ -257,5 +257,6 @@ def demo_core_marts_pipeline():
     audit = write_audit("{{ run_id }}")
 
     chain(load_stg, rebuild, payment_check, audit)
+
 
 demo_core_marts_pipeline()

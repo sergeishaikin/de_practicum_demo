@@ -2,8 +2,7 @@ import os
 from pyspark.sql import SparkSession, functions as F
 
 spark = (
-    SparkSession.builder
-    .appName("build-sales-mart")
+    SparkSession.builder.appName("build-sales-mart")
     .master(os.getenv("SPARK_MASTER", "spark://spark-master:7077"))
     .config("spark.jars.packages", "org.postgresql:postgresql:42.7.4")
     .getOrCreate()
@@ -20,7 +19,10 @@ orders = spark.read.jdbc(jdbc_url, "raw.orders", properties=props)
 mart = (
     orders.withColumn("sales_date", F.to_date("order_ts"))
     .groupBy("sales_date")
-    .agg(F.countDistinct("order_id").alias("orders_count"), F.sum("amount").alias("revenue"))
+    .agg(
+        F.countDistinct("order_id").alias("orders_count"),
+        F.sum("amount").alias("revenue"),
+    )
 )
 mart.write.mode("overwrite").jdbc(jdbc_url, "marts.sales_daily", properties=props)
 spark.stop()

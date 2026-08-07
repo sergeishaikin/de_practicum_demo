@@ -22,7 +22,13 @@ Images referenced by tag (`postgres:15`, `apache/kafka:4.0.0`, `trinodb/trino:48
 
 ## Build pipeline
 
-No CI/CD pipeline is detected — there is no `.github/workflows/` directory. The "build" is a local step: build the images, then start the stack.
+CI is provided by GitHub Actions (`.github/workflows/`):
+
+- `ci-pr.yml` runs on every pull request: compose validation, `ruff`, `black --check`, the fast unit suite with a 90% coverage gate, and Airflow DagBag validation.
+- `ci-integration.yml` (manual or on push to `main`) brings up the live Iceberg/Trino stack and runs the integration layer.
+- `ci-nightly.yml` (02:15 UTC) builds the full stack, runs the integration layer, the deterministic Kafka/Spark E2E, and the maintenance DAG end-to-end check.
+
+The local build is the same Compose stack:
 
 ```powershell
 .\stack.ps1 build

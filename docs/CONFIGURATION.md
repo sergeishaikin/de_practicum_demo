@@ -72,7 +72,7 @@ Orders producer (`kafka/producer/orders_producer.py`): `KAFKA_BOOTSTRAP_SERVERS`
 
 Airflow (`docker-compose.yml`): `DWH_HOST`, `DWH_PORT`, `DWH_DB`, `DWH_USER`, `DWH_PASSWORD` (all defaulted in the DAGs), plus `TZ` (default `Europe/Moscow`) and `AIRFLOW__*` settings.
 
-Iceberg maintenance DAG (`dags/lakehouse_maintenance.py`): `TRINO_HOST` (`trino`), `TRINO_PORT` (`8080`), `TRINO_USER` (`admin`), `MAINTENANCE_RETENTION` (`1h`, retention threshold passed to `expire_snapshots`/`remove_orphan_files`), `MAINTENANCE_RETAIN_LAST` (`5`, snapshots always kept by `expire_snapshots`), `MAINTENANCE_FILE_SIZE_THRESHOLD` (`10MB`, passed to `optimize`). The DAG runs hourly (`schedule="0 * * * *"`) and is also manually triggerable.
+Iceberg maintenance DAG (`dags/lakehouse_maintenance.py`): `TRINO_HOST` (`trino`), `TRINO_PORT` (`8080`), `TRINO_USER` (`admin`), `MAINTENANCE_RETENTION` (`1h`, retention threshold passed to `expire_snapshots`/`remove_orphan_files`), `MAINTENANCE_RETAIN_LAST` (`5`, snapshots always kept by `expire_snapshots`), `MAINTENANCE_FILE_SIZE_THRESHOLD` (`10MB`, passed to `optimize`). The DAG runs hourly (`schedule="0 * * * *"`) and is also manually triggerable. The maintenance target tables are **hardcoded** (`bronze.orders`, `silver.orders_clean`, `gold.orders_daily_metrics`) — they are not configurable via environment variables.
 
 ## Config file format
 

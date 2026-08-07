@@ -70,7 +70,7 @@ def trino_raw(sql: str) -> str:
 
 
 def trino_scalar(sql: str) -> str:
-    lines = [l for l in trino_raw(sql).splitlines() if l.strip()]
+    lines = [line for line in trino_raw(sql).splitlines() if line.strip()]
     assert len(lines) >= 2, f"expected header+row from trino: {sql}"
     return lines[1].strip().strip('"')
 
@@ -248,8 +248,18 @@ def test_gold_aggregation_exact_values(lake_schema):
 
     ensure_table(cat, gold, is_gold=True)
     cat.load_table(gold).overwrite(gold_df)
-    assert trino_scalar(f"SELECT total_amount FROM iceberg.{ns}.gold_metrics WHERE country = 'UK'") == "1250.0"
-    assert trino_scalar(f"SELECT total_amount FROM iceberg.{ns}.gold_metrics WHERE country = 'US'") == "900.0"
+    assert (
+        trino_scalar(
+            f"SELECT total_amount FROM iceberg.{ns}.gold_metrics WHERE country = 'UK'"
+        )
+        == "1250.0"
+    )
+    assert (
+        trino_scalar(
+            f"SELECT total_amount FROM iceberg.{ns}.gold_metrics WHERE country = 'US'"
+        )
+        == "900.0"
+    )
 
 
 @pytest.mark.integration
@@ -282,10 +292,16 @@ def test_trino_select_across_layers(lake_schema):
 
     assert trino_scalar(f"SELECT count(*) FROM iceberg.{ns}.bronze_orders") == "3"
     assert trino_scalar(f"SELECT count(*) FROM iceberg.{ns}.silver_orders_clean") == "3"
-    assert trino_scalar(f"SELECT sum(total_amount) FROM iceberg.{ns}.gold_metrics") == "60.0"
-    assert trino_scalar(
-        f"SELECT count(*) FROM iceberg.{ns}.bronze_orders WHERE country = 'UK'"
-    ) == "1"
+    assert (
+        trino_scalar(f"SELECT sum(total_amount) FROM iceberg.{ns}.gold_metrics")
+        == "60.0"
+    )
+    assert (
+        trino_scalar(
+            f"SELECT count(*) FROM iceberg.{ns}.bronze_orders WHERE country = 'UK'"
+        )
+        == "1"
+    )
 
 
 @pytest.mark.integration
@@ -298,14 +314,22 @@ def test_time_travel_snapshot_history(lake_schema):
     ensure_table(cat, identifier)
     table = cat.load_table(identifier)
 
-    table.append(orders_table([("a", "c1", 10.0, "US", "paid", 0, 1)]), snapshot_properties={"load-id": "t1"})
+    table.append(
+        orders_table([("a", "c1", 10.0, "US", "paid", 0, 1)]),
+        snapshot_properties={"load-id": "t1"},
+    )
     first_id = table.metadata.snapshots[-1].snapshot_id
-    table.append(orders_table([("b", "c2", 20.0, "US", "paid", 0, 2)]), snapshot_properties={"load-id": "t2"})
+    table.append(
+        orders_table([("b", "c2", 20.0, "US", "paid", 0, 2)]),
+        snapshot_properties={"load-id": "t2"},
+    )
     assert snapshot_count(cat, identifier) == 2
 
     assert trino_scalar(f"SELECT count(*) FROM iceberg.{ns}.orders") == "2"
     assert (
-        trino_scalar(f"SELECT count(*) FROM iceberg.{ns}.orders FOR VERSION AS OF {first_id}")
+        trino_scalar(
+            f"SELECT count(*) FROM iceberg.{ns}.orders FOR VERSION AS OF {first_id}"
+        )
         == "1"
     )
 
@@ -327,7 +351,9 @@ def test_maintenance_procedures(lake_schema):
     before = snapshot_count(cat, identifier)
     assert before == 3
 
-    trino_exec(f"ALTER TABLE iceberg.{ns}.orders EXECUTE optimize(file_size_threshold => '5MB')")
+    trino_exec(
+        f"ALTER TABLE iceberg.{ns}.orders EXECUTE optimize(file_size_threshold => '5MB')"
+    )
     after_optimize = snapshot_count(cat, identifier)
     assert trino_scalar(f"SELECT count(*) FROM iceberg.{ns}.orders") == "3"
     assert after_optimize >= before

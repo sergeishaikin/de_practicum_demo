@@ -1,0 +1,66 @@
+name: Integration (live Iceberg/Trino stack)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  integration:
+    name: Live integration tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dev dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: Prepare runtime env (minio creds must match test defaults)
+        run: |
+          cp .env.example .env
+          sed -i 's/^MINIO_ROOT_PASSWORD=.*/MINIO_ROOT_PASSWORD=minio123/' .env
+      - name: Create shared network
+        run: docker network create de_demo_net || true
+      - name: Start base stack (creates network, postgres)
+        run: docker compose --env-file .env up -d de-demo-postgres
+      - name: Start live services only (minio + iceberg-rest + trino)
+        run: docker compose --env-file .env -f docker-compose.extended.yml up -d minio iceberg-rest trino
+      - name: Ensure warehouse bucket
+        run: |
+          for i in $(seq 1 24); do
+            if docker exec de-demo-minio mc alias set local http://localhost:9000 minio minio123 >/dev/null 2>&1; then
+              break
+            fi
+            sleep 5
+          done
+          docker exec de-demo-minio mc mb --ignore-existing local/de-practicum
+      - name: Wait for stack readiness
+        run: |
+          for i in $(seq 1 72); do
+            ok=1
+            curl -fsS http://localhost:18181/v1/config >/dev/null 2>&1 || ok=0
+            docker exec de-demo-trino trino --execute "SELECT 1" >/dev/null 2>&1 || ok=0
+            if [ "$ok" = "1" ]; then echo "stack ready"; exit 0; fi
+            sleep 5
+          done
+          echo "stack did not become ready"
+          docker compose -f docker-compose.extended.yml logs --no-color trino iceberg-rest minio || true
+          exit 1
+      - name: Integration tests
+        run: python -m pytest tests/integration -m integration
+      - name: Collect stack logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.extended.yml logs --no-color > stack-logs.txt || true
+      - name: Upload stack logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-stack-logs
+          path: stack-logs.txt
+      - name: Cleanup
+        if: always()
+        run: |
+          docker compose -f docker-compose.extended.yml down --remove-orphans || true
+          docker compose down --remove-orphans || true

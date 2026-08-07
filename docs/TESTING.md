@@ -82,8 +82,14 @@ Verify quality checks are active: the medallion logs a "quality checks" line eac
 
 ## Coverage requirements
 
-No coverage threshold is configured. There is no coverage tooling in the repository.
+The PR CI workflow gates on **>= 90%** statement coverage of the `iceberg/` package (`pytest --cov=iceberg --cov-fail-under=90`, fast unit suite).
 
 ## CI integration
 
-No CI is configured — there is no `.github/workflows/` directory. Tests are run manually by developers; see [DEPLOYMENT.md](DEPLOYMENT.md) for how verification fits into a manual run.
+GitHub Actions workflows under `.github/workflows/`:
+
+- `ci-pr.yml` — PR gate (and pushes to `main`): compose validation, `ruff`, `black --check`, fast unit suite with the 90% coverage gate, and Airflow DagBag validation (runs in the `de-demo-airflow` container, so the unit job needs no Docker).
+- `ci-integration.yml` — live Iceberg/Trino integration layer (9 tests), manual trigger and on push to `main`. Kept out of the PR gate: it needs the real MinIO/REST-catalog/Trino stack.
+- `ci-nightly.yml` — scheduled (02:15 UTC): full stack, integration layer, deterministic Kafka/Spark E2E (when `tests/e2e/` exists), and the maintenance DAG end-to-end check (`scripts/verify_maintenance_dag.py`).
+
+Local runs follow the same commands as the workflows (see `requirements-dev.txt`).

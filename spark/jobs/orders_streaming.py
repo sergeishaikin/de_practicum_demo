@@ -40,9 +40,7 @@ POSTGRES_DB = os.getenv("POSTGRES_DB", "dwh")
 POSTGRES_USER = os.getenv("POSTGRES_USER", "app")
 POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "app")
 
-JDBC_URL = (
-    f"jdbc:postgresql://{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
-)
+JDBC_URL = f"jdbc:postgresql://{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
 
 ORDER_SCHEMA = StructType(
     [
@@ -58,8 +56,7 @@ ORDER_SCHEMA = StructType(
 
 def create_spark() -> SparkSession:
     return (
-        SparkSession.builder
-        .appName("orders-realtime-pipeline")
+        SparkSession.builder.appName("orders-realtime-pipeline")
         .config("spark.sql.shuffle.partitions", "2")
         .config("spark.sql.streaming.forceDeleteTempCheckpointLocation", "true")
         .getOrCreate()
@@ -110,25 +107,20 @@ def upsert_postgres(batch_df: DataFrame, batch_id: int) -> None:
     if batch_df.isEmpty():
         return
 
-    prepared_df = (
-        batch_df
-        .select(
-            "order_id",
-            "customer",
-            "amount",
-            "country",
-            "status",
-            "event_time",
-            "kafka_timestamp",
-            "kafka_partition",
-            "kafka_offset",
-        )
-        .withColumn("batch_id", F.lit(batch_id))
-    )
+    prepared_df = batch_df.select(
+        "order_id",
+        "customer",
+        "amount",
+        "country",
+        "status",
+        "event_time",
+        "kafka_timestamp",
+        "kafka_partition",
+        "kafka_offset",
+    ).withColumn("batch_id", F.lit(batch_id))
 
     (
-        prepared_df.write
-        .format("jdbc")
+        prepared_df.write.format("jdbc")
         .option("url", JDBC_URL)
         .option("dbtable", "stg.streaming_orders_batch")
         .option("user", POSTGRES_USER)
@@ -221,8 +213,7 @@ def main() -> None:
     spark.sparkContext.setLogLevel("WARN")
 
     kafka_df = (
-        spark.readStream
-        .format("kafka")
+        spark.readStream.format("kafka")
         .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP_SERVERS)
         .option("subscribe", KAFKA_TOPIC)
         .option("startingOffsets", "earliest")
@@ -231,8 +222,7 @@ def main() -> None:
     )
 
     orders_df = (
-        kafka_df
-        .select(
+        kafka_df.select(
             F.from_json(
                 F.col("value").cast("string"),
                 ORDER_SCHEMA,
@@ -252,8 +242,7 @@ def main() -> None:
     )
 
     raw_query = (
-        orders_df.writeStream
-        .queryName("orders-raw-minio")
+        orders_df.writeStream.queryName("orders-raw-minio")
         .format("parquet")
         .outputMode("append")
         .partitionBy("event_date")
@@ -264,10 +253,8 @@ def main() -> None:
     )
 
     postgres_query = (
-        orders_df
-        .drop("event_date")
-        .writeStream
-        .queryName("orders-postgres-upsert")
+        orders_df.drop("event_date")
+        .writeStream.queryName("orders-postgres-upsert")
         .foreachBatch(upsert_postgres)
         .option("checkpointLocation", POSTGRES_CHECKPOINT_PATH)
         .trigger(processingTime="10 seconds")

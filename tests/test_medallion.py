@@ -182,7 +182,6 @@ class TestBuildGold:
         )
         gold = m.build_gold(silver)
         rows = gold.to_pydict()
-        us_paid = rows["country"].index("US") if "US" in rows["country"] else -1
         by = {
             (rows["event_date"][i], rows["country"][i], rows["status"][i]): (
                 rows["orders_count"][i],

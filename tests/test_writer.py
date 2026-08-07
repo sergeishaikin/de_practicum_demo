@@ -110,17 +110,31 @@ class TestListNewFiles:
         now = datetime.now(timezone.utc)
         fs = FakeFS(
             [
-                FileInfo("old.parquet", type=FileType.File, mtime=now - timedelta(seconds=60)),
-                FileInfo("new.parquet", type=FileType.File, mtime=now - timedelta(seconds=6)),
+                FileInfo(
+                    "old.parquet", type=FileType.File, mtime=now - timedelta(seconds=60)
+                ),
+                FileInfo(
+                    "new.parquet", type=FileType.File, mtime=now - timedelta(seconds=6)
+                ),
                 FileInfo("dir", type=FileType.Directory, mtime=now),
-                FileInfo("x.csv", type=FileType.File, mtime=now - timedelta(seconds=60)),
+                FileInfo(
+                    "x.csv", type=FileType.File, mtime=now - timedelta(seconds=60)
+                ),
                 FileInfo(
                     "c/_temporary/y.parquet",
                     type=FileType.File,
                     mtime=now - timedelta(seconds=60),
                 ),
-                FileInfo("done.parquet", type=FileType.File, mtime=now - timedelta(seconds=60)),
-                FileInfo("recent.parquet", type=FileType.File, mtime=now - timedelta(seconds=1)),
+                FileInfo(
+                    "done.parquet",
+                    type=FileType.File,
+                    mtime=now - timedelta(seconds=60),
+                ),
+                FileInfo(
+                    "recent.parquet",
+                    type=FileType.File,
+                    mtime=now - timedelta(seconds=1),
+                ),
             ]
         )
         result = w.list_new_files(fs, {"done.parquet"})
@@ -131,8 +145,12 @@ class TestListNewFiles:
         now = datetime.now(timezone.utc)
         fs = FakeFS(
             [
-                FileInfo("b.parquet", type=FileType.File, mtime=now - timedelta(seconds=2)),
-                FileInfo("a.parquet", type=FileType.File, mtime=now - timedelta(seconds=6)),
+                FileInfo(
+                    "b.parquet", type=FileType.File, mtime=now - timedelta(seconds=2)
+                ),
+                FileInfo(
+                    "a.parquet", type=FileType.File, mtime=now - timedelta(seconds=6)
+                ),
             ]
         )
         result = w.list_new_files(fs, set())
@@ -190,7 +208,9 @@ def _main_setup(monkeypatch, tmp_path, table: FakeTable | None = None):
     monkeypatch.setattr(w.time, "sleep", lambda s: sleep_calls.append(s))
     monkeypatch.setattr(w, "get_fs", lambda: object())
     monkeypatch.setattr(w, "get_catalog", lambda: FakeCatalog(table or FakeTable()))
-    monkeypatch.setattr(w, "read_batch", lambda fs, files: pa.table({"order_id": ["x"]}))
+    monkeypatch.setattr(
+        w, "read_batch", lambda fs, files: pa.table({"order_id": ["x"]})
+    )
     monkeypatch.setattr(w, "ensure_table", lambda catalog: None)
     calls = {"n": 0}
     file = settled_file("a.parquet", 60)

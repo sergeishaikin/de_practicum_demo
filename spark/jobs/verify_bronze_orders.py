@@ -10,8 +10,7 @@ TABLE = "iceberg.bronze.orders"
 
 def main() -> None:
     spark = (
-        SparkSession.builder
-        .appName("verify-bronze-orders")
+        SparkSession.builder.appName("verify-bronze-orders")
         .config("spark.sql.shuffle.partitions", "2")
         .getOrCreate()
     )
@@ -31,13 +30,10 @@ def main() -> None:
     current_count = spark.sql(f"select count(*) as c from {TABLE}").collect()[0].c
     print(f"\nCurrent row count: {current_count}")
 
-    snapshots = (
-        spark.sql(
-            f"select committed_at, snapshot_id, summary['added-records'] as added_records "
-            f"from {TABLE}.snapshots order by committed_at"
-        )
-        .collect()
-    )
+    snapshots = spark.sql(
+        f"select committed_at, snapshot_id, summary['added-records'] as added_records "
+        f"from {TABLE}.snapshots order by committed_at"
+    ).collect()
     print(f"\nSnapshot count: {len(snapshots)}")
     for row in snapshots:
         print(
@@ -48,9 +44,7 @@ def main() -> None:
     if len(snapshots) >= 2:
         earliest_id = snapshots[0].snapshot_id
         early_count = (
-            spark.sql(
-                f"select count(*) as c from {TABLE} version as of {earliest_id}"
-            )
+            spark.sql(f"select count(*) as c from {TABLE} version as of {earliest_id}")
             .collect()[0]
             .c
         )

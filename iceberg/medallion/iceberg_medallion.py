@@ -43,8 +43,9 @@ INTERVAL = int(os.getenv("MEDALLION_INTERVAL_SECONDS", "60"))
 
 VALID_STATUSES = [
     s.strip()
-    for s in os.getenv("QUALITY_VALID_STATUSES", "created,paid,shipped,delivered")
-    .split(",")
+    for s in os.getenv(
+        "QUALITY_VALID_STATUSES", "created,paid,shipped,delivered"
+    ).split(",")
     if s.strip()
 ]
 FAIL_ON_VIOLATIONS = os.getenv("QUALITY_FAIL_ON_VIOLATIONS", "0") == "1"
@@ -131,9 +132,11 @@ _SILVER_TYPES: dict[str, pa.DataType] = {
 
 def _normalize_null_typed_columns(df: pa.Table) -> pa.Table:
     target_fields = [
-        pa.field(name, _SILVER_TYPES[name])
-        if pa.types.is_null(df.schema.field(name).type) and name in _SILVER_TYPES
-        else df.schema.field(name)
+        (
+            pa.field(name, _SILVER_TYPES[name])
+            if pa.types.is_null(df.schema.field(name).type) and name in _SILVER_TYPES
+            else df.schema.field(name)
+        )
         for name in df.column_names
     ]
     if all(t.type.equals(df.schema.field(t.name).type) for t in target_fields):
