@@ -8,11 +8,13 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import pyarrow as pa
 import pyarrow.dataset as ds
 from pyarrow.fs import FileInfo, FileSelector, S3FileSystem
 from pyiceberg.catalog.rest import RestCatalog
-from pyiceberg.exceptions import NoSuchTableError
+from pyiceberg.exceptions import CommitFailedException, NoSuchTableError
 from pyiceberg.partitioning import PartitionField, PartitionSpec
 from pyiceberg.schema import Schema
 from pyiceberg.transforms import DayTransform
@@ -25,6 +27,8 @@ from pyiceberg.types import (
     StringType,
     TimestampType,
 )
+
+from common.ops import Metrics
 
 CATALOG_URI = os.getenv("ICEBERG_CATALOG_URI", "http://iceberg-rest:8181")
 WAREHOUSE = os.getenv("ICEBERG_WAREHOUSE", "s3://de-practicum/warehouse")
@@ -42,6 +46,7 @@ SECRET_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "")
 POLL_INTERVAL = int(os.getenv("POLL_INTERVAL_SECONDS", "10"))
 SETTLE_SECONDS = int(os.getenv("SETTLE_SECONDS", "5"))
 STATE_FILE = Path(os.getenv("STATE_FILE", "/state/ingested.json"))
+MAX_APPEND_ATTEMPTS = int(os.getenv("MAX_APPEND_ATTEMPTS", "5"))
 
 SIMULATE_CRASH_AFTER_COMMIT = os.getenv("SIMULATE_CRASH_AFTER_COMMIT", "0") == "1"
 SIMULATE_CRASH_BEFORE_COMMIT = os.getenv("SIMULATE_CRASH_BEFORE_COMMIT", "0") == "1"
@@ -237,6 +242,7 @@ def main() -> None:
     done, pending = load_state()
     fs = get_fs()
     catalog = get_catalog()
+    metrics = Metrics()
 
     recover_pending(done, pending, catalog)
 
@@ -261,7 +267,25 @@ def main() -> None:
                 arrow_table = read_batch(fs, new_files)
                 ensure_table(catalog)
                 table = catalog.load_table(TABLE_IDENTIFIER)
-                table.append(arrow_table, snapshot_properties={LOAD_ID_KEY: load_id})
+                started = time.monotonic()
+                for attempt in range(1, MAX_APPEND_ATTEMPTS + 1):
+                    try:
+                        table.append(
+                            arrow_table,
+                            snapshot_properties={LOAD_ID_KEY: load_id},
+                        )
+                        break
+                    except CommitFailedException as exc:
+                        if attempt == MAX_APPEND_ATTEMPTS:
+                            raise
+                        print(
+                            f"Commit conflict (attempt {attempt}/{MAX_APPEND_ATTEMPTS}): "
+                            f"{exc}; reloading table and retrying",
+                            flush=True,
+                        )
+                        time.sleep(1)
+                        table = catalog.load_table(TABLE_IDENTIFIER)
+                duration_ms = int((time.monotonic() - started) * 1000)
 
                 if SIMULATE_CRASH_AFTER_COMMIT:
                     print(
@@ -278,6 +302,14 @@ def main() -> None:
                     f"from {len(new_files)} new files (load {load_id[:8]})",
                     flush=True,
                 )
+                metrics.record(
+                    source="writer",
+                    status="success",
+                    load_id=load_id,
+                    rows_processed=arrow_table.num_rows,
+                    files_processed=len(new_files),
+                    duration_ms=duration_ms,
+                )
         except SystemExit:
             raise
         except Exception as exc:
@@ -286,8 +318,15 @@ def main() -> None:
                 committed = committed_load_ids(catalog)
                 if load_id in committed:
                     done.update(pending[load_id])
+                file_count = len(pending[load_id])
                 del pending[load_id]
                 save_state(done, pending)
+                metrics.record(
+                    source="writer",
+                    status="error",
+                    load_id=load_id,
+                    files_processed=file_count,
+                )
         time.sleep(POLL_INTERVAL)
 
 

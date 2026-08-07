@@ -241,7 +241,7 @@ services:
     working_dir: /app
     command:
       - python
-      - iceberg_writer.py
+      - writer/iceberg_writer.py
     environment:
       ICEBERG_CATALOG_URI: http://iceberg-rest:8181
       ICEBERG_WAREHOUSE: s3://de-practicum/warehouse
@@ -255,8 +255,14 @@ services:
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
       STATE_FILE: /state/ingested.json
+      POSTGRES_HOST: de-demo-postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      METRICS_ENABLED: "1"
     volumes:
-      - ./iceberg/writer:/app:ro
+      - ./iceberg:/app:ro
       - de_demo_iceberg_writer_state:/state
     depends_on:
       iceberg-rest:
@@ -275,7 +281,7 @@ services:
     working_dir: /app
     command:
       - python
-      - iceberg_medallion.py
+      - medallion/iceberg_medallion.py
     environment:
       ICEBERG_CATALOG_URI: http://iceberg-rest:8181
       ICEBERG_WAREHOUSE: s3://de-practicum/warehouse
@@ -290,8 +296,16 @@ services:
       S3_REGION: us-east-1
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      POSTGRES_HOST: de-demo-postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      METRICS_ENABLED: "1"
+      QUALITY_VALID_STATUSES: "created,paid,shipped,delivered"
+      QUALITY_FAIL_ON_VIOLATIONS: "0"
     volumes:
-      - ./iceberg/medallion:/app:ro
+      - ./iceberg:/app:ro
     depends_on:
       iceberg-rest:
         condition: service_healthy
