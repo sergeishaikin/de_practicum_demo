@@ -34,23 +34,48 @@ EXPECTED_TABLES = {
 LOOKBACK_MINUTES = 20
 POLL_SECONDS = 10
 TIMEOUT_SECONDS = int(os.getenv("VERIFY_TIMEOUT_SECONDS", "300"))
+DAG_READY_TIMEOUT_SECONDS = int(os.getenv("DAG_READY_TIMEOUT_SECONDS", "300"))
+
+
+def _airflow(*args: str, timeout: int = 90) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["docker", "exec", CONTAINER, "airflow", *args],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+
+
+def ensure_dag_ready() -> None:
+    """Wait for the DAG to be parsed, then unpause it.
+
+    The stack sets AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=True, so on a
+    fresh deployment (any CI runner) the DAG exists but is paused. `dags
+    trigger` still succeeds and creates a run, but the scheduler never
+    executes it — the verification then times out against an empty
+    marts.maintenance_runs. A long-lived local stack hides this, because the
+    DAG was unpaused once and that state persists in the metadata volume.
+    """
+    deadline = time.time() + DAG_READY_TIMEOUT_SECONDS
+    last = ""
+    while time.time() < deadline:
+        proc = _airflow("dags", "list", "--output", "plain")
+        if proc.returncode == 0 and DAG_ID in proc.stdout:
+            break
+        last = (proc.stderr or proc.stdout).strip()[:200]
+        print(f"waiting for {DAG_ID} to be parsed by the scheduler...")
+        time.sleep(POLL_SECONDS)
+    else:
+        raise RuntimeError(f"{DAG_ID} never appeared in the DagBag: {last}")
+
+    proc = _airflow("dags", "unpause", DAG_ID)
+    if proc.returncode != 0:
+        raise RuntimeError(f"failed to unpause {DAG_ID}: {proc.stderr.strip()}")
+    print(f"{DAG_ID} is parsed and unpaused")
 
 
 def trigger() -> None:
-    proc = subprocess.run(
-        [
-            "docker",
-            "exec",
-            CONTAINER,
-            "airflow",
-            "dags",
-            "trigger",
-            DAG_ID,
-        ],
-        capture_output=True,
-        text=True,
-        timeout=90,
-    )
+    proc = _airflow("dags", "trigger", DAG_ID)
     if proc.returncode != 0:
         raise RuntimeError(f"failed to trigger {DAG_ID}: {proc.stderr.strip()}")
 
@@ -70,6 +95,7 @@ def recent_audit_rows() -> list[tuple[str, str]]:
 
 
 def main() -> int:
+    ensure_dag_ready()
     trigger()
     print(f"triggered {DAG_ID}; waiting up to {TIMEOUT_SECONDS}s for audit rows")
 
