@@ -3,7 +3,9 @@
 
 ## Test framework and setup
 
-There is no unit-test framework configured (no pytest, jest, vitest, or equivalent). Verification is integration-based and runs against the live Compose stack. The checkable surfaces are:
+Testing is pytest-based (`pytest.ini`, `requirements-dev.txt`, `tests/`), split by marker into a fast unit suite and stack-dependent suites: `integration` (live MinIO/REST catalog/Trino), `e2e` (full Kafka/Spark chain), and `airflow` (DagBag validation). The fast suite is the PR gate, with a 90% coverage floor on `iceberg/`; the marked suites run against the live Compose stack. See [Running tests](#running-tests) and [CI integration](#ci-integration) below.
+
+Alongside the pytest suites, the stack itself carries these checkable surfaces:
 
 - **SQL quality gates** — SQL files in `db/demo_sql/` executed inside the Postgres container by `scripts/run_checks.cmd` / `scripts/run_checks.sh`.
 - **Environment diagnostics** — `scripts/doctor.cmd` / `scripts/doctor.sh` validate Docker, Compose, raw CSV files, and host ports.
@@ -46,7 +48,7 @@ Inspect Iceberg bronze state and time travel from inside the cluster:
 docker compose exec de-demo-spark-worker /opt/spark/bin/spark-submit /opt/spark/jobs/verify_bronze_orders.py
 ```
 
-Exercise graders (expected to fail until the exercises in `docs/exercises.md` are solved):
+Exercise graders (`check_task_sql` fails until Task 1 in `docs/exercises.md` is solved; `check_task_airflow` passes, because Task 2 already ships solved — see the note on that task):
 
 ```bash
 scripts/check_task_sql.cmd      # Windows

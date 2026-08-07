@@ -6,5 +6,9 @@ pytest-cov==7.1.0
 ruff==0.12.0
 black==25.9.0
 pyiceberg==0.11.1
+# Optional Rust extra, but NOT optional here: pyiceberg dispatches partition
+# transforms through it (pyarrow._determine_partitions -> pyarrow_transform),
+# so writing to the partitioned bronze table raises NotInstalledError without it.
+pyiceberg-core==0.7.0
 pyarrow==21.0.0
 psycopg2-binary==2.9.12
