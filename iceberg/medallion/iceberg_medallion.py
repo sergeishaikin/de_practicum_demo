@@ -4,7 +4,10 @@ import os
 import sys
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import pyarrow as pa
+import pyarrow.compute as pc
 from pyiceberg.catalog.rest import RestCatalog
 from pyiceberg.exceptions import NoSuchTableError
 from pyiceberg.partitioning import PartitionField, PartitionSpec
@@ -19,6 +22,8 @@ from pyiceberg.types import (
     StringType,
     TimestampType,
 )
+
+from common.ops import Metrics
 
 CATALOG_URI = os.getenv("ICEBERG_CATALOG_URI", "http://iceberg-rest:8181")
 WAREHOUSE = os.getenv("ICEBERG_WAREHOUSE", "s3://de-practicum/warehouse")
@@ -35,6 +40,14 @@ GOLD_NAMESPACE = os.getenv("GOLD_NAMESPACE", "gold")
 GOLD_TABLE = os.getenv("GOLD_TABLE", "orders_daily_metrics")
 
 INTERVAL = int(os.getenv("MEDALLION_INTERVAL_SECONDS", "60"))
+
+VALID_STATUSES = [
+    s.strip()
+    for s in os.getenv("QUALITY_VALID_STATUSES", "created,paid,shipped,delivered")
+    .split(",")
+    if s.strip()
+]
+FAIL_ON_VIOLATIONS = os.getenv("QUALITY_FAIL_ON_VIOLATIONS", "0") == "1"
 
 SILVER_SCHEMA = Schema(
     NestedField(1, "order_id", StringType(), required=False),
@@ -102,24 +115,51 @@ def ensure_table(
         )
 
 
+_SILVER_TYPES: dict[str, pa.DataType] = {
+    "order_id": pa.string(),
+    "customer": pa.string(),
+    "amount": pa.float64(),
+    "country": pa.string(),
+    "status": pa.string(),
+    "event_time": pa.timestamp("us"),
+    "kafka_timestamp": pa.timestamp("us"),
+    "kafka_partition": pa.int32(),
+    "kafka_offset": pa.int64(),
+    "event_date": pa.date32(),
+}
+
+
+def _normalize_null_typed_columns(df: pa.Table) -> pa.Table:
+    target_fields = [
+        pa.field(name, _SILVER_TYPES[name])
+        if pa.types.is_null(df.schema.field(name).type) and name in _SILVER_TYPES
+        else df.schema.field(name)
+        for name in df.column_names
+    ]
+    if all(t.type.equals(df.schema.field(t.name).type) for t in target_fields):
+        return df
+    return df.cast(pa.schema(target_fields))
+
+
 def build_silver(df: pa.Table) -> pa.Table:
+    df = _normalize_null_typed_columns(df)
     ordered = df.sort_by([("kafka_offset", "descending")])
     aggs = [
         (name, "hash_first")
         for name in [
-            "order_id",
             "customer",
             "amount",
             "country",
             "status",
             "event_time",
+            "kafka_timestamp",
             "event_date",
             "kafka_partition",
+            "kafka_offset",
         ]
     ]
-    aggs.append(("kafka_offset", "hash_first"))
     deduped = ordered.group_by("order_id", use_threads=False).aggregate(aggs)
-    return deduped.rename_columns(
+    deduped = deduped.rename_columns(
         [
             "order_id",
             "customer",
@@ -127,9 +167,24 @@ def build_silver(df: pa.Table) -> pa.Table:
             "country",
             "status",
             "event_time",
+            "kafka_timestamp",
             "event_date",
             "kafka_partition",
             "kafka_offset",
+        ]
+    )
+    return deduped.select(
+        [
+            "order_id",
+            "customer",
+            "amount",
+            "country",
+            "status",
+            "event_time",
+            "kafka_timestamp",
+            "kafka_partition",
+            "kafka_offset",
+            "event_date",
         ]
     )
 
@@ -156,10 +211,39 @@ def build_gold(df: pa.Table) -> pa.Table:
     )
 
 
-def run(catalog: RestCatalog) -> None:
+def run_quality_checks(df: pa.Table) -> dict[str, int]:
+    checks: dict[str, int] = {}
+
+    def count(mask: pa.ChunkedArray) -> int:
+        value = pc.sum(mask.cast(pa.int64()))
+        return int(value.as_py()) if value is not None else 0
+
+    if "order_id" in df.column_names:
+        checks["order_id_null"] = count(pc.is_null(df["order_id"]))
+    if "amount" in df.column_names:
+        checks["amount_null_or_nonpositive"] = count(
+            pc.or_(pc.is_null(df["amount"]), pc.less_equal(df["amount"], 0))
+        )
+    if "country" in df.column_names:
+        checks["country_null"] = count(pc.is_null(df["country"]))
+    if "status" in df.column_names:
+        valid = pc.is_in(df["status"], value_set=pa.array(VALID_STATUSES)).fill_null(
+            False
+        )
+        checks["status_invalid"] = count(pc.invert(valid))
+    if "event_time" in df.column_names:
+        checks["event_time_null"] = count(pc.is_null(df["event_time"]))
+
+    return {name: value for name, value in checks.items() if value}
+
+
+def run(catalog: RestCatalog, metrics: Metrics) -> None:
     bronze_id = f"{BRONZE_NAMESPACE}.{BRONZE_TABLE}"
     silver_id = f"{SILVER_NAMESPACE}.{SILVER_TABLE}"
     gold_id = f"{GOLD_NAMESPACE}.{GOLD_TABLE}"
+
+    started = time.monotonic()
+    violations_total = 0
 
     try:
         bronze = catalog.load_table(bronze_id)
@@ -169,13 +253,34 @@ def run(catalog: RestCatalog) -> None:
 
     bronze_df = bronze.scan().to_arrow()
 
+    violations = run_quality_checks(bronze_df)
+    if violations:
+        details = ", ".join(f"{name}={value}" for name, value in violations.items())
+        print(f"Quality violations on bronze batch: {details}", flush=True)
+        violations_total = sum(violations.values())
+        if FAIL_ON_VIOLATIONS:
+            print(
+                "QUALITY_FAIL_ON_VIOLATIONS is set -> aborting cycle",
+                file=sys.stderr,
+                flush=True,
+            )
+            metrics.record(
+                source="medallion",
+                status="failed",
+                bronze_rows=bronze_df.num_rows,
+                quality_violations=violations_total,
+                duration_ms=int((time.monotonic() - started) * 1000),
+            )
+            return
+
     silver_df = build_silver(bronze_df)
     ensure_table(catalog, silver_id, SILVER_SCHEMA, SILVER_PARTITION_SPEC)
     silver = catalog.load_table(silver_id)
     silver.overwrite(silver_df)
+    duplicates_removed = bronze_df.num_rows - silver_df.num_rows
     print(
         f"Silver {silver_id}: overwritten with {silver_df.num_rows} "
-        f"deduplicated orders",
+        f"deduplicated orders ({duplicates_removed} duplicates removed)",
         flush=True,
     )
 
@@ -188,13 +293,25 @@ def run(catalog: RestCatalog) -> None:
         flush=True,
     )
 
+    metrics.record(
+        source="medallion",
+        status="success",
+        bronze_rows=bronze_df.num_rows,
+        silver_rows=silver_df.num_rows,
+        gold_rows=gold_df.num_rows,
+        duplicates_removed=duplicates_removed,
+        quality_violations=violations_total,
+        duration_ms=int((time.monotonic() - started) * 1000),
+    )
+
 
 def main() -> None:
     print("Iceberg medallion service started (silver + gold)", flush=True)
     catalog = get_catalog()
+    metrics = Metrics()
     while True:
         try:
-            run(catalog)
+            run(catalog, metrics)
         except Exception as exc:
             print(f"Medallion error: {exc}", file=sys.stderr, flush=True)
         time.sleep(INTERVAL)
