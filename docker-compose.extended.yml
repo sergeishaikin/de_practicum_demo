@@ -255,6 +255,7 @@ services:
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
       STATE_FILE: /state/ingested.json
+      BRONZE_OUTBOX_PREFIX: ${BRONZE_OUTBOX_PREFIX:-streaming/bronze_outbox}
       POSTGRES_HOST: de-demo-postgres
       POSTGRES_PORT: "5432"
       POSTGRES_DB: ${POSTGRES_DB}
@@ -292,6 +293,13 @@ services:
       GOLD_NAMESPACE: gold
       GOLD_TABLE: orders_daily_metrics
       MEDALLION_INTERVAL_SECONDS: "60"
+      SILVER_MODE: ${SILVER_MODE:-legacy}
+      GOLD_SOURCE: ${GOLD_SOURCE:-legacy}
+      SHADOW_COMPARE: ${SHADOW_COMPARE:-0}
+      MINIO_BUCKET: de-practicum
+      BRONZE_OUTBOX_PREFIX: ${BRONZE_OUTBOX_PREFIX:-streaming/bronze_outbox}
+      MEDALLION_PROGRESS_PATH: ${MEDALLION_PROGRESS_PATH:-streaming/medallion/progress.json}
+      MAX_COMPLETED_PROGRESS: ${MAX_COMPLETED_PROGRESS:-100}
       S3_ENDPOINT: http://minio:9000
       S3_REGION: us-east-1
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}

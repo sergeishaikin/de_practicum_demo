@@ -7,6 +7,7 @@ import time
 import uuid
 from pathlib import Path
 from urllib.parse import urlparse
+from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -46,6 +47,9 @@ SECRET_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "")
 POLL_INTERVAL = int(os.getenv("POLL_INTERVAL_SECONDS", "10"))
 STATE_FILE = Path(os.getenv("STATE_FILE", "/state/ingested.json"))
 MAX_APPEND_ATTEMPTS = int(os.getenv("MAX_APPEND_ATTEMPTS", "5"))
+BRONZE_OUTBOX_PREFIX = os.getenv(
+    "BRONZE_OUTBOX_PREFIX", "streaming/bronze_outbox"
+)
 
 SIMULATE_CRASH_AFTER_COMMIT = os.getenv("SIMULATE_CRASH_AFTER_COMMIT", "0") == "1"
 SIMULATE_CRASH_BEFORE_COMMIT = os.getenv("SIMULATE_CRASH_BEFORE_COMMIT", "0") == "1"
@@ -98,6 +102,54 @@ def save_state(done: set[str], pending: dict[str, list[str]]) -> None:
         ),
         encoding="utf-8",
     )
+
+
+def _storage_path(path: str) -> str:
+    parsed = urlparse(path)
+    if parsed.scheme in {"s3", "s3a", "s3n"}:
+        return f"{parsed.netloc}/{parsed.path.lstrip('/')}"
+    if parsed.scheme:
+        raise ValueError(f"Unsupported storage path scheme: {parsed.scheme}")
+    if path.startswith(f"{BUCKET}/"):
+        return path
+    return f"{BUCKET}/{path.lstrip('/')}"
+
+
+def outbox_object_path(load_id: str) -> str:
+    return f"{BUCKET}/{BRONZE_OUTBOX_PREFIX}/{load_id}.json"
+
+
+def table_data_files(table) -> set[str]:
+    """Return live Bronze data files, tolerating lightweight test doubles."""
+
+    try:
+        return {
+            item["file_path"]
+            for item in table.inspect.data_files().to_pylist()
+        }
+    except (AttributeError, TypeError):
+        return set()
+
+
+def publish_outbox(
+    fs: S3FileSystem,
+    load_id: str,
+    source_paths: list[str],
+    bronze_data_files: list[str],
+    row_count: int,
+) -> None:
+    """Publish one committed Bronze work item as an atomic object PUT."""
+
+    payload: dict[str, Any] = {
+        "version": 1,
+        "load_id": load_id,
+        "source_paths": sorted(source_paths),
+        "bronze_data_files": sorted(_storage_path(path) for path in bronze_data_files),
+        "row_count": row_count,
+    }
+    raw = json.dumps(payload, sort_keys=True).encode("utf-8")
+    with fs.open_output_stream(outbox_object_path(load_id)) as out:
+        out.write(raw)
 
 
 def get_fs() -> S3FileSystem:
@@ -260,29 +312,62 @@ def ensure_table(catalog: RestCatalog) -> None:
         ).commit()
 
 
-def committed_load_ids(catalog: RestCatalog) -> set[str]:
+def committed_load_records(catalog: RestCatalog) -> dict[str, dict[str, Any]]:
     try:
         table = catalog.load_table(TABLE_IDENTIFIER)
     except NoSuchTableError:
-        return set()
-    committed = set()
+        return {}
+    committed: dict[str, dict[str, Any]] = {}
     for snapshot in table.metadata.snapshots:
         if snapshot.summary:
             load_id = snapshot.summary.additional_properties.get(LOAD_ID_KEY)
             if load_id:
-                committed.add(load_id)
+                data_files: list[str] = []
+                try:
+                    entries = table.inspect.entries(snapshot_id=snapshot.snapshot_id)
+                    data_files = sorted(
+                        entry["data_file"]["file_path"]
+                        for entry in entries.to_pylist()
+                        if entry["status"] == 1 and entry["data_file"]["content"] == 0
+                    )
+                except Exception:
+                    # Snapshot-summary recovery must remain usable if metadata
+                    # inspection is unavailable; the old idempotency signal is
+                    # still valid, and the next writer cycle can retry publishing.
+                    pass
+                committed[load_id] = {
+                    "snapshot_id": getattr(snapshot, "snapshot_id", None),
+                    "bronze_data_files": data_files,
+                }
     return committed
 
 
+def committed_load_ids(catalog: RestCatalog) -> set[str]:
+    """Compatibility view used by existing writer callers and tests."""
+
+    return set(committed_load_records(catalog))
+
+
 def recover_pending(
-    done: set[str], pending: dict[str, list[str]], catalog: RestCatalog
+    done: set[str],
+    pending: dict[str, list[str]],
+    catalog: RestCatalog,
+    fs: S3FileSystem | None = None,
 ) -> None:
     if not pending:
         return
-    committed = committed_load_ids(catalog)
+    committed = committed_load_records(catalog)
     for load_id in list(pending):
         paths = pending[load_id]
         if load_id in committed:
+            if fs is not None:
+                publish_outbox(
+                    fs,
+                    load_id,
+                    paths,
+                    committed[load_id]["bronze_data_files"],
+                    row_count=0,
+                )
             done.update(paths)
             del pending[load_id]
             print(
@@ -308,7 +393,7 @@ def main() -> None:
     catalog = get_catalog()
     metrics = Metrics()
 
-    recover_pending(done, pending, catalog)
+    recover_pending(done, pending, catalog, fs)
 
     while True:
         load_id = None
@@ -331,6 +416,7 @@ def main() -> None:
                 arrow_table = read_batch(fs, new_files)
                 ensure_table(catalog)
                 table = catalog.load_table(TABLE_IDENTIFIER)
+                before_data_files = table_data_files(table)
                 started = time.monotonic()
                 for attempt in range(1, MAX_APPEND_ATTEMPTS + 1):
                     try:
@@ -350,6 +436,15 @@ def main() -> None:
                         time.sleep(1)
                         table = catalog.load_table(TABLE_IDENTIFIER)
                 duration_ms = int((time.monotonic() - started) * 1000)
+
+                after_data_files = table_data_files(table)
+                publish_outbox(
+                    fs,
+                    load_id,
+                    paths,
+                    sorted(after_data_files - before_data_files),
+                    arrow_table.num_rows,
+                )
 
                 if SIMULATE_CRASH_AFTER_COMMIT:
                     print(
@@ -379,8 +474,15 @@ def main() -> None:
         except Exception as exc:
             print(f"Ingestion error: {exc}", file=sys.stderr, flush=True)
             if load_id is not None and load_id in pending:
-                committed = committed_load_ids(catalog)
+                committed = committed_load_records(catalog)
                 if load_id in committed:
+                    publish_outbox(
+                        fs,
+                        load_id,
+                        pending[load_id],
+                        committed[load_id]["bronze_data_files"],
+                        row_count=0,
+                    )
                     done.update(pending[load_id])
                 file_count = len(pending[load_id])
                 del pending[load_id]

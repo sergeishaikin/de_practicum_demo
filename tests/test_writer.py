@@ -14,7 +14,8 @@ from writer import iceberg_writer as w
 
 
 class FakeSnap:
-    def __init__(self, props: dict | None = None) -> None:
+    def __init__(self, props: dict | None = None, snapshot_id: int | None = None) -> None:
+        self.snapshot_id = snapshot_id
         if props is None:
             self.summary = None
         else:
@@ -319,6 +320,7 @@ def _main_setup(monkeypatch, tmp_path, table: FakeTable | None = None):
     monkeypatch.setattr(w.time, "sleep", lambda s: sleep_calls.append(s))
     monkeypatch.setattr(w, "get_fs", lambda: object())
     monkeypatch.setattr(w, "get_catalog", lambda: FakeCatalog(table or FakeTable()))
+    monkeypatch.setattr(w, "publish_outbox", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         w, "read_batch", lambda fs, files: pa.table({"order_id": ["x"]})
     )

@@ -12,7 +12,7 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
-from pyarrow.fs import S3FileSystem
+from pyarrow.fs import FileSelector, S3FileSystem
 from pyiceberg.catalog.rest import RestCatalog
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -89,6 +89,7 @@ def _start_writer(
             "AWS_ACCESS_KEY_ID": ACCESS_KEY,
             "AWS_SECRET_ACCESS_KEY": SECRET_KEY,
             "STATE_FILE": str(state_file),
+            "BRONZE_OUTBOX_PREFIX": f"{landing_prefix}/outbox",
             "POLL_INTERVAL_SECONDS": "1",
             "METRICS_ENABLED": "0",
             "SIMULATE_CRASH_BEFORE_COMMIT": "1" if crash_mode == "before" else "0",
@@ -114,6 +115,15 @@ def _mark_spark_committed(fs: S3FileSystem, landing_prefix: str, filename: str) 
     payload = "v1\n" + json.dumps({"path": source_path, "action": "add"}) + "\n"
     with fs.open_output_stream(metadata_path) as out:
         out.write(payload.encode("utf-8"))
+
+
+def _outbox_files(fs: S3FileSystem, landing_prefix: str) -> list[str]:
+    selector = FileSelector(
+        base_dir=_landing_path(landing_prefix, "outbox"),
+        recursive=True,
+        allow_not_found=True,
+    )
+    return [info.path for info in fs.get_file_info(selector) if info.is_file]
 
 
 def _snapshot_count_and_rows(
@@ -170,6 +180,7 @@ def test_crash_after_commit_no_duplicate_append(isolated_lake):
     assert count == 1
     assert rows == 5
     assert _snapshot_business_versions(namespace, table, cat) == [1] * 5
+    assert len(_outbox_files(fs, landing)) == 1
 
     proc2 = _start_writer(namespace, table, landing, state_file, None)
     time.sleep(8)
@@ -183,6 +194,7 @@ def test_crash_after_commit_no_duplicate_append(isolated_lake):
     state = json.loads(state_file.read_text(encoding="utf-8"))
     assert state["pending"] == {}
     assert path in state["done"]
+    assert len(_outbox_files(fs, landing)) == 1
 
 
 @pytest.mark.integration
@@ -216,3 +228,4 @@ def test_crash_before_commit_reappends_exactly_once(isolated_lake):
     assert _snapshot_business_versions(namespace, table, _catalog()) == [1] * 5
     state = json.loads(state_file.read_text(encoding="utf-8"))
     assert path in state["done"]
+    assert len(_outbox_files(fs, landing)) == 1

@@ -14,6 +14,7 @@ from typing import Any
 BUSINESS_COLUMNS = (
     "customer",
     "amount",
+    "country",
     "status",
     "event_time",
     "event_date",

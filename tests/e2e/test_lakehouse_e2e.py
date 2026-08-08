@@ -639,6 +639,7 @@ def _start_writer(run_id: str, state_file: Path, log_file: Path) -> subprocess.P
             "AWS_ACCESS_KEY_ID": ACCESS_KEY,
             "AWS_SECRET_ACCESS_KEY": SECRET_KEY,
             "STATE_FILE": str(state_file),
+            "BRONZE_OUTBOX_PREFIX": f"e2e/{run_id}/bronze_outbox",
             "POLL_INTERVAL_SECONDS": "1",
             "METRICS_ENABLED": "1",
             "POSTGRES_HOST": E2E_PG["host"],

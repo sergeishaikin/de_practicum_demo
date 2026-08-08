@@ -3,12 +3,19 @@ from __future__ import annotations
 import os
 import sys
 import time
+import json
+import math
+from datetime import date, datetime
+from urllib.parse import urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pyarrow as pa
 import pyarrow.compute as pc
+import pyarrow.dataset as ds
+from pyarrow.fs import FileSelector, S3FileSystem
 from pyiceberg.catalog.rest import RestCatalog
+from pyiceberg.expressions import In
 from pyiceberg.exceptions import NoSuchTableError
 from pyiceberg.partitioning import PartitionField, PartitionSpec
 from pyiceberg.schema import Schema
@@ -24,6 +31,7 @@ from pyiceberg.types import (
 )
 
 from common.ops import Metrics
+from b2_spike import resolve_against_current
 
 CATALOG_URI = os.getenv("ICEBERG_CATALOG_URI", "http://iceberg-rest:8181")
 WAREHOUSE = os.getenv("ICEBERG_WAREHOUSE", "s3://de-practicum/warehouse")
@@ -31,6 +39,7 @@ S3_ENDPOINT = os.getenv("S3_ENDPOINT", "http://minio:9000")
 S3_REGION = os.getenv("S3_REGION", "us-east-1")
 ACCESS_KEY = os.getenv("AWS_ACCESS_KEY_ID", "")
 SECRET_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "")
+MINIO_BUCKET = os.getenv("MINIO_BUCKET", "de-practicum")
 
 BRONZE_NAMESPACE = os.getenv("BRONZE_NAMESPACE", "bronze")
 BRONZE_TABLE = os.getenv("BRONZE_TABLE", "orders")
@@ -40,6 +49,25 @@ GOLD_NAMESPACE = os.getenv("GOLD_NAMESPACE", "gold")
 GOLD_TABLE = os.getenv("GOLD_TABLE", "orders_daily_metrics")
 
 INTERVAL = int(os.getenv("MEDALLION_INTERVAL_SECONDS", "60"))
+SILVER_MODE = os.getenv("SILVER_MODE", "legacy").lower()
+GOLD_SOURCE = os.getenv("GOLD_SOURCE", "legacy").lower()
+SHADOW_COMPARE_ENABLED = os.getenv("SHADOW_COMPARE", "0") == "1"
+BRONZE_OUTBOX_PREFIX = os.getenv(
+    "BRONZE_OUTBOX_PREFIX", "streaming/bronze_outbox"
+)
+MEDALLION_PROGRESS_PATH = os.getenv(
+    "MEDALLION_PROGRESS_PATH", "streaming/medallion/progress.json"
+)
+MAX_COMPLETED_PROGRESS = int(os.getenv("MAX_COMPLETED_PROGRESS", "100"))
+SIMULATE_B2_CRASH_BEFORE_COMMIT = (
+    os.getenv("SIMULATE_B2_CRASH_BEFORE_COMMIT", "0") == "1"
+)
+SIMULATE_B2_CRASH_AFTER_COMMIT = (
+    os.getenv("SIMULATE_B2_CRASH_AFTER_COMMIT", "0") == "1"
+)
+
+SILVER_WORK_ID_KEY = "silver-work-id"
+PROGRESS_VERSION = 1
 
 VALID_STATUSES = [
     s.strip()
@@ -96,6 +124,273 @@ def get_catalog() -> RestCatalog:
             "s3.region": S3_REGION,
             "s3.path-style-access": "true",
         },
+    )
+
+
+def get_fs() -> S3FileSystem:
+    return S3FileSystem(
+        access_key=ACCESS_KEY,
+        secret_key=SECRET_KEY,
+        endpoint_override=S3_ENDPOINT,
+        region=S3_REGION,
+        scheme="http",
+    )
+
+
+def _storage_path(path: str) -> str:
+    parsed = urlparse(path)
+    if parsed.scheme in {"s3", "s3a", "s3n"}:
+        return f"{parsed.netloc}/{parsed.path.lstrip('/')}"
+    if parsed.scheme:
+        raise ValueError(f"Unsupported storage path scheme: {parsed.scheme}")
+    if path.startswith(f"{MINIO_BUCKET}/"):
+        return path
+    return f"{MINIO_BUCKET}/{path.lstrip('/')}"
+
+
+def _outbox_base_path() -> str:
+    return _storage_path(BRONZE_OUTBOX_PREFIX)
+
+
+def _progress_path() -> str:
+    return _storage_path(MEDALLION_PROGRESS_PATH)
+
+
+def _read_json(fs: S3FileSystem, path: str) -> dict:
+    with fs.open_input_file(path) as source:
+        return json.loads(source.read().decode("utf-8"))
+
+
+def list_bronze_work(fs: S3FileSystem) -> list[dict]:
+    """Read committed Bronze work manifests published by the writer."""
+
+    selector = FileSelector(
+        base_dir=_outbox_base_path(),
+        recursive=True,
+        allow_not_found=True,
+    )
+    records = []
+    for info in sorted(fs.get_file_info(selector), key=lambda item: item.path):
+        if not info.is_file or not info.path.endswith(".json"):
+            continue
+        record = _read_json(fs, info.path)
+        if record.get("version") != 1 or not record.get("load_id"):
+            raise ValueError(f"Invalid Bronze outbox record: {info.path}")
+        record["_object_path"] = info.path
+        record["source_paths"] = list(record.get("source_paths", []))
+        record["bronze_data_files"] = list(record.get("bronze_data_files", []))
+        records.append(record)
+    return records
+
+
+def load_progress(fs: S3FileSystem) -> dict:
+    try:
+        progress = _read_json(fs, _progress_path())
+    except (FileNotFoundError, OSError):
+        progress = {}
+    progress.setdefault("version", PROGRESS_VERSION)
+    progress.setdefault("next_sequence", 0)
+    progress.setdefault("work", {})
+    progress.setdefault("completed", {})
+    return progress
+
+
+def save_progress(fs: S3FileSystem, progress: dict) -> None:
+    raw = json.dumps(progress, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    with fs.open_output_stream(_progress_path()) as output:
+        output.write(raw)
+
+
+def delete_bronze_work(fs: S3FileSystem, record: dict) -> None:
+    fs.delete_file(record["_object_path"])
+
+
+def silver_committed_work_ids(silver) -> dict[str, int]:
+    committed: dict[str, int] = {}
+    for snapshot in silver.metadata.snapshots:
+        if not snapshot.summary:
+            continue
+        work_id = snapshot.summary.additional_properties.get(SILVER_WORK_ID_KEY)
+        if work_id:
+            committed[work_id] = snapshot.snapshot_id
+    return committed
+
+
+def _prune_completed(progress: dict) -> None:
+    completed = progress["completed"]
+    while len(completed) > MAX_COMPLETED_PROGRESS:
+        oldest = min(
+            completed,
+            key=lambda load_id: completed[load_id].get("sequence", 0),
+        )
+        del completed[oldest]
+
+
+def _mark_b2_completed(
+    fs: S3FileSystem,
+    progress: dict,
+    record: dict,
+    snapshot_id: int | None,
+    changed_keys: list[str],
+) -> None:
+    load_id = record["load_id"]
+    progress["next_sequence"] += 1
+    progress["completed"][load_id] = {
+        "sequence": progress["next_sequence"],
+        "silver_snapshot_id": snapshot_id,
+        "changed_keys": sorted(changed_keys),
+    }
+    progress["work"].pop(load_id, None)
+    _prune_completed(progress)
+    # This is the durable progress commit.  Outbox cleanup follows it, so a
+    # crash cannot turn a completed Silver commit back into new work.
+    save_progress(fs, progress)
+    delete_bronze_work(fs, record)
+
+
+def _reserve_b2_work(fs: S3FileSystem, progress: dict, record: dict) -> None:
+    progress["work"][record["load_id"]] = {
+        "status": "in_flight",
+        "source_paths": sorted(record["source_paths"]),
+        "bronze_data_files": sorted(record["bronze_data_files"]),
+    }
+    save_progress(fs, progress)
+
+
+def read_bronze_work(fs: S3FileSystem, bronze, record: dict) -> pa.Table:
+    paths = record["bronze_data_files"]
+    if not paths:
+        # Recovery from a legacy/manual manifest remains safe, but uses the
+        # full Bronze scan because no file-level provenance is available.
+        return bronze.scan().to_arrow()
+    dataset = ds.dataset(
+        [_storage_path(path) for path in paths],
+        format="parquet",
+        filesystem=fs,
+    )
+    arrow_table = dataset.to_table()
+    target_types = [
+        pa.timestamp("us", tz=None) if pa.types.is_timestamp(field.type) else field.type
+        for field in arrow_table.schema
+    ]
+    return arrow_table.cast(
+        pa.schema(
+            [
+                (field.name, target_type)
+                for field, target_type in zip(
+                    arrow_table.schema, target_types, strict=True
+                )
+            ]
+        )
+    )
+
+
+def _rows_to_silver(rows: list[dict]) -> pa.Table:
+    columns = [
+        "order_id",
+        "customer",
+        "amount",
+        "country",
+        "status",
+        "event_time",
+        "kafka_timestamp",
+        "kafka_partition",
+        "kafka_offset",
+        "event_date",
+        "business_version",
+    ]
+    return pa.table(
+        {
+            name: pa.array([row.get(name) for row in rows], type=_SILVER_TYPES[name])
+            for name in columns
+        }
+    )
+
+
+def run_b2(catalog: RestCatalog, metrics: Metrics, fs: S3FileSystem | None = None) -> None:
+    """Process committed Bronze outbox work with the B2 Silver projection."""
+
+    fs = fs or get_fs()
+    bronze_id = f"{BRONZE_NAMESPACE}.{BRONZE_TABLE}"
+    silver_id = f"{SILVER_NAMESPACE}.{SILVER_TABLE}"
+    try:
+        bronze = catalog.load_table(bronze_id)
+    except NoSuchTableError:
+        print("Bronze table not available yet; skipping B2 cycle", flush=True)
+        return
+
+    ensure_table(catalog, silver_id, SILVER_SCHEMA, SILVER_PARTITION_SPEC)
+    silver = catalog.load_table(silver_id)
+    progress = load_progress(fs)
+    records = list_bronze_work(fs)
+
+    # A completed marker is durable independently of Silver snapshot history.
+    # It also makes a stale duplicate outbox object harmless.
+    for record in records:
+        if record["load_id"] in progress["completed"]:
+            delete_bronze_work(fs, record)
+
+    committed_ids = silver_committed_work_ids(silver)
+    processed = 0
+    for record in records:
+        load_id = record["load_id"]
+        if load_id in progress["completed"]:
+            continue
+        if load_id in progress["work"] and load_id in committed_ids:
+            _mark_b2_completed(
+                fs,
+                progress,
+                record,
+                committed_ids[load_id],
+                progress["work"][load_id].get("changed_keys", []),
+            )
+            processed += 1
+            continue
+        if load_id not in progress["work"]:
+            _reserve_b2_work(fs, progress, record)
+
+        delta = read_bronze_work(fs, bronze, record)
+        incoming = delta.to_pylist()
+        keys = sorted({row["order_id"] for row in incoming})
+        current = (
+            silver.scan(row_filter=In("order_id", keys)).to_arrow().to_pylist()
+            if keys
+            else []
+        )
+        resolved = resolve_against_current(current, incoming)
+
+        if SIMULATE_B2_CRASH_BEFORE_COMMIT:
+            os._exit(21)
+
+        snapshot_id: int | None = None
+        if resolved:
+            silver.overwrite(
+                _rows_to_silver(resolved),
+                overwrite_filter=In("order_id", sorted({row["order_id"] for row in resolved})),
+                snapshot_properties={
+                    SILVER_WORK_ID_KEY: load_id,
+                    "changed-keys": str(len(resolved)),
+                },
+            )
+            snapshot = silver.current_snapshot()
+            snapshot_id = snapshot.snapshot_id if snapshot else None
+
+        if SIMULATE_B2_CRASH_AFTER_COMMIT:
+            os._exit(22)
+
+        _mark_b2_completed(
+            fs,
+            progress,
+            record,
+            snapshot_id,
+            [row["order_id"] for row in resolved],
+        )
+        processed += 1
+
+    metrics.record(
+        source="medallion",
+        status="success",
+        silver_rows=processed,
     )
 
 
@@ -250,6 +545,115 @@ def build_gold(df: pa.Table) -> pa.Table:
     )
 
 
+SHADOW_BUSINESS_COLUMNS = (
+    "business_version",
+    "customer",
+    "amount",
+    "country",
+    "status",
+    "event_time",
+    "event_date",
+)
+SHADOW_EXCLUDED_COLUMNS = (
+    "kafka_timestamp",
+    "kafka_partition",
+    "kafka_offset",
+)
+
+
+def _shadow_value(value):
+    if value is None:
+        return ("null",)
+    if isinstance(value, float) and math.isnan(value):
+        return ("nan",)
+    if isinstance(value, (datetime, date)):
+        return (type(value).__name__, value.isoformat())
+    return (type(value).__name__, value)
+
+
+def _shadow_rows_by_key(table: pa.Table | list[dict]) -> tuple[dict[str, dict], list[dict]]:
+    rows = table.to_pylist() if isinstance(table, pa.Table) else list(table)
+    by_key: dict[str, dict] = {}
+    duplicates: list[dict] = []
+    for row in rows:
+        key = row.get("order_id")
+        if key in by_key:
+            duplicates.append(
+                {
+                    "order_id": key,
+                    "mismatch_type": "duplicate_business_key",
+                }
+            )
+        else:
+            by_key[key] = row
+    return by_key, duplicates
+
+
+def compare_business_state(
+    legacy: pa.Table | list[dict],
+    persisted_b2: pa.Table | list[dict],
+) -> dict:
+    """Compare logical current-state rows, excluding transport-only metadata."""
+
+    legacy_by_key, legacy_duplicates = _shadow_rows_by_key(legacy)
+    b2_by_key, b2_duplicates = _shadow_rows_by_key(persisted_b2)
+    mismatches = [
+        {**item, "side": "legacy"} for item in legacy_duplicates
+    ] + [
+        {**item, "side": "persisted_b2"} for item in b2_duplicates
+    ]
+
+    for order_id in sorted(set(legacy_by_key) | set(b2_by_key), key=str):
+        legacy_row = legacy_by_key.get(order_id)
+        b2_row = b2_by_key.get(order_id)
+        if legacy_row is None:
+            mismatches.append(
+                {"order_id": order_id, "mismatch_type": "missing_in_legacy"}
+            )
+            continue
+        if b2_row is None:
+            mismatches.append(
+                {"order_id": order_id, "mismatch_type": "missing_in_persisted_b2"}
+            )
+            continue
+
+        differing_columns = [
+            column
+            for column in SHADOW_BUSINESS_COLUMNS
+            if _shadow_value(legacy_row.get(column))
+            != _shadow_value(b2_row.get(column))
+        ]
+        if differing_columns:
+            mismatch_type = (
+                "business_version_mismatch"
+                if differing_columns == ["business_version"]
+                else "payload_mismatch"
+            )
+            mismatches.append(
+                {
+                    "order_id": order_id,
+                    "mismatch_type": mismatch_type,
+                    "legacy_business_version": legacy_row.get("business_version"),
+                    "b2_business_version": b2_row.get("business_version"),
+                    "differing_columns": differing_columns,
+                }
+            )
+
+    mismatches.sort(
+        key=lambda item: (
+            str(item.get("order_id")),
+            item.get("mismatch_type", ""),
+            item.get("side", ""),
+        )
+    )
+    return {
+        "equal": not mismatches,
+        "mismatches": mismatches,
+        "compared_keys": len(set(legacy_by_key) | set(b2_by_key)),
+        "excluded_columns": list(SHADOW_EXCLUDED_COLUMNS),
+    }
+
+
 def run_quality_checks(df: pa.Table) -> dict[str, int]:
     checks: dict[str, int] = {}
 
@@ -276,21 +680,24 @@ def run_quality_checks(df: pa.Table) -> dict[str, int]:
     return {name: value for name, value in checks.items() if value}
 
 
-def run(catalog: RestCatalog, metrics: Metrics) -> None:
+def _load_bronze_df(catalog: RestCatalog) -> pa.Table | None:
     bronze_id = f"{BRONZE_NAMESPACE}.{BRONZE_TABLE}"
-    silver_id = f"{SILVER_NAMESPACE}.{SILVER_TABLE}"
-    gold_id = f"{GOLD_NAMESPACE}.{GOLD_TABLE}"
-
-    started = time.monotonic()
-    violations_total = 0
-
     try:
         bronze = catalog.load_table(bronze_id)
     except NoSuchTableError:
-        print("Bronze table not available yet; skipping cycle", flush=True)
-        return
+        return None
+    return bronze.scan().to_arrow()
 
-    bronze_df = bronze.scan().to_arrow()
+
+def _legacy_silver_cycle(catalog: RestCatalog, metrics: Metrics) -> dict | None:
+    silver_id = f"{SILVER_NAMESPACE}.{SILVER_TABLE}"
+    bronze_df = _load_bronze_df(catalog)
+    if bronze_df is None:
+        print("Bronze table not available yet; skipping cycle", flush=True)
+        return None
+
+    started = time.monotonic()
+    violations_total = 0
 
     violations = run_quality_checks(bronze_df)
     if violations:
@@ -322,8 +729,16 @@ def run(catalog: RestCatalog, metrics: Metrics) -> None:
         f"deduplicated orders ({duplicates_removed} duplicates removed)",
         flush=True,
     )
+    return {
+        "bronze_df": bronze_df,
+        "silver_df": silver_df,
+        "violations_total": violations_total,
+        "started": started,
+    }
 
-    gold_df = build_gold(silver_df)
+
+def _write_gold(catalog: RestCatalog, gold_df: pa.Table) -> None:
+    gold_id = f"{GOLD_NAMESPACE}.{GOLD_TABLE}"
     ensure_table(catalog, gold_id, GOLD_SCHEMA, PartitionSpec())
     gold = catalog.load_table(gold_id)
     gold.overwrite(gold_df)
@@ -332,20 +747,117 @@ def run(catalog: RestCatalog, metrics: Metrics) -> None:
         flush=True,
     )
 
+
+def _read_persisted_silver(catalog: RestCatalog) -> pa.Table:
+    silver_id = f"{SILVER_NAMESPACE}.{SILVER_TABLE}"
+    silver = catalog.load_table(silver_id)
+    return silver.scan().to_arrow()
+
+
+def _run_legacy(catalog: RestCatalog, metrics: Metrics) -> None:
+    cycle = _legacy_silver_cycle(catalog, metrics)
+    if cycle is None:
+        return
+
+    gold_df = build_gold(cycle["silver_df"])
+    _write_gold(catalog, gold_df)
+
     metrics.record(
         source="medallion",
         status="success",
-        bronze_rows=bronze_df.num_rows,
-        silver_rows=silver_df.num_rows,
+        bronze_rows=cycle["bronze_df"].num_rows,
+        silver_rows=cycle["silver_df"].num_rows,
         gold_rows=gold_df.num_rows,
-        duplicates_removed=duplicates_removed,
+        duplicates_removed=(
+            cycle["bronze_df"].num_rows - cycle["silver_df"].num_rows
+        ),
+        quality_violations=cycle["violations_total"],
+        duration_ms=int((time.monotonic() - cycle["started"]) * 1000),
+    )
+
+
+def _run_m4(catalog: RestCatalog, metrics: Metrics, selected_mode: str) -> None:
+    if GOLD_SOURCE not in {"legacy", "persisted_silver"}:
+        raise ValueError(f"Unsupported GOLD_SOURCE: {GOLD_SOURCE}")
+
+    started = time.monotonic()
+    legacy_silver_df: pa.Table | None = None
+    bronze_df: pa.Table | None = None
+    violations_total = 0
+
+    if selected_mode == "b2":
+        run_b2(catalog, metrics)
+        if GOLD_SOURCE == "legacy" or SHADOW_COMPARE_ENABLED:
+            bronze_df = _load_bronze_df(catalog)
+            if bronze_df is not None:
+                legacy_silver_df = build_silver(bronze_df)
+    else:
+        cycle = _legacy_silver_cycle(catalog, metrics)
+        if cycle is None:
+            return
+        bronze_df = cycle["bronze_df"]
+        legacy_silver_df = cycle["silver_df"]
+        violations_total = cycle["violations_total"]
+
+    persisted_silver_df = _read_persisted_silver(catalog)
+    if SHADOW_COMPARE_ENABLED:
+        if legacy_silver_df is None:
+            raise RuntimeError("Shadow comparison requires a legacy business projection")
+        comparison = compare_business_state(legacy_silver_df, persisted_silver_df)
+        if not comparison["equal"]:
+            diagnostic = json.dumps(comparison["mismatches"], sort_keys=True, default=str)
+            print(f"Shadow comparison mismatch: {diagnostic}", file=sys.stderr, flush=True)
+            metrics.record(
+                source="medallion",
+                status="shadow_failed",
+                duration_ms=int((time.monotonic() - started) * 1000),
+            )
+            raise ValueError(f"Shadow comparison failed: {diagnostic}")
+
+    if GOLD_SOURCE == "legacy":
+        if legacy_silver_df is None:
+            raise RuntimeError("GOLD_SOURCE=legacy requires a legacy Silver projection")
+        gold_input = legacy_silver_df
+    else:
+        gold_input = persisted_silver_df
+
+    gold_df = build_gold(gold_input)
+    _write_gold(catalog, gold_df)
+    metrics.record(
+        source="medallion",
+        status="success",
+        bronze_rows=bronze_df.num_rows if bronze_df is not None else None,
+        silver_rows=gold_input.num_rows,
+        gold_rows=gold_df.num_rows,
+        duplicates_removed=(
+            bronze_df.num_rows - legacy_silver_df.num_rows
+            if bronze_df is not None and legacy_silver_df is not None
+            else None
+        ),
         quality_violations=violations_total,
         duration_ms=int((time.monotonic() - started) * 1000),
     )
 
 
+def run(
+    catalog: RestCatalog,
+    metrics: Metrics,
+    mode: str | None = None,
+) -> None:
+    selected_mode = (mode or SILVER_MODE).lower()
+    if selected_mode == "b2":
+        _run_m4(catalog, metrics, selected_mode)
+        return
+    if selected_mode != "legacy":
+        raise ValueError(f"Unsupported SILVER_MODE: {selected_mode}")
+    if GOLD_SOURCE == "legacy" and not SHADOW_COMPARE_ENABLED:
+        _run_legacy(catalog, metrics)
+    else:
+        _run_m4(catalog, metrics, selected_mode)
+
+
 def main() -> None:
-    print("Iceberg medallion service started (silver + gold)", flush=True)
+    print(f"Iceberg medallion service started (silver mode: {SILVER_MODE})", flush=True)
     catalog = get_catalog()
     metrics = Metrics()
     while True:
