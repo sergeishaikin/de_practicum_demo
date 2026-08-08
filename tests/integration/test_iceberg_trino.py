@@ -111,6 +111,7 @@ def orders_table(rows: list[tuple]) -> pa.Table:
             "kafka_partition": pa.array([r[5] for r in rows], type=pa.int32()),
             "kafka_offset": pa.array([r[6] for r in rows], type=pa.int64()),
             "event_date": pa.array([d] * len(rows), type=pa.date32()),
+            "business_version": pa.array([r[6] for r in rows], type=pa.int64()),
         }
     )
 

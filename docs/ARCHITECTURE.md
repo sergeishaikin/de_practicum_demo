@@ -51,7 +51,7 @@ graph LR
 6. Every writer batch and medallion cycle writes one observability row to `marts.lakehouse_metrics` in PostgreSQL (`iceberg/common/ops.py`), covering rows/files per batch, row counts per layer, duplicates removed, quality violations, and duration.
 7. Airflow DAG `lakehouse_maintenance` (`dags/lakehouse_maintenance.py`) runs hourly (and on manual trigger): it invokes Trino's `ALTER TABLE ... EXECUTE` table procedures (`optimize`, `expire_snapshots`, `remove_orphan_files`) on `bronze.orders`, `silver.orders_clean`, and `gold.orders_daily_metrics`, then records before/after snapshot counts into `marts.maintenance_runs`.
 
-The same streaming job also upserts every micro-batch into PostgreSQL `marts.streaming_orders`; this is the second output of the Spark query and is independent of the Iceberg path.
+The same streaming job also upserts every micro-batch into PostgreSQL `marts.streaming_orders`; this is the second output of the Spark query and is independent of the Iceberg path. It is an independently derived low-latency serving/cache surface, not the authoritative current-state domain projection. Its upsert is monotonic on `business_version`: late or equal-version observations cannot replace a newer row. Authoritative current-state semantics remain owned by the PyIceberg medallion path.
 
 ### Batch flow
 

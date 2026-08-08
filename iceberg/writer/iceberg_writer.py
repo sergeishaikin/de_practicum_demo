@@ -92,16 +92,24 @@ def load_state() -> tuple[set[str], dict[str, list[str]]]:
 
 
 def save_state(done: set[str], pending: dict[str, list[str]]) -> None:
-    STATE_FILE.write_text(
-        json.dumps(
-            {
-                "done": sorted(done),
-                "pending": {load_id: paths for load_id, paths in pending.items()},
-            },
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
+    """Persist writer progress without exposing a partially-written state file."""
+
+    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    temporary = STATE_FILE.with_name(f".{STATE_FILE.name}.{uuid.uuid4().hex}.tmp")
+    payload = {
+        "done": sorted(done),
+        "pending": {load_id: paths for load_id, paths in pending.items()},
+    }
+    try:
+        with temporary.open("w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, STATE_FILE)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
 
 
 def _storage_path(path: str) -> str:

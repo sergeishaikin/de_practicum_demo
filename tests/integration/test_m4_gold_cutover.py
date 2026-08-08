@@ -137,6 +137,19 @@ def wait_for_completed(fs: S3FileSystem, progress_path: str, load_id: str) -> No
     raise AssertionError(f"M4 work {load_id} did not complete")
 
 
+def wait_for_gold(cat: RestCatalog, identifier: str, expected_rows: int) -> None:
+    deadline = time.time() + 30
+    while time.time() < deadline:
+        try:
+            table = cat.load_table(identifier)
+            if table.scan().to_arrow().num_rows == expected_rows:
+                return
+        except Exception:
+            pass
+        time.sleep(1)
+    raise AssertionError(f"Gold table {identifier} did not reach {expected_rows} rows")
+
+
 def logical_rows(table) -> list[tuple]:
     rows = table.scan().to_arrow().to_pylist()
     return sorted(
@@ -213,6 +226,7 @@ def test_m4_persisted_silver_gold_shadow_and_rollback():
             shadow=True,
         )
         wait_for_completed(fs, progress_path, "002-update")
+        wait_for_gold(cat, f"{namespace}.gold", 2)
         proc.terminate()
         proc.wait(timeout=10)
 
@@ -229,7 +243,9 @@ def test_m4_persisted_silver_gold_shadow_and_rollback():
         append_work(
             bronze,
             "003-late",
-            [make_row("a", 3, 30.0, date(2026, 1, 3))],
+            # Same business observation as the earlier v3, arriving late.
+            # A changed payload at the same version would correctly be FF-14.
+            [make_row("a", 3, 30.0, date(2026, 1, 2))],
             fs,
             outbox_prefix,
         )
@@ -241,6 +257,7 @@ def test_m4_persisted_silver_gold_shadow_and_rollback():
             shadow=True,
         )
         wait_for_completed(fs, progress_path, "003-late")
+        wait_for_gold(cat, f"{namespace}.gold", 2)
         proc.terminate()
         proc.wait(timeout=10)
         assert len(cat.load_table(f"{namespace}.silver").metadata.snapshots) == silver_snapshots

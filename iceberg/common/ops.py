@@ -27,8 +27,42 @@ create table if not exists marts.lakehouse_metrics (
     gold_rows bigint not null default 0,
     duplicates_removed bigint not null default 0,
     quality_violations bigint not null default 0,
-    duration_ms bigint not null default 0
+    duration_ms bigint not null default 0,
+    work_available bigint not null default 0,
+    work_in_flight bigint not null default 0,
+    work_completed bigint not null default 0,
+    keys_processed bigint not null default 0,
+    lower_versions_ignored bigint not null default 0,
+    ff14_conflicts bigint not null default 0,
+    shadow_comparisons bigint not null default 0,
+    shadow_mismatches bigint not null default 0,
+    silver_duration_ms bigint not null default 0,
+    gold_duration_ms bigint not null default 0,
+    files_planned bigint not null default 0,
+    bytes_planned bigint not null default 0,
+    files_removed bigint not null default 0,
+    files_added bigint not null default 0,
+    bytes_removed bigint not null default 0,
+    bytes_added bigint not null default 0,
+    snapshot_delta bigint not null default 0
 );
+alter table marts.lakehouse_metrics add column if not exists work_available bigint not null default 0;
+alter table marts.lakehouse_metrics add column if not exists work_in_flight bigint not null default 0;
+alter table marts.lakehouse_metrics add column if not exists work_completed bigint not null default 0;
+alter table marts.lakehouse_metrics add column if not exists keys_processed bigint not null default 0;
+alter table marts.lakehouse_metrics add column if not exists lower_versions_ignored bigint not null default 0;
+alter table marts.lakehouse_metrics add column if not exists ff14_conflicts bigint not null default 0;
+alter table marts.lakehouse_metrics add column if not exists shadow_comparisons bigint not null default 0;
+alter table marts.lakehouse_metrics add column if not exists shadow_mismatches bigint not null default 0;
+alter table marts.lakehouse_metrics add column if not exists silver_duration_ms bigint not null default 0;
+alter table marts.lakehouse_metrics add column if not exists gold_duration_ms bigint not null default 0;
+alter table marts.lakehouse_metrics add column if not exists files_planned bigint not null default 0;
+alter table marts.lakehouse_metrics add column if not exists bytes_planned bigint not null default 0;
+alter table marts.lakehouse_metrics add column if not exists files_removed bigint not null default 0;
+alter table marts.lakehouse_metrics add column if not exists files_added bigint not null default 0;
+alter table marts.lakehouse_metrics add column if not exists bytes_removed bigint not null default 0;
+alter table marts.lakehouse_metrics add column if not exists bytes_added bigint not null default 0;
+alter table marts.lakehouse_metrics add column if not exists snapshot_delta bigint not null default 0;
 """
 
 
@@ -75,6 +109,23 @@ class Metrics:
         duplicates_removed: int = 0,
         quality_violations: int = 0,
         duration_ms: int = 0,
+        work_available: int = 0,
+        work_in_flight: int = 0,
+        work_completed: int = 0,
+        keys_processed: int = 0,
+        lower_versions_ignored: int = 0,
+        ff14_conflicts: int = 0,
+        shadow_comparisons: int = 0,
+        shadow_mismatches: int = 0,
+        silver_duration_ms: int = 0,
+        gold_duration_ms: int = 0,
+        files_planned: int = 0,
+        bytes_planned: int = 0,
+        files_removed: int = 0,
+        files_added: int = 0,
+        bytes_removed: int = 0,
+        bytes_added: int = 0,
+        snapshot_delta: int = 0,
     ) -> None:
         if not self.enabled:
             return
@@ -87,8 +138,18 @@ class Metrics:
                         metric_ts, source, load_id, status,
                         rows_processed, files_processed,
                         bronze_rows, silver_rows, gold_rows,
-                        duplicates_removed, quality_violations, duration_ms
-                    ) values (now(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        duplicates_removed, quality_violations, duration_ms,
+                        work_available, work_in_flight, work_completed,
+                        keys_processed, lower_versions_ignored, ff14_conflicts,
+                        shadow_comparisons, shadow_mismatches,
+                        silver_duration_ms, gold_duration_ms,
+                        files_planned, bytes_planned, files_removed, files_added,
+                        bytes_removed, bytes_added, snapshot_delta
+                    ) values (
+                        now(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s
+                    )
                     """,
                     (
                         source,
@@ -102,6 +163,23 @@ class Metrics:
                         duplicates_removed,
                         quality_violations,
                         duration_ms,
+                        work_available,
+                        work_in_flight,
+                        work_completed,
+                        keys_processed,
+                        lower_versions_ignored,
+                        ff14_conflicts,
+                        shadow_comparisons,
+                        shadow_mismatches,
+                        silver_duration_ms,
+                        gold_duration_ms,
+                        files_planned,
+                        bytes_planned,
+                        files_removed,
+                        files_added,
+                        bytes_removed,
+                        bytes_added,
+                        snapshot_delta,
                     ),
                 )
         except Exception as exc:

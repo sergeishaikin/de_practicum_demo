@@ -94,6 +94,12 @@ def test_maintenance_tables_config_is_sane(dag_structure: dict) -> None:
     assert cfg["MAINTENANCE_TABLES"] == EXPECTED_TABLES
     assert cfg["RETAIN_LAST"] >= 1
     assert cfg["RETENTION"].strip()
+    assert cfg["RECOVERY_HORIZON"].strip()
+    assert cfg["RECOVERY_SAFETY_MARGIN"].strip()
+    assert cfg["RETENTION_CONTRACT"]["retention_seconds"] > (
+        cfg["RETENTION_CONTRACT"]["recovery_horizon_seconds"]
+        + cfg["RETENTION_CONTRACT"]["safety_margin_seconds"]
+    )
     assert cfg["FILE_SIZE_THRESHOLD"].strip()
 
 

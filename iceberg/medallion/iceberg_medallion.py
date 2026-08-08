@@ -5,6 +5,7 @@ import sys
 import time
 import json
 import math
+from dataclasses import dataclass
 from datetime import date, datetime
 from urllib.parse import urlparse
 
@@ -31,7 +32,8 @@ from pyiceberg.types import (
 )
 
 from common.ops import Metrics
-from b2_spike import resolve_against_current
+from common.cutover import validate_runtime_config
+from b2_spike import collapse_delta, resolve_against_current
 
 CATALOG_URI = os.getenv("ICEBERG_CATALOG_URI", "http://iceberg-rest:8181")
 WAREHOUSE = os.getenv("ICEBERG_WAREHOUSE", "s3://de-practicum/warehouse")
@@ -68,6 +70,12 @@ SIMULATE_B2_CRASH_AFTER_COMMIT = (
 
 SILVER_WORK_ID_KEY = "silver-work-id"
 PROGRESS_VERSION = 1
+
+RUNTIME_CONFIG = {
+    "SILVER_MODE": SILVER_MODE,
+    "GOLD_SOURCE": GOLD_SOURCE,
+    "SHADOW_COMPARE": "1" if SHADOW_COMPARE_ENABLED else "0",
+}
 
 VALID_STATUSES = [
     s.strip()
@@ -332,6 +340,11 @@ def run_b2(catalog: RestCatalog, metrics: Metrics, fs: S3FileSystem | None = Non
 
     committed_ids = silver_committed_work_ids(silver)
     processed = 0
+    keys_processed = 0
+    lower_versions_ignored = 0
+    ff14_conflicts = 0
+    files_processed = 0
+    started = time.monotonic()
     for record in records:
         load_id = record["load_id"]
         if load_id in progress["completed"]:
@@ -345,6 +358,7 @@ def run_b2(catalog: RestCatalog, metrics: Metrics, fs: S3FileSystem | None = Non
                 progress["work"][load_id].get("changed_keys", []),
             )
             processed += 1
+            files_processed += len(record["bronze_data_files"])
             continue
         if load_id not in progress["work"]:
             _reserve_b2_work(fs, progress, record)
@@ -352,12 +366,34 @@ def run_b2(catalog: RestCatalog, metrics: Metrics, fs: S3FileSystem | None = Non
         delta = read_bronze_work(fs, bronze, record)
         incoming = delta.to_pylist()
         keys = sorted({row["order_id"] for row in incoming})
+        keys_processed += len(keys)
         current = (
             silver.scan(row_filter=In("order_id", keys)).to_arrow().to_pylist()
             if keys
             else []
         )
-        resolved = resolve_against_current(current, incoming)
+        try:
+            collapsed = collapse_delta(incoming)
+            current_by_key = {row["order_id"]: row for row in current}
+            lower_versions_ignored += sum(
+                1
+                for row in collapsed
+                if row["order_id"] in current_by_key
+                and int(row["business_version"])
+                < int(current_by_key[row["order_id"]]["business_version"])
+            )
+            resolved = resolve_against_current(current, incoming)
+        except ValueError as exc:
+            if "FF-14" in str(exc):
+                ff14_conflicts += 1
+            metrics.record(
+                source="medallion",
+                status="failed",
+                ff14_conflicts=ff14_conflicts,
+                keys_processed=keys_processed,
+                duration_ms=int((time.monotonic() - started) * 1000),
+            )
+            raise
 
         if SIMULATE_B2_CRASH_BEFORE_COMMIT:
             os._exit(21)
@@ -386,11 +422,23 @@ def run_b2(catalog: RestCatalog, metrics: Metrics, fs: S3FileSystem | None = Non
             [row["order_id"] for row in resolved],
         )
         processed += 1
+        files_processed += len(record["bronze_data_files"])
 
     metrics.record(
         source="medallion",
         status="success",
         silver_rows=processed,
+        files_processed=files_processed,
+        keys_processed=keys_processed,
+        lower_versions_ignored=lower_versions_ignored,
+        ff14_conflicts=ff14_conflicts,
+        work_available=sum(
+            record["load_id"] not in progress["completed"] for record in records
+        ),
+        work_in_flight=len(progress["work"]),
+        work_completed=len(progress["completed"]),
+        silver_duration_ms=int((time.monotonic() - started) * 1000),
+        duration_ms=int((time.monotonic() - started) * 1000),
     )
 
 
@@ -469,12 +517,14 @@ def build_silver(df: pa.Table) -> pa.Table:
             pa.array([None] * df.num_rows, type=pa.int64()),
         )
     df = _normalize_null_typed_columns(df)
-    ordered = df.sort_by(
-        [
-            ("business_version", "descending"),
-            ("kafka_offset", "descending"),
-        ]
-    )
+    rows = df.to_pylist()
+    if rows and any(row.get("business_version") is not None for row in rows):
+        # The legacy rebuild remains a rollback path, but it must obey the
+        # same domain contract as B2 whenever versioned observations exist.
+        # In particular, equal-version payload conflicts cannot be resolved by
+        # a transport offset tie-breaker.
+        collapse_delta(rows)
+    ordered = df.sort_by([("business_version", "descending")])
     aggs = [
         (name, "hash_first")
         for name in [
@@ -561,6 +611,14 @@ SHADOW_EXCLUDED_COLUMNS = (
 )
 
 
+@dataclass(frozen=True)
+class BronzeBoundary:
+    """One materialized Bronze snapshot used by both shadow candidates."""
+
+    rows: pa.Table
+    snapshot_id: int | None
+
+
 def _shadow_value(value):
     if value is None:
         return ("null",)
@@ -573,19 +631,28 @@ def _shadow_value(value):
 
 def _shadow_rows_by_key(table: pa.Table | list[dict]) -> tuple[dict[str, dict], list[dict]]:
     rows = table.to_pylist() if isinstance(table, pa.Table) else list(table)
+    rows_by_key: dict[str, list[dict]] = {}
+    for row in rows:
+        rows_by_key.setdefault(row.get("order_id"), []).append(row)
+
     by_key: dict[str, dict] = {}
     duplicates: list[dict] = []
-    for row in rows:
-        key = row.get("order_id")
-        if key in by_key:
-            duplicates.append(
-                {
-                    "order_id": key,
-                    "mismatch_type": "duplicate_business_key",
-                }
-            )
-        else:
-            by_key[key] = row
+    for key in sorted(rows_by_key, key=str):
+        ordered_rows = sorted(
+            rows_by_key[key],
+            key=lambda row: tuple(
+                (column, repr(_shadow_value(row.get(column))))
+                for column in sorted(row)
+            ),
+        )
+        by_key[key] = ordered_rows[0]
+        duplicates.extend(
+            {
+                "order_id": key,
+                "mismatch_type": "duplicate_business_key",
+            }
+            for _ in ordered_rows[1:]
+        )
     return by_key, duplicates
 
 
@@ -680,13 +747,31 @@ def run_quality_checks(df: pa.Table) -> dict[str, int]:
     return {name: value for name, value in checks.items() if value}
 
 
-def _load_bronze_df(catalog: RestCatalog) -> pa.Table | None:
+def _snapshot_id(table) -> int | None:
+    current_snapshot = getattr(table, "current_snapshot", None)
+    if callable(current_snapshot):
+        snapshot = current_snapshot()
+        if snapshot is not None:
+            return getattr(snapshot, "snapshot_id", None)
+    metadata = getattr(table, "metadata", None)
+    return getattr(metadata, "current_snapshot_id", None)
+
+
+def _pin_bronze_boundary(catalog: RestCatalog) -> BronzeBoundary | None:
     bronze_id = f"{BRONZE_NAMESPACE}.{BRONZE_TABLE}"
     try:
         bronze = catalog.load_table(bronze_id)
     except NoSuchTableError:
         return None
-    return bronze.scan().to_arrow()
+    return BronzeBoundary(
+        rows=bronze.scan().to_arrow(),
+        snapshot_id=_snapshot_id(bronze),
+    )
+
+
+def _load_bronze_df(catalog: RestCatalog) -> pa.Table | None:
+    boundary = _pin_bronze_boundary(catalog)
+    return boundary.rows if boundary is not None else None
 
 
 def _legacy_silver_cycle(catalog: RestCatalog, metrics: Metrics) -> dict | None:
@@ -759,8 +844,10 @@ def _run_legacy(catalog: RestCatalog, metrics: Metrics) -> None:
     if cycle is None:
         return
 
+    gold_started = time.monotonic()
     gold_df = build_gold(cycle["silver_df"])
     _write_gold(catalog, gold_df)
+    gold_duration_ms = int((time.monotonic() - gold_started) * 1000)
 
     metrics.record(
         source="medallion",
@@ -773,6 +860,8 @@ def _run_legacy(catalog: RestCatalog, metrics: Metrics) -> None:
         ),
         quality_violations=cycle["violations_total"],
         duration_ms=int((time.monotonic() - cycle["started"]) * 1000),
+        silver_duration_ms=int((gold_started - cycle["started"]) * 1000),
+        gold_duration_ms=gold_duration_ms,
     )
 
 
@@ -786,11 +875,16 @@ def _run_m4(catalog: RestCatalog, metrics: Metrics, selected_mode: str) -> None:
     violations_total = 0
 
     if selected_mode == "b2":
-        run_b2(catalog, metrics)
+        # Pin Bronze before B2 runs.  Both the legacy candidate and the B2
+        # result must describe this same logical source boundary; a later live
+        # Bronze scan would make shadow evidence race with ingestion.
+        bronze_boundary = None
         if GOLD_SOURCE == "legacy" or SHADOW_COMPARE_ENABLED:
-            bronze_df = _load_bronze_df(catalog)
-            if bronze_df is not None:
-                legacy_silver_df = build_silver(bronze_df)
+            bronze_boundary = _pin_bronze_boundary(catalog)
+            bronze_df = bronze_boundary.rows if bronze_boundary is not None else None
+        run_b2(catalog, metrics)
+        if bronze_boundary is not None:
+            legacy_silver_df = build_silver(bronze_boundary.rows)
     else:
         cycle = _legacy_silver_cycle(catalog, metrics)
         if cycle is None:
@@ -810,10 +904,13 @@ def _run_m4(catalog: RestCatalog, metrics: Metrics, selected_mode: str) -> None:
             metrics.record(
                 source="medallion",
                 status="shadow_failed",
+                shadow_comparisons=1,
+                shadow_mismatches=len(comparison["mismatches"]),
                 duration_ms=int((time.monotonic() - started) * 1000),
             )
             raise ValueError(f"Shadow comparison failed: {diagnostic}")
 
+    gold_started = time.monotonic()
     if GOLD_SOURCE == "legacy":
         if legacy_silver_df is None:
             raise RuntimeError("GOLD_SOURCE=legacy requires a legacy Silver projection")
@@ -823,6 +920,7 @@ def _run_m4(catalog: RestCatalog, metrics: Metrics, selected_mode: str) -> None:
 
     gold_df = build_gold(gold_input)
     _write_gold(catalog, gold_df)
+    gold_duration_ms = int((time.monotonic() - gold_started) * 1000)
     metrics.record(
         source="medallion",
         status="success",
@@ -836,6 +934,10 @@ def _run_m4(catalog: RestCatalog, metrics: Metrics, selected_mode: str) -> None:
         ),
         quality_violations=violations_total,
         duration_ms=int((time.monotonic() - started) * 1000),
+        shadow_comparisons=int(SHADOW_COMPARE_ENABLED),
+        shadow_mismatches=0,
+        silver_duration_ms=int((gold_started - started) * 1000),
+        gold_duration_ms=gold_duration_ms,
     )
 
 
@@ -857,6 +959,7 @@ def run(
 
 
 def main() -> None:
+    validate_runtime_config(RUNTIME_CONFIG)
     print(f"Iceberg medallion service started (silver mode: {SILVER_MODE})", flush=True)
     catalog = get_catalog()
     metrics = Metrics()

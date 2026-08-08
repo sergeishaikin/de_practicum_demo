@@ -416,6 +416,7 @@ services:
 
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       KAFKA_TOPIC: orders
+      KAFKA_FAIL_ON_DATA_LOSS: ${KAFKA_FAIL_ON_DATA_LOSS:-true}
 
       POSTGRES_HOST: de-demo-postgres
       POSTGRES_PORT: "5432"
@@ -426,6 +427,10 @@ services:
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
       MINIO_BUCKET: de-practicum
+      DEAD_LETTER_OUTPUT_PATH: s3a://de-practicum/streaming/orders_dead_letter
+      DEAD_LETTER_CHECKPOINT_PATH: s3a://de-practicum/checkpoints/orders_dead_letter
+      RECONCILIATION_OUTPUT_PATH: s3a://de-practicum/streaming/orders_reconciliation
+      RECONCILIATION_CHECKPOINT_PATH: s3a://de-practicum/checkpoints/orders_reconciliation
 
     volumes:
       - ./spark/jobs:/opt/spark/jobs:ro

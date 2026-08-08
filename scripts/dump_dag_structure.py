@@ -41,6 +41,13 @@ maint = importlib.import_module("lakehouse_maintenance")
 out["maintenance_config"] = {
     "MAINTENANCE_TABLES": [list(t) for t in maint.MAINTENANCE_TABLES],
     "RETENTION": maint.RETENTION,
+    "RECOVERY_HORIZON": maint.RECOVERY_HORIZON,
+    "RECOVERY_SAFETY_MARGIN": maint.RECOVERY_SAFETY_MARGIN,
+    "RETENTION_CONTRACT": {
+        "retention_seconds": maint.RETENTION_CONTRACT.retention_seconds,
+        "recovery_horizon_seconds": maint.RETENTION_CONTRACT.recovery_horizon_seconds,
+        "safety_margin_seconds": maint.RETENTION_CONTRACT.safety_margin_seconds,
+    },
     "RETAIN_LAST": maint.RETAIN_LAST,
     "FILE_SIZE_THRESHOLD": maint.FILE_SIZE_THRESHOLD,
 }

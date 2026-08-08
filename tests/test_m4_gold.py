@@ -43,6 +43,17 @@ def test_shadow_comparison_is_order_and_transport_independent() -> None:
     ]
 
 
+def test_shadow_duplicate_resolution_is_independent_of_physical_row_order() -> None:
+    first = table([row("a", 2, amount=20), row("a", 1, amount=10)])
+    second = table([row("a", 1, amount=10), row("a", 2, amount=20)])
+
+    result_first = m.compare_business_state(first, table([row("a", 1, amount=10)]))
+    result_second = m.compare_business_state(second, table([row("a", 1, amount=10)]))
+
+    assert result_first == result_second
+    assert result_first["mismatches"][0]["mismatch_type"] == "duplicate_business_key"
+
+
 @pytest.mark.parametrize(
     ("legacy", "b2", "mismatch_type"),
     [
@@ -127,6 +138,7 @@ def test_persisted_silver_gold_does_not_rebuild_silver_from_bronze(monkeypatch) 
     assert gold.overwrite_calls == 1
     assert persisted_silver.overwrite_calls == 0
     assert metrics.records[-1]["status"] == "success"
+    assert metrics.records[-1]["shadow_comparisons"] == 0
 
 
 def test_shadow_mismatch_fails_closed_before_gold_write(monkeypatch) -> None:
@@ -137,6 +149,25 @@ def test_shadow_mismatch_fails_closed_before_gold_write(monkeypatch) -> None:
         m.run(catalog, metrics, "b2")
     assert gold.overwrite_calls == 0
     assert metrics.records[-1]["status"] == "shadow_failed"
+    assert metrics.records[-1]["shadow_comparisons"] == 1
+    assert metrics.records[-1]["shadow_mismatches"] == 1
+
+
+def test_shadow_uses_bronze_boundary_pinned_before_b2_runs(monkeypatch) -> None:
+    catalog, persisted_silver, gold, metrics = setup_gold_run(
+        monkeypatch, gold_source="legacy", shadow=True
+    )
+    persisted_silver.df = table([row("a", 1)])
+
+    def mutate_bronze_after_boundary(*args) -> None:
+        catalog.tables["bronze.orders"].df = table([row("a", 2)])
+
+    monkeypatch.setattr(m, "run_b2", mutate_bronze_after_boundary)
+
+    m.run(catalog, metrics, "b2")
+
+    assert gold.overwrite_calls == 1
+    assert metrics.records[-1]["status"] == "success"
 
 
 def test_switching_gold_source_does_not_mutate_persisted_silver(monkeypatch) -> None:

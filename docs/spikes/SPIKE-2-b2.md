@@ -1,6 +1,6 @@
 # SPIKE-2 — PyIceberg B2 physical layout
 
-Status: live measurement complete; D-3 decision still pending.
+Status: live measurement complete; D-3 accepted; D-3a physical layout tuning deferred.
 
 ## Question
 
@@ -51,9 +51,10 @@ $env:B2_SPIKE_BUCKET_COUNT = "16"
 python -m pytest -m spike2 tests/integration/test_b2_pyiceberg_layout.py -s
 ```
 
-The result must be recorded in ADR-0001 before choosing B1 or B2. This spike
-does not implement the production medallion path or the D-2 control/outbox
-boundary.
+The result is the baseline evidence for ADR-0001 D-3a. It does not define a
+correctness threshold and must not block the accepted B2 execution model. This
+spike does not implement the production medallion path or the D-2
+control/outbox boundary.
 
 ## Live result — 2026-08-08
 

@@ -83,7 +83,7 @@ class TestMetrics:
         ddl_sql, insert_sql = log[0][0], log[1][0]
         assert ddl_sql.strip().startswith("create table if not exists")
         assert "insert into marts.lakehouse_metrics" in insert_sql
-        assert log[1][1] == (
+        assert log[1][1][:11] == (
             "writer",
             "L1",
             "success",
@@ -96,6 +96,7 @@ class TestMetrics:
             0,
             0,
         )
+        assert log[1][1][11:] == (0,) * 17
         assert m.schema_ready is True
         m.record(source="writer", status="success")
         assert len(log) == 3  # one more insert, no extra DDL
@@ -136,6 +137,28 @@ class TestMetrics:
         m.enabled = True
         m.record(source="medallion", status="failed")
         assert "Metrics write failed (medallion)" in capsys.readouterr().err
+
+    def test_record_persists_m5_observability_dimensions(self, monkeypatch) -> None:
+        log: list = []
+        fake = FakePsycopg2(log)
+        monkeypatch.setattr(ops, "psycopg2", fake)
+        m = ops.Metrics()
+        m.enabled = True
+        m.record(
+            source="medallion",
+            status="success",
+            work_available=2,
+            work_in_flight=0,
+            work_completed=4,
+            keys_processed=3,
+            lower_versions_ignored=1,
+            ff14_conflicts=0,
+            shadow_comparisons=1,
+            shadow_mismatches=0,
+            silver_duration_ms=11,
+            gold_duration_ms=7,
+        )
+        assert log[1][1][11:21] == (2, 0, 4, 3, 1, 0, 1, 0, 11, 7)
 
     def test_close(self, monkeypatch) -> None:
         fake = FakePsycopg2([])

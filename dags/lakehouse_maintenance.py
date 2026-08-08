@@ -7,6 +7,7 @@ import psycopg2
 import trino
 
 from airflow.decorators import dag, task
+from recovery_contract import validate_retention_contract
 
 TRINO_HOST = os.getenv("TRINO_HOST", "trino")
 TRINO_PORT = int(os.getenv("TRINO_PORT", "8080"))
@@ -26,9 +27,18 @@ MAINTENANCE_TABLES = [
     ("gold", "orders_daily_metrics"),
 ]
 
-RETENTION = os.getenv("MAINTENANCE_RETENTION", "1h")
+RETENTION = os.getenv("MAINTENANCE_RETENTION", "2h")
+RECOVERY_HORIZON = os.getenv("MAINTENANCE_RECOVERY_HORIZON", "1h")
+RECOVERY_SAFETY_MARGIN = os.getenv("MAINTENANCE_RECOVERY_SAFETY_MARGIN", "15m")
 RETAIN_LAST = int(os.getenv("MAINTENANCE_RETAIN_LAST", "5"))
 FILE_SIZE_THRESHOLD = os.getenv("MAINTENANCE_FILE_SIZE_THRESHOLD", "10MB")
+
+# Fail at DAG import time so an unsafe deployment cannot reach snapshot expiry.
+RETENTION_CONTRACT = validate_retention_contract(
+    RETENTION,
+    RECOVERY_HORIZON,
+    RECOVERY_SAFETY_MARGIN,
+)
 
 AUDIT_DDL = """
 create table if not exists marts.maintenance_runs (

@@ -237,6 +237,9 @@ def test_b2_run_commits_only_advancing_keys_and_completes_progress(monkeypatch) 
     assert by_id["a"]["event_date"] == date(2026, 1, 2)
     assert by_id["b"]["business_version"] == 2
     assert metrics.records[-1]["status"] == "success"
+    assert metrics.records[-1]["keys_processed"] == 2
+    assert metrics.records[-1]["work_in_flight"] == 0
+    assert metrics.records[-1]["work_completed"] == 1
     assert f"de-practicum/test-outbox/{load_id}.json" not in fs.objects
 
     snapshots = len(silver.metadata.snapshots)

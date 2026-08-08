@@ -346,8 +346,11 @@ def kafka_create_topic(topic: str) -> None:
     )
 
 
-def kafka_publish(topic: str, events: list[dict]) -> None:
-    payload = "".join(json.dumps(event) + "\n" for event in events)
+def kafka_publish(topic: str, events: list[dict | str]) -> None:
+    payload = "".join(
+        (event if isinstance(event, str) else json.dumps(event)).rstrip("\n") + "\n"
+        for event in events
+    )
     kafka_tool(
         "kafka-console-producer.sh",
         "--topic",
@@ -371,7 +374,12 @@ def kafka_end_offset(topic: str) -> int:
     return -1
 
 
-def start_streaming(run_id: str, topic: str) -> str:
+def start_streaming(
+    run_id: str,
+    topic: str,
+    max_offsets_per_trigger: int | None = None,
+    trigger_seconds: int | None = None,
+) -> str:
     image = docker(
         "inspect", STREAMING_CONTAINER, "--format", "{{.Config.Image}}"
     ).strip()
@@ -387,6 +395,16 @@ def start_streaming(run_id: str, topic: str) -> str:
         "--conf spark.hadoop.fs.s3a.connection.ssl.enabled=false "
         "--conf spark.hadoop.fs.s3a.aws.credentials.provider=org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider "
         "/opt/spark/jobs/orders_streaming.py"
+    )
+    max_offsets_env = (
+        ["-e", f"KAFKA_MAX_OFFSETS_PER_TRIGGER={max_offsets_per_trigger}"]
+        if max_offsets_per_trigger is not None
+        else []
+    )
+    trigger_env = (
+        ["-e", f"STREAMING_TRIGGER_SECONDS={trigger_seconds}"]
+        if trigger_seconds is not None
+        else []
     )
     docker(
         "run",
@@ -409,6 +427,18 @@ def start_streaming(run_id: str, topic: str) -> str:
         f"RAW_CHECKPOINT_PATH=s3a://de-practicum/e2e/{run_id}/checkpoints/raw",
         "-e",
         f"POSTGRES_CHECKPOINT_PATH=s3a://de-practicum/e2e/{run_id}/checkpoints/pg",
+        "-e",
+        f"DEAD_LETTER_OUTPUT_PATH=s3a://de-practicum/e2e/{run_id}/orders_dead_letter",
+        "-e",
+        f"DEAD_LETTER_CHECKPOINT_PATH=s3a://de-practicum/e2e/{run_id}/checkpoints/dead_letter",
+        "-e",
+        f"RECONCILIATION_OUTPUT_PATH=s3a://de-practicum/e2e/{run_id}/orders_reconciliation",
+        "-e",
+        f"RECONCILIATION_CHECKPOINT_PATH=s3a://de-practicum/e2e/{run_id}/checkpoints/reconciliation",
+        "-e",
+        "KAFKA_FAIL_ON_DATA_LOSS=true",
+        *max_offsets_env,
+        *trigger_env,
         "-e",
         "POSTGRES_HOST=de-demo-postgres",
         "-e",
@@ -607,12 +637,29 @@ def landing_rows(fs: S3FileSystem, run_id: str) -> int:
     return arrow_dataset(base, filesystem=fs, format="parquet").count_rows()
 
 
+def landing_source_metadata(fs: S3FileSystem, run_id: str):
+    base = f"{BUCKET}/e2e/{run_id}/orders_raw"
+    return arrow_dataset(base, filesystem=fs, format="parquet").to_table(
+        columns=["kafka_partition", "kafka_offset"]
+    )
+
+
 def landing_business_versions(fs: S3FileSystem, run_id: str) -> list[int | None]:
     base = f"{BUCKET}/e2e/{run_id}/orders_raw"
     table = arrow_dataset(base, filesystem=fs, format="parquet").to_table(
         columns=["business_version"]
     )
     return table["business_version"].to_pylist()
+
+
+def dead_letter_table(fs: S3FileSystem, run_id: str):
+    base = f"{BUCKET}/e2e/{run_id}/orders_dead_letter"
+    return arrow_dataset(base, filesystem=fs, format="parquet").to_table()
+
+
+def reconciliation_table(fs: S3FileSystem, run_id: str):
+    base = f"{BUCKET}/e2e/{run_id}/orders_reconciliation"
+    return arrow_dataset(base, filesystem=fs, format="parquet").to_table()
 
 
 def _pending_empty(state_file: Path) -> bool:

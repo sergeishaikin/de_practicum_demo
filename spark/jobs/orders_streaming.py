@@ -30,10 +30,32 @@ RAW_CHECKPOINT_PATH = os.getenv(
     "RAW_CHECKPOINT_PATH",
     f"s3a://{MINIO_BUCKET}/checkpoints/orders_raw",
 )
+DEAD_LETTER_OUTPUT_PATH = os.getenv(
+    "DEAD_LETTER_OUTPUT_PATH",
+    f"s3a://{MINIO_BUCKET}/streaming/orders_dead_letter",
+)
+DEAD_LETTER_CHECKPOINT_PATH = os.getenv(
+    "DEAD_LETTER_CHECKPOINT_PATH",
+    f"s3a://{MINIO_BUCKET}/checkpoints/orders_dead_letter",
+)
+RECONCILIATION_OUTPUT_PATH = os.getenv(
+    "RECONCILIATION_OUTPUT_PATH",
+    f"s3a://{MINIO_BUCKET}/streaming/orders_reconciliation",
+)
+RECONCILIATION_CHECKPOINT_PATH = os.getenv(
+    "RECONCILIATION_CHECKPOINT_PATH",
+    f"s3a://{MINIO_BUCKET}/checkpoints/orders_reconciliation",
+)
 POSTGRES_CHECKPOINT_PATH = os.getenv(
     "POSTGRES_CHECKPOINT_PATH",
     f"s3a://{MINIO_BUCKET}/checkpoints/orders_postgres",
 )
+KAFKA_FAIL_ON_DATA_LOSS = os.getenv(
+    "KAFKA_FAIL_ON_DATA_LOSS",
+    "true",
+).strip().lower() in {"1", "true", "yes", "on"}
+KAFKA_MAX_OFFSETS_PER_TRIGGER = os.getenv("KAFKA_MAX_OFFSETS_PER_TRIGGER")
+STREAMING_TRIGGER_SECONDS = int(os.getenv("STREAMING_TRIGGER_SECONDS", "10"))
 
 POSTGRES_HOST = os.getenv("POSTGRES_HOST", "de-demo-postgres")
 POSTGRES_PORT = int(os.getenv("POSTGRES_PORT", "5432"))
@@ -42,6 +64,14 @@ POSTGRES_USER = os.getenv("POSTGRES_USER", "app")
 POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "app")
 
 JDBC_URL = f"jdbc:postgresql://{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
+
+POSTGRES_VERSION_GUARD = """
+where excluded.business_version is not null
+  and (
+      marts.streaming_orders.business_version is null
+      or excluded.business_version > marts.streaming_orders.business_version
+  )
+""".strip()
 
 ORDER_SCHEMA = StructType(
     [
@@ -137,7 +167,7 @@ def upsert_postgres(batch_df: DataFrame, batch_id: int) -> None:
         .save()
     )
 
-    merge_sql = """
+    merge_sql = f"""
     with deduped as (
         select
             order_id,
@@ -197,7 +227,8 @@ def upsert_postgres(batch_df: DataFrame, batch_id: int) -> None:
         kafka_partition = excluded.kafka_partition,
         kafka_offset = excluded.kafka_offset,
         batch_id = excluded.batch_id,
-        updated_at = now();
+        updated_at = now()
+    {POSTGRES_VERSION_GUARD};
 
     truncate table marts.streaming_country_totals;
 
@@ -236,23 +267,60 @@ def upsert_postgres(batch_df: DataFrame, batch_id: int) -> None:
     )
 
 
+def write_reconciliation(batch_df: DataFrame, batch_id: int) -> None:
+    """Persist one idempotent disposition count for every Kafka micro-batch."""
+
+    counts = batch_df.agg(
+        F.count(F.lit(1)).alias("observed_count"),
+        F.coalesce(
+            F.sum(
+                F.when(F.col("dead_letter_reason").isNull(), 1).otherwise(0)
+            ),
+            F.lit(0),
+        ).alias("valid_count"),
+        F.coalesce(
+            F.sum(
+                F.when(F.col("dead_letter_reason").isNotNull(), 1).otherwise(0)
+            ),
+            F.lit(0),
+        ).alias("dead_letter_count"),
+        F.min("kafka_partition").alias("min_kafka_partition"),
+        F.max("kafka_partition").alias("max_kafka_partition"),
+        F.min("kafka_offset").alias("min_kafka_offset"),
+        F.max("kafka_offset").alias("max_kafka_offset"),
+    ).withColumn("batch_id", F.lit(batch_id))
+
+    # The batch-id directory is overwritten on retry, so a retried micro-batch
+    # cannot create a second reconciliation receipt.
+    (
+        counts.write.mode("overwrite")
+        .parquet(f"{RECONCILIATION_OUTPUT_PATH}/batch_id={batch_id}")
+    )
+
+
 def main() -> None:
     initialise_database()
     spark = create_spark()
 
     spark.sparkContext.setLogLevel("WARN")
 
-    kafka_df = (
+    kafka_reader = (
         spark.readStream.format("kafka")
         .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP_SERVERS)
         .option("subscribe", KAFKA_TOPIC)
         .option("startingOffsets", "earliest")
-        .option("failOnDataLoss", "false")
-        .load()
+        .option("failOnDataLoss", str(KAFKA_FAIL_ON_DATA_LOSS).lower())
     )
+    if KAFKA_MAX_OFFSETS_PER_TRIGGER:
+        kafka_reader = kafka_reader.option(
+            "maxOffsetsPerTrigger",
+            int(KAFKA_MAX_OFFSETS_PER_TRIGGER),
+        )
+    kafka_df = kafka_reader.load()
 
-    orders_df = (
+    classified_df = (
         kafka_df.select(
+            F.col("value").cast("string").alias("raw_payload"),
             F.from_json(
                 F.col("value").cast("string"),
                 ORDER_SCHEMA,
@@ -261,14 +329,34 @@ def main() -> None:
             F.col("partition").alias("kafka_partition"),
             F.col("offset").alias("kafka_offset"),
         )
+        .withColumn(
+            "dead_letter_reason",
+            F.when(F.col("order").isNull(), F.lit("invalid_json_or_schema"))
+            .when(F.col("order.order_id").isNull(), F.lit("missing_order_id")),
+        )
+    )
+
+    orders_df = (
+        classified_df.filter(F.col("dead_letter_reason").isNull())
         .select(
             "order.*",
             "kafka_timestamp",
             "kafka_partition",
             "kafka_offset",
         )
-        .filter(F.col("order_id").isNotNull())
         .withColumn("event_date", F.to_date("event_time"))
+    )
+
+    dead_letter_df = (
+        classified_df.filter(F.col("dead_letter_reason").isNotNull())
+        .select(
+            "raw_payload",
+            "dead_letter_reason",
+            "kafka_timestamp",
+            "kafka_partition",
+            "kafka_offset",
+        )
+        .withColumn("dead_letter_date", F.to_date("kafka_timestamp"))
     )
 
     raw_query = (
@@ -278,7 +366,7 @@ def main() -> None:
         .partitionBy("event_date")
         .option("path", RAW_OUTPUT_PATH)
         .option("checkpointLocation", RAW_CHECKPOINT_PATH)
-        .trigger(processingTime="10 seconds")
+        .trigger(processingTime=f"{STREAMING_TRIGGER_SECONDS} seconds")
         .start()
     )
 
@@ -287,13 +375,35 @@ def main() -> None:
         .writeStream.queryName("orders-postgres-upsert")
         .foreachBatch(upsert_postgres)
         .option("checkpointLocation", POSTGRES_CHECKPOINT_PATH)
-        .trigger(processingTime="10 seconds")
+        .trigger(processingTime=f"{STREAMING_TRIGGER_SECONDS} seconds")
+        .start()
+    )
+
+    dead_letter_query = (
+        dead_letter_df.writeStream.queryName("orders-dead-letter")
+        .format("parquet")
+        .outputMode("append")
+        .partitionBy("dead_letter_date")
+        .option("path", DEAD_LETTER_OUTPUT_PATH)
+        .option("checkpointLocation", DEAD_LETTER_CHECKPOINT_PATH)
+        .trigger(processingTime=f"{STREAMING_TRIGGER_SECONDS} seconds")
+        .start()
+    )
+
+    reconciliation_query = (
+        classified_df.writeStream.queryName("orders-reconciliation")
+        .foreachBatch(write_reconciliation)
+        .option("checkpointLocation", RECONCILIATION_CHECKPOINT_PATH)
+        .trigger(processingTime=f"{STREAMING_TRIGGER_SECONDS} seconds")
         .start()
     )
 
     print(f"Raw MinIO query: {raw_query.id}")
     print(f"PostgreSQL query: {postgres_query.id}")
+    print(f"Dead-letter query: {dead_letter_query.id}")
+    print(f"Reconciliation query: {reconciliation_query.id}")
     print(f"Raw path: {RAW_OUTPUT_PATH}")
+    print(f"Dead-letter path: {DEAD_LETTER_OUTPUT_PATH}")
 
     spark.streams.awaitAnyTermination()
 

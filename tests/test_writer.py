@@ -109,6 +109,39 @@ class TestState:
         monkeypatch.setattr(w, "STATE_FILE", tmp_path / "nope.json")
         assert w.load_state() == (set(), {})
 
+    def test_replace_failure_preserves_previous_valid_state(self, tmp_path, monkeypatch) -> None:
+        state_file = tmp_path / "state.json"
+        monkeypatch.setattr(w, "STATE_FILE", state_file)
+        w.save_state({"old"}, {"load-old": ["old.parquet"]})
+
+        def fail_replace(source, target):
+            raise OSError("simulated interruption before state replacement")
+
+        monkeypatch.setattr(w.os, "replace", fail_replace)
+        with pytest.raises(OSError, match="simulated interruption"):
+            w.save_state({"new"}, {"load-new": ["new.parquet"]})
+
+        assert w.load_state() == ({"old"}, {"load-old": ["old.parquet"]})
+        assert list(tmp_path.glob(".*.tmp")) == []
+
+    def test_state_is_fsynced_before_replace(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.setattr(w, "STATE_FILE", tmp_path / "state.json")
+        fsync_calls = []
+        replace_calls = []
+        real_replace = w.os.replace
+
+        monkeypatch.setattr(w.os, "fsync", lambda fd: fsync_calls.append(fd))
+
+        def record_replace(source, target):
+            replace_calls.append((source, target))
+            return real_replace(source, target)
+
+        monkeypatch.setattr(w.os, "replace", record_replace)
+        w.save_state({"a"}, {})
+
+        assert len(fsync_calls) == 1
+        assert len(replace_calls) == 1
+
 
 class TestListNewFiles:
     def test_only_spark_committed_files_are_eligible(self) -> None:

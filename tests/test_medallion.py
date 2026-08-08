@@ -96,12 +96,12 @@ class FakeMetrics:
 
 
 class TestBuildSilver:
-    def test_dedup_latest_offset_wins(self) -> None:
+    def test_dedup_latest_business_version_wins(self) -> None:
         df = bronze_table(
             [
-                ("a", "c1", 10.0, "US", "paid", 0, 1),
-                ("a", "c2", 20.0, "US", "paid", 1, 5),
-                ("b", "c3", 30.0, "DE", "created", 2, 3),
+                ("a", "c1", 10.0, "US", "paid", 0, 1, 1),
+                ("a", "c2", 20.0, "US", "paid", 1, 5, 5),
+                ("b", "c3", 30.0, "DE", "created", 2, 3, 3),
             ]
         )
         silver = m.build_silver(df)
