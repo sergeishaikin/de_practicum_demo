@@ -1,0 +1,2233 @@
+{
+  "schemaVersion": "architecture-audit-report.v1",
+  "generatedAt": "2026-08-08T00:00:00Z",
+  "auditScope": "Only architecture bearing on moving Silver and Gold from full-overwrite to incremental processing. This is NOT a full architecture review and must not be read as one.",
+  "runMode": {
+    "stateMachinePhasesCompleted": [
+      "discover-codebase-architecture",
+      "reconstruct-architecture-intent",
+      "audit-dependency-boundaries"
+    ],
+    "outOfStatePhases": [
+      "audit-data-and-integration-architecture",
+      "audit-testability-and-evolution",
+      "synthesize-architecture-findings"
+    ],
+    "outOfStateReason": "audit.state.json enforces the standard phase order and would require audit-clean-hexagonal-architecture, audit-modularity-and-solid and audit-domain-driven-design before phases 07, 10 and 11. Those three are outside the declared audit scope and were deliberately not run. State remains at revision 3, complete 3/13.",
+    "skillsDeliberatelyNotRun": [
+      "audit-clean-hexagonal-architecture",
+      "audit-modularity-and-solid",
+      "audit-domain-driven-design",
+      "audit-security-architecture",
+      "audit-quality-attributes"
+    ]
+  },
+  "provenance": {
+    "repositoryRoot": "C:\\Code\\de_practicum_demo\\de_practicum_demo",
+    "gitHead": "0fe37f79f2b11084a241406a227d014720150062",
+    "gitDirty": true,
+    "inventorySha256": "c26da9a3f077e17a3415161c325a9730e5b73c686fa50134b791c1d226ed32a8",
+    "profileSha256": "537bb4d93f4e166620fc754b00286d9bf75082aabc479367ff7294f9f4e1bab8",
+    "architectureIntentSha256": "d553e5fb65f515e7a88e94e141e6d609f3f738780d6f39adda3d931457148750"
+  },
+  "inputs": {
+    "inventory": {
+      "path": ".architecture-audit/01-inventory/architecture-inventory.json",
+      "sha256": "c26da9a3f077e17a3415161c325a9730e5b73c686fa50134b791c1d226ed32a8"
+    },
+    "profile": {
+      "path": ".architecture-audit/02-intent/architecture-profile.json",
+      "sha256": "537bb4d93f4e166620fc754b00286d9bf75082aabc479367ff7294f9f4e1bab8"
+    },
+    "findingFiles": [
+      {
+        "path": ".architecture-audit/03-boundaries/findings.json",
+        "sha256": "53be3cd8488e4d43863397aa963364f4b8c00f36a0d978eda61473ccc7c561e1"
+      },
+      {
+        "path": ".architecture-audit/07-data-integration/findings.json",
+        "sha256": "488389d31b8a08e951b1fc6cf89e247f99ea083ec13db6677442fa486e3b2fe3"
+      },
+      {
+        "path": ".architecture-audit/10-testability-evolution/findings.json",
+        "sha256": "9e5b1aa07b6733bf3f92deac01e8e52e659531f5cbb678c9bd1580c469aee9f4"
+      }
+    ]
+  },
+  "summary": {
+    "findingCount": 28,
+    "severityCounts": {
+      "high": 10,
+      "medium": 14,
+      "low": 2,
+      "info": 2
+    },
+    "categoryCounts": {
+      "data-integration": 9,
+      "dependency-boundaries": 9,
+      "testability-evolution": 10
+    },
+    "riskIndex": 100.0,
+    "conformanceScore": null,
+    "scoreWarning": "Conformance score is omitted when declared-rule coverage is insufficient. Risk index is not a quality grade.",
+    "headline": "The question 'how do we make Silver incremental' is too narrow to be answerable. The audit resolves it into four independent architectural decisions plus one prerequisite defect that is not a decision at all. The highest risk in the project is not the merge strategy; it is that three artifacts in the repository describe three different domain models and none of them is authoritative.",
+    "riskIndexCaveat": "riskIndex 100.0 is a saturated arithmetic aggregate over 28 findings from a deliberately narrow, high-intensity audit of one change surface. It is NOT a quality grade and NOT comparable to any other repository. A broad review of this codebase would produce a different denominator. Do not cite it.",
+    "conformanceScoreSuppressed": true,
+    "conformanceScoreSuppressedReason": "Zero ADRs exist. All nine declared rules were reconstructed from a single prose document. Declared-rule coverage is insufficient for any conformance percentage."
+  },
+  "rootCauses": [
+    {
+      "id": "RC-1",
+      "title": "No single source of truth for the domain model",
+      "statement": "Three artifacts describe what an order_id means, and they disagree. The producer mints a fresh uuid4 per event (immutable fact). The e2e fixture publishes one order_id twice with different payloads and asserts the later one wins (mutable entity). The PostgreSQL serving schema declares order_id a PRIMARY KEY and updates customer, amount, country and status on conflict (mutable entity). Two of the three say mutable; the running data source says immutable.",
+      "severity": "high",
+      "confidence": "high",
+      "manifestations": [
+        "F-1001",
+        "F-708",
+        "F-303",
+        "F-304"
+      ],
+      "decision": "D-1",
+      "impactClass": "current",
+      "evidence": [
+        {
+          "type": "direct",
+          "path": "kafka/producer/orders_producer.py",
+          "line": 59,
+          "description": "fresh uuid4 per event; no order_id ever recurs"
+        },
+        {
+          "type": "direct",
+          "path": "tests/e2e/test_lakehouse_e2e.py",
+          "line": 118,
+          "description": "dup-1/2/3 published twice with different customer, amount and status"
+        },
+        {
+          "type": "direct",
+          "path": "spark/jobs/orders_streaming.py",
+          "line": 179,
+          "description": "on conflict (order_id) do update set customer, amount, country, status - DDL-level declaration that an order mutates"
+        }
+      ]
+    },
+    {
+      "id": "RC-2",
+      "title": "Progress state is an architectural responsibility that no component holds",
+      "statement": "Bronze carries no row-level provenance, so no delta can be derived from the data. The three units maintain three mutually invisible progress models, and the medallion has none at all. The one existing progress artifact, the writer state file, is unbounded and non-atomically written.",
+      "severity": "high",
+      "confidence": "high",
+      "manifestations": [
+        "F-701",
+        "F-301",
+        "F-707",
+        "F-305"
+      ],
+      "decision": "D-2",
+      "impactClass": "structural",
+      "evidence": [
+        {
+          "type": "direct",
+          "path": "iceberg/writer/iceberg_writer.py",
+          "line": 56,
+          "description": "bronze schema: ten fields, no ingestion timestamp and no load identifier"
+        },
+        {
+          "type": "direct",
+          "path": "iceberg/writer/iceberg_writer.py",
+          "line": 90,
+          "description": "save_state serialises the entire done set on every call, via a truncating write"
+        }
+      ]
+    },
+    {
+      "id": "RC-3",
+      "title": "Bronze was never established as a trustworthy log",
+      "statement": "The Landing-to-Bronze boundary has no commit contract: the writer substitutes a five-second mtime heuristic for Spark's streaming commit manifest, and guards against the wrong protocol's marker. Bronze can additionally gain duplicates from writer re-append when snapshot retention outruns recovery. Neither path is detectable today because the medallion full rebuild silently absorbs both.",
+      "severity": "high",
+      "confidence": "medium",
+      "manifestations": [
+        "F-703",
+        "F-301",
+        "F-705"
+      ],
+      "decision": "PREREQ-1",
+      "impactClass": "hypothetical-in-current-operation-structural-in-design",
+      "note": "This is NOT one of the four decisions. It is a defect that exists independently of the incremental question and would remain after any of the six options is chosen.",
+      "evidence": [
+        {
+          "type": "direct",
+          "path": "iceberg/writer/iceberg_writer.py",
+          "line": 120,
+          "description": "file eligibility by extension, /_temporary/ exclusion and mtime age; _spark_metadata is never consulted"
+        },
+        {
+          "type": "direct",
+          "path": "dags/lakehouse_maintenance.py",
+          "line": 111,
+          "description": "hourly expire_snapshots on bronze.orders with a 1h retention threshold"
+        }
+      ]
+    },
+    {
+      "id": "RC-4",
+      "title": "Full overwrite is load-bearing for three distinct properties, not one",
+      "statement": "IR-002 as originally stated, that full overwrite substitutes for progress state, is confirmed and understated. It also substitutes for the ordering semantics of AR-004 (recomputing a global max makes late lower-offset duplicates harmless) and for a silver-to-gold data-plane edge that does not exist (gold is computed from an in-memory frame). It is additionally repairing RC-3's duplicates on every cycle.",
+      "severity": "high",
+      "confidence": "high",
+      "manifestations": [
+        "F-302",
+        "F-303",
+        "F-301",
+        "F-709"
+      ],
+      "decision": "D-3, D-4",
+      "impactClass": "structural",
+      "evidence": [
+        {
+          "type": "direct",
+          "path": "iceberg/medallion/iceberg_medallion.py",
+          "line": 257,
+          "description": "bronze.scan().to_arrow() - unfiltered, unordered, nothing carried between cycles"
+        },
+        {
+          "type": "direct",
+          "path": "iceberg/medallion/iceberg_medallion.py",
+          "line": 290,
+          "description": "build_gold(silver_df) reads the in-memory frame, never the silver table"
+        }
+      ]
+    },
+    {
+      "id": "RC-5",
+      "title": "No architectural rule in this system is executable",
+      "statement": "Sixty tests, all behavioural. Not one asserts an ownership, direction, retention, ordering or reconciliation property. Import-plane guards are unavailable because the single internal import edge is constructed by runtime sys.path mutation. No live-stack test blocks a pull request. Every fixture is single-partition, so no test could exercise partition-scoped behaviour even if one existed.",
+      "severity": "high",
+      "confidence": "high",
+      "manifestations": [
+        "F-309",
+        "F-1002",
+        "F-1003",
+        "F-1004",
+        "F-1005",
+        "F-1006",
+        "F-1008",
+        "F-306",
+        "F-1009"
+      ],
+      "decision": "cross-cutting",
+      "impactClass": "current",
+      "evidence": [
+        {
+          "type": "derived",
+          "command": "enumeration of 60 test functions across tests/",
+          "description": "no boundary, ownership or work-volume assertion exists"
+        },
+        {
+          "type": "direct",
+          "path": ".github/workflows/ci-integration.yml",
+          "line": 3,
+          "description": "live-stack tests trigger on workflow_dispatch and push to main, i.e. after merge"
+        }
+      ]
+    }
+  ],
+  "decisions": [
+    {
+      "id": "D-1",
+      "title": "Domain model: what does a repeated order_id mean?",
+      "rootCause": "RC-1",
+      "status": "OPEN - blocks D-3",
+      "question": "Is order_id an immutable event identifier, or a mutable business entity key?",
+      "options": [
+        {
+          "id": "D-1-A",
+          "name": "Immutable event",
+          "consequences": [
+            "A repeat is a replay, never an update",
+            "AR-004 is transport-level duplicate defence",
+            "F-303 largely dissolves: a replayed duplicate carries identical values",
+            "F-708's invariant holds by construction",
+            "Changed-partition rebuild becomes the natural fit",
+            "The e2e fixture must be renamed to describe replay, not update"
+          ],
+          "supportedBy": [
+            "kafka/producer/orders_producer.py:59"
+          ]
+        },
+        {
+          "id": "D-1-B",
+          "name": "Mutable business entity",
+          "consequences": [
+            "A repeat is an order update",
+            "Silver becomes a stateful business projection",
+            "F-303 becomes a blocker rather than a latent defect",
+            "F-708's invariant cannot be assumed; orders can cross partitions",
+            "Business-key approaches rise sharply in value despite their costs",
+            "The generator is wrong and must emit transitions"
+          ],
+          "supportedBy": [
+            "tests/e2e/test_lakehouse_e2e.py:118",
+            "spark/jobs/orders_streaming.py:179"
+          ]
+        }
+      ],
+      "auditPosition": "The audit does not choose. It records that the evidence is 2 to 1 for the mutable reading, that the single dissenting artifact is the one generating the live data, and that this decision changes the ranking of D-3. It must be settled first.",
+      "whyItRanksFirst": "Every other decision inherits its risk profile from this one. Choosing a merge strategy before this is choosing under an unstated assumption about the domain."
+    },
+    {
+      "id": "D-2",
+      "title": "Progress ownership: who owns incremental progress, and where does it live?",
+      "rootCause": "RC-2",
+      "status": "OPEN",
+      "question": "Bronze snapshot ids, Kafka offsets, a control table, or a writer-published outbox?",
+      "eliminated": [
+        {
+          "option": "Kafka offsets",
+          "reason": "Per-partition monotonic only; by the time data reaches Bronze the Kafka boundary is two hops behind. Not a global watermark."
+        },
+        {
+          "option": "A row-level watermark on existing Bronze columns",
+          "reason": "F-701: no such column exists. kafka_timestamp is an event clock, kafka_offset is per-partition."
+        }
+      ],
+      "viable": [
+        {
+          "option": "Bronze snapshot ids",
+          "cost": "Inherits F-301's retention dependency and F-704's missing incremental scan API; requires hand-rolled manifest diffing on pyiceberg internals."
+        },
+        {
+          "option": "Control table owned by the medallion",
+          "cost": "Depends on nothing the medallion does not own, but F-305 shows marts is not a safe home: five DDL owners, three issuing runtime DDL, one of them a student exercise, all on one credential."
+        },
+        {
+          "option": "Outbox published by the writer",
+          "cost": "The writer already holds the information in memory at append time. Inverts the dependency so the producer declares its delta rather than the consumer inferring it, and removes F-301 from the medallion's critical path."
+        }
+      ],
+      "constraint": "Whatever is chosen must be atomically written and bounded. The one existing precedent (F-707) is neither, and it must not be copied.",
+      "auditPosition": "The outbox is the only option that removes a cross-component ownership conflict rather than adding one. That is an argument from ownership, not from performance."
+    },
+    {
+      "id": "D-3",
+      "title": "Silver execution model",
+      "rootCause": "RC-4",
+      "status": "OPEN - depends on D-1 and D-2",
+      "dependsOn": [
+        "D-1",
+        "D-2"
+      ],
+      "optionsAssessed": 6,
+      "eliminated": [
+        {
+          "option": "A - snapshot-delta plus selective partition overwrite",
+          "reason": "F-704: the pinned pyiceberg has no incremental scan. Requires rebuilding one from inspect-API metadata, on internals, on top of snapshots F-301 lets maintenance delete. Highest machinery cost of the six."
+        },
+        {
+          "option": "D - Silver changelog / CDC intermediate",
+          "reason": "Adds a fourth persisted layer and a fourth schema declaration to a system that already fails to keep three in sync (F-706). No downstream consumer needs row-level change events."
+        }
+      ],
+      "notAnAlternative": {
+        "option": "E - control/progress table",
+        "reason": "Not an alternative to the others. It is the missing component every one of them requires, and it is D-2."
+      },
+      "liveOptions": [
+        {
+          "option": "B - business-key upsert",
+          "strengths": [
+            "Immune to F-702's single hot partition",
+            "Correct under D-1-B where order_id is genuinely mutable"
+          ],
+          "costs": [
+            "F-303: unconditional matched update cannot express latest-offset-wins",
+            "Needs explicit join_cols; SILVER_SCHEMA declares no identifier fields and every column optional",
+            "Match filter keyed on order_id is uncorrelated with the event_date partition spec, so no pruning",
+            "Source delta must be pre-deduplicated or upsert raises"
+          ]
+        },
+        {
+          "option": "C - changed-partition rebuild",
+          "strengths": [
+            "Uses only scan(row_filter) and overwrite(overwrite_filter), both present in the pinned version",
+            "Preserves AR-004 unchanged within a partition, so F-303 dissolves rather than needing mitigation",
+            "Idempotent by construction: re-running a partition is a no-op",
+            "Retains the property that makes the current design correct: the rebuild of a scope is a pure function of Bronze"
+          ],
+          "costs": [
+            "Rests on F-708's unstated invariant",
+            "Reduces no work at all until F-702 is addressed"
+          ]
+        },
+        {
+          "option": "F - hybrid: writer outbox, changed-partition Silver, full Gold rebuild from persisted Silver",
+          "strengths": [
+            "Combines D-2's outbox with C",
+            "Answers F-302 by making the silver-to-gold read real",
+            "Removes F-301 from the medallion's critical path",
+            "Determinism of the rebuilt scope is preserved, which is the property the current overwrite actually provides"
+          ],
+          "costs": [
+            "Still requires F-702 and F-708 resolved",
+            "Largest surface: touches writer, medallion and a new control channel"
+          ]
+        }
+      ],
+      "criticalDependency": "B and C fail in opposite conditions. C is correct and cheap but demonstrates nothing until F-702 is fixed; B is insensitive to F-702 but carries every constraint in F-303. If F-702 is not addressed, the ranking inverts.",
+      "auditPosition": "F is the strongest candidate on the evidence gathered, and its principal merit is not performance. It is that the rebuild of a changed scope remains deterministic and idempotent, the same property that makes the current full overwrite correct. The audit stops short of ratifying it because D-1 is unresolved and D-1-B would materially strengthen B."
+    },
+    {
+      "id": "D-4",
+      "title": "Gold execution model",
+      "rootCause": "RC-4",
+      "status": "EVIDENCE STRONGLY FAVOURS ONE ANSWER",
+      "question": "Should Gold be incremental?",
+      "auditPosition": "No. Rebuild Gold in full from persisted Silver on every cycle.",
+      "reasoning": [
+        "count_distinct and mean are not composable from a delta (F-302)",
+        "Gold is one row per event_date x country x status, i.e. tens of rows at demo scale",
+        "The silver-to-gold edge does not exist today and must be created regardless; a full rebuild creates it as a side effect",
+        "Gold is currently unpartitioned (empty PartitionSpec), so any scoped rewrite rewrites the whole table anyway",
+        "Making it incremental would require sketch state, HLL or equivalent, for distinct_customers: new machinery guarding tens of rows",
+        "A full rebuild is exactly verifiable; an incremental aggregate with sketches is approximately verifiable"
+      ],
+      "note": "This is the one place where the audit's evidence points clearly at NOT optimising a component. Recorded explicitly because the symmetry of 'incremental Silver AND Gold' is the intuitive framing and the evidence contradicts it.",
+      "revisedPhaseFraming": "Not 'Incremental Silver plus Incremental Gold' but 'Scoped-rebuild Silver plus deterministic full Gold rebuild from persisted Silver'."
+    }
+  ],
+  "prerequisites": [
+    {
+      "id": "PREREQ-1",
+      "title": "Bronze commit contract (F-703)",
+      "rootCause": "RC-3",
+      "statement": "Not a decision and not part of the incremental question. The Landing-to-Bronze boundary has no commit contract and would still have none after any of the six options ships. It concerns whether Bronze is a trustworthy log at all.",
+      "sequencing": "Independent of D-1 through D-4. Can and should proceed in parallel.",
+      "smallestGuard": "TE-FF-COMMIT: extract file eligibility from list_new_files into a pure function, given a listing and the set of committed paths return the eligible files, and test it on the PR tier."
+    },
+    {
+      "id": "PREREQ-2",
+      "title": "Multi-partition fixture (F-1006)",
+      "statement": "Every fixture in the repository is single-partition. Without one that is not, the scan-volume guard cannot be written, partition isolation cannot be tested, and F-708's invariant has no fixture that could violate it.",
+      "sequencing": "Blocks the guard that decides F-702."
+    },
+    {
+      "id": "PREREQ-3",
+      "title": "PR-blocking live-stack tier (F-1005)",
+      "statement": "ci-integration triggers on workflow_dispatch and push to main. Every proposed guard except two would run only after merge.",
+      "sequencing": "Determines whether any fitness function actually protects anything."
+    }
+  ],
+  "f702Resolution": {
+    "finding": "F-702",
+    "position": "F-702 does not require a decision in advance. The scan-volume fitness function is the decision procedure.",
+    "mechanism": "DataScan exposes plan_files, so files planned per cycle are observable with no instrumentation. Write the guard first; then attempt to build a fixture that makes it pass. If none can exist, F-702 has answered itself and either the generator or the partition grain must change.",
+    "why": "This avoids choosing an architecture to fit an artificially simple generator, and avoids choosing a data shape to fit a preferred architecture."
+  },
+  "adversarialChallenge": {
+    "method": "Every finding was re-tested against its strongest alternative explanation, its stated falsePositiveConditions, and whether its impact is current or hypothetical. Results below changed a finding's standing; findings not listed survived unchanged.",
+    "outcomes": [
+      {
+        "finding": "F-303",
+        "challenge": "Phase 7 established that the producer never repeats an order_id, so a replayed duplicate carries an identical payload and the regression rewrites the same values.",
+        "resolution": "SEVERITY IS CONDITIONAL ON D-1. Under D-1-A the mechanism is broken but unreachable with current data: effective severity low, structural severity high. Under D-1-B it is a blocker. Recorded as a conditional, NOT averaged to medium.",
+        "phaseDisagreement": "Phase 3 rated it high on a live regression path; phase 7 found the path currently unreachable. Both are correct under their own domain assumption. This is the clearest evidence that D-1 must be settled first."
+      },
+      {
+        "finding": "F-703",
+        "challenge": "In a single-host demo stack, executor and driver failures may never occur, so orphan files may never appear.",
+        "resolution": "Severity retained at high, confidence retained at medium. Impact reclassified: hypothetical in current operation, structural in design. Not observed: no live stack was started and no orphan file was found."
+      },
+      {
+        "finding": "F-301",
+        "challenge": "restart: unless-stopped means recovery normally completes in seconds, far inside the one-hour retention horizon.",
+        "resolution": "Severity retained. Impact reclassified as hypothetical under normal operation. The finding is about co-ownership of one piece of state by two components with no reconciling rule; the narrow window is a mitigating fact, not a refutation."
+      },
+      {
+        "finding": "F-306",
+        "challenge": "The fitness function plan chose data-plane guards over import-plane guards, so the missing import graph blocks nothing that is actually planned.",
+        "resolution": "Actionable content reduced to recording the limitation. Severity retained for the record; remediation priority lowered to the bottom. No packaging change is recommended unless import guards are later wanted."
+      },
+      {
+        "finding": "F-1009",
+        "challenge": "The coverage gate is adjacent to, not inside, the declared audit scope.",
+        "resolution": "Retained but deferred. Lowest remediation priority of the medium findings."
+      },
+      {
+        "finding": "F-709",
+        "challenge": "The Postgres truncate-and-rebuild is out of the medallion critical path and negligible at demo volume.",
+        "resolution": "Deferred. Recorded as pattern evidence for IR-002 and as a candidate teaching exercise, not as remediation work."
+      },
+      {
+        "finding": "F-308",
+        "challenge": "Single-image packaging is a defensible simplification for a single-host teaching stack.",
+        "resolution": "Deferred as an accepted-design candidate. Requires an explicit decision to accept, not silent inheritance."
+      },
+      {
+        "finding": "F-702",
+        "challenge": "If the exercise intends to demonstrate correctness rather than work reduction, a single hot partition is not a defect.",
+        "resolution": "Retained at high. QAS-001 does not say which is intended, and the absence of any work-volume measure means the question cannot currently be answered either way. Reframed as a measurement gap with a decision procedure attached."
+      }
+    ],
+    "doubleCountingCheck": "aak merge produced 28 findings from 28 inputs with no fingerprint collisions. Semantic overlaps were resolved by linking to root causes rather than by merging records: F-301 appears under RC-2 and RC-3, F-303 under RC-1 and RC-4. Each is counted once in the severity totals and linked, not duplicated."
+  },
+  "strengths": [
+    {
+      "claim": "Real fault injection through production seams",
+      "evidence": "tests/integration/test_crash_recovery.py starts the writer as a real subprocess, kills it at a chosen point via os._exit, asserts the exact exit code, restarts and verifies no duplicate append. Isolated namespace fixture with full cleanup.",
+      "relevance": "The direct template for the medallion crash suite that D-2 requires."
+    },
+    {
+      "claim": "A deterministic end-to-end test with exact expected values",
+      "evidence": "tests/e2e/test_lakehouse_e2e.py asserts 100 events, 98 landed, 95 silver rows, 3 duplicates removed, 7 violations, 90.0 UK delivered total, and that bronze load-ids are unique.",
+      "relevance": "Rare in a demo repository and the reason the incremental change can be validated at all."
+    },
+    {
+      "claim": "The writer's idempotency design is sound in isolation",
+      "evidence": "load-id in snapshot summary, pending/done state, bounded CommitFailedException retry with table reload (iceberg_writer.py:273-289).",
+      "relevance": "The defect in F-301 is cross-component ownership, not the writer's own logic."
+    },
+    {
+      "claim": "A zero-cost migration seam already exists and is unused",
+      "evidence": "SILVER_NAMESPACE, SILVER_TABLE, GOLD_NAMESPACE and GOLD_TABLE are environment variables passed explicitly by the compose service (iceberg_medallion.py:35-42, docker-compose.extended.yml:288).",
+      "relevance": "A shadow Silver needs no code change, which makes the riskiest change in the project observable rather than speculative."
+    },
+    {
+      "claim": "Three-tier CI with a coverage ratchet",
+      "evidence": ".github/workflows/ci-pr.yml, ci-integration.yml, ci-nightly.yml; --cov-fail-under=90 on the iceberg package.",
+      "relevance": "The structure to hang fitness functions on exists; only the trigger tier and the guard content are missing."
+    }
+  ],
+  "coverage": {
+    "inventoryParseRatio": 0.9841,
+    "declaredRuleCount": null,
+    "evaluatedRuleCount": null,
+    "declaredRuleCoverage": null,
+    "sourceFindingFiles": [
+      "03-boundaries.json",
+      "07-data-integration.json",
+      "10-testability-evolution.json"
+    ],
+    "invalidFindingErrors": [],
+    "auditScope": "Narrow by design: only architecture bearing on the incremental Silver/Gold change surface.",
+    "phasesRun": [
+      "01 discovery",
+      "02 intent",
+      "03 dependency boundaries",
+      "07 data and integration",
+      "10 testability and evolution",
+      "11 synthesis"
+    ],
+    "phasesNotRun": [
+      "04 clean/hexagonal",
+      "05 modularity and SOLID",
+      "06 domain-driven design",
+      "08 security architecture",
+      "09 quality attributes",
+      "12 remediation planning",
+      "13 documentation generation",
+      "verification"
+    ],
+    "declaredRulesEvaluated": 7,
+    "declaredRulesTotal": 9,
+    "adrCount": 0,
+    "boundaryModel": "data-plane and infrastructure-plane, not import-plane",
+    "dynamicBehaviourNotObserved": [
+      "No live stack was started in any of phases 03, 07, 10 or 11.",
+      "No test was executed and no CI run triggered.",
+      "No orphan landing file, commit conflict, duplicate append or concurrency window was reproduced.",
+      "Spark file-sink commit semantics were taken from documented behaviour, not measured.",
+      "pyiceberg API surface was introspected against the locally installed 0.11.1, matching the image pin, but not inside the container."
+    ],
+    "compliance": "NO COMPLIANCE CLAIM IS ISSUED. Coverage is deliberately partial and five specialist audits were not run.",
+    "excludedPaths": [
+      ".trunk",
+      ".agents",
+      ".claude",
+      ".planning",
+      "artifacts",
+      "imgs",
+      "scanner defaults"
+    ]
+  },
+  "limitations": [
+    "Five specialist audits were deliberately not run. Findings absent from this report are not evidence of absence.",
+    "Phases 07, 10 and 11 ran outside the state machine; artifact ordering is recorded in each artifact rather than enforced by audit.state.json.",
+    "All behavioural claims are static. Nothing in this report was reproduced against a running stack.",
+    "riskIndex is saturated and meaningless as a grade; conformance scoring is suppressed for lack of declared rules.",
+    "D-1 is unresolved, and D-3's ranking is conditional on it. The audit position on D-3 is provisional for that reason."
+  ],
+  "findings": [
+    {
+      "schemaVersion": "architecture-finding.v1",
+      "id": "F-701",
+      "ruleId": "DI-PROGRESS-001",
+      "title": "Bronze carries no row-level provenance, so no delta can be derived from the data itself",
+      "category": "data-integration",
+      "severity": "high",
+      "confidence": "high",
+      "sourceSkill": "audit-data-and-integration-architecture",
+      "architectureView": "observed",
+      "violatedDeclaredRule": false,
+      "status": "open",
+      "description": "AR-002 places the load-id in the Iceberg snapshot summary. It is not in the rows. The bronze TABLE_SCHEMA has exactly ten fields — order_id, customer, amount, country, status, event_time, kafka_timestamp, kafka_partition, kafka_offset, event_date — and none of them records when or by which load a row arrived. kafka_offset is monotonic only within a Kafka partition, never globally, and kafka_timestamp is an event-side clock, not an ingestion clock. There is therefore no column a watermark could be built on, and the only machine-readable record of 'what arrived since X' lives in snapshot metadata that the maintenance DAG is authorised to delete (F-301).",
+      "failureScenario": "An incremental medallion needs to answer 'which rows are new since my last cycle'. Every available answer is blocked: a watermark has no column to read; a snapshot delta requires metadata with a one-hour lifetime the medallion does not control; and re-deriving it from silver by anti-join is a full scan of both tables, which is the cost the change was meant to remove.",
+      "impact": "This is the root constraint under focus questions 1, 2 and 3. It is not a defect of the current design — full overwrite needs no provenance — but it is the first thing the incremental design must resolve, and it forces an explicit choice between a schema change to bronze, a dependency on Iceberg metadata retention, or a control/outbox channel.",
+      "recommendation": "Decide the provenance mechanism before choosing a merge strategy, because it determines which strategies are even reachable. Three viable positions, in ascending order of coupling: (a) have iceberg-writer publish an outbox record per load — load_id, the set of event_date values touched, row count — into a table the medallion reads; the writer already holds this information in memory at append time and the record can be written in the same failure envelope as the existing state file; (b) add a row-level load_id or ingested_at column to bronze by schema evolution, which is additive and requires deciding whether existing rows are backfilled or treated as pre-epoch; (c) depend on bronze snapshot metadata and pin the retention contract from F-301. Option (a) is preferred: it inverts the dependency so the producer of the data declares its own delta rather than the consumer reverse-engineering it, and it survives snapshot expiry.",
+      "recommendationAlternatives": [
+        "Keep no provenance and make the delta boundary purely partition-based, accepting that 'which partitions changed' still has to come from somewhere — which returns to the same three options."
+      ],
+      "locations": [
+        "iceberg/writer/iceberg_writer.py:56-67",
+        "iceberg/writer/iceberg_writer.py:275-278",
+        "iceberg/medallion/iceberg_medallion.py:257"
+      ],
+      "affectedQualityAttributes": [
+        "modifiability",
+        "operability",
+        "correctness"
+      ],
+      "assumptions": [
+        "The incremental medallion stays a pyiceberg process rather than moving to Spark or Trino, either of which exposes engine-native change tracking."
+      ],
+      "falsePositiveConditions": [
+        "If bronze is migrated to include an ingestion column before the incremental work begins, this dissolves.",
+        "If the medallion is moved to Spark, Spark's Iceberg incremental read removes the need for row-level provenance and the finding narrows to a retention dependency only."
+      ],
+      "evidence": [
+        {
+          "type": "direct",
+          "description": "Bronze schema: ten fields, none of them an ingestion timestamp or load identifier.",
+          "path": "iceberg/writer/iceberg_writer.py",
+          "line": 56,
+          "symbol": "TABLE_SCHEMA"
+        },
+        {
+          "type": "direct",
+          "description": "load_id is passed only as snapshot_properties on append, never written into the row payload.",
+          "path": "iceberg/writer/iceberg_writer.py",
+          "line": 275
+        },
+        {
+          "type": "direct",
+          "description": "The medallion's bronze read is an unfiltered full scan with no snapshot or watermark argument.",
+          "path": "iceberg/medallion/iceberg_medallion.py",
+          "line": 257
+        },
+        {
+          "type": "derived",
+          "description": "kafka_offset is per-partition monotonic; the producer keys by order_id, so offsets across partitions are not comparable and cannot serve as a global watermark.",
+          "path": "kafka/producer/orders_producer.py",
+          "line": 92
+        }
+      ],
+      "tags": [
+        "incremental-blocker",
+        "answers-Q1",
+        "answers-Q2",
+        "answers-Q3"
+      ],
+      "fingerprint": "6d8330a3430f8e1708a1"
+    },
+    {
+      "schemaVersion": "architecture-finding.v1",
+      "id": "F-702",
+      "ruleId": "DI-PARTITION-001",
+      "title": "All generated events land in a single hot partition, so partition-scoped incrementalism would reduce no work and QAS-001 would pass vacuously",
+      "category": "data-integration",
+      "severity": "high",
+      "confidence": "high",
+      "sourceSkill": "audit-data-and-integration-architecture",
+      "architectureView": "observed",
+      "violatedDeclaredRule": false,
+      "status": "open",
+      "description": "The producer sets event_time to datetime.now(timezone.utc) on every event. Spark derives event_date = to_date(event_time). Bronze and silver are both partitioned by day(event_date). Therefore every row produced by a running stack belongs to exactly one partition — today's — and the set of changed partitions per cycle is always a single partition containing the entire working dataset. Any design whose unit of incremental work is the partition performs, in this stack, exactly the same work as the full overwrite it replaces.",
+      "failureScenario": "The incremental Silver ships. QAS-001's response measure — for an identical Bronze snapshot, incremental and full-overwrite row counts and aggregates are equal — passes, because the implementation is correct. No measure detects that the work performed is unchanged. The architecture is demonstrated on a dataset that cannot demonstrate it, and the demonstration value of the whole exercise is lost while the correctness risk is fully incurred.",
+      "impact": "Bears on the purpose of the change rather than its correctness. It also means QAS-001 as written is not sufficient as an acceptance measure: it verifies equivalence and says nothing about work reduction.",
+      "recommendation": "Fix the measurement problem and the data problem together, before implementation. Add a second response measure to QAS-001 — bytes or files scanned per cycle, readable from the Iceberg scan plan — so that 'incremental' is falsifiable rather than assumed. Then make the partition dimension real by one of: backdating a share of generated event_time values across several days so multiple partitions exist and only some change; partitioning at hour rather than day grain, which is a spec change on bronze and silver and needs the F-708 invariant checked at the finer grain; or seeding a historical backfill once at stack start so the steady state has cold partitions to leave alone.",
+      "recommendationAlternatives": [
+        "Choose a non-partition unit of incremental work (business-key upsert), which is insensitive to this — at the cost of everything in F-303."
+      ],
+      "locations": [
+        "kafka/producer/orders_producer.py:57-65",
+        "spark/jobs/orders_streaming.py:260",
+        "iceberg/writer/iceberg_writer.py:69-76",
+        "iceberg/medallion/iceberg_medallion.py:66-73"
+      ],
+      "affectedQualityAttributes": [
+        "performance",
+        "demonstrability",
+        "modifiability"
+      ],
+      "assumptions": [
+        "The demo stack is normally run for less than a day at a time, so no natural day boundary is crossed. Overnight runs would create a second partition but the previous day's would then be immutable and uninteresting."
+      ],
+      "falsePositiveConditions": [
+        "If the intended demonstration is correctness of incremental semantics rather than work reduction, this is informational — but QAS-001 should then say so explicitly.",
+        "If a historical seed dataset is already loaded into bronze by some path not found in this audit, multiple partitions exist and the finding weakens."
+      ],
+      "evidence": [
+        {
+          "type": "direct",
+          "description": "event_time is generated as the current UTC instant on every event.",
+          "path": "kafka/producer/orders_producer.py",
+          "line": 64,
+          "symbol": "create_event"
+        },
+        {
+          "type": "direct",
+          "description": "event_date is derived directly from event_time.",
+          "path": "spark/jobs/orders_streaming.py",
+          "line": 260
+        },
+        {
+          "type": "direct",
+          "description": "Both bronze and silver partition by DayTransform over event_date.",
+          "path": "iceberg/medallion/iceberg_medallion.py",
+          "line": 66
+        }
+      ],
+      "tags": [
+        "incremental-blocker",
+        "measurement",
+        "answers-Q5",
+        "answers-Q9"
+      ],
+      "fingerprint": "2376be265db314ddbef3"
+    },
+    {
+      "schemaVersion": "architecture-finding.v1",
+      "id": "F-301",
+      "ruleId": "DB-BOUNDARY-001",
+      "title": "Bronze snapshot history is co-owned by iceberg-writer (idempotency) and the maintenance DAG (retention), with no rule reconciling the two",
+      "category": "dependency-boundaries",
+      "severity": "high",
+      "confidence": "high",
+      "sourceSkill": "audit-dependency-boundaries",
+      "architectureView": "observed",
+      "violatedDeclaredRule": true,
+      "status": "open",
+      "description": "AR-002 and AR-003 make the Iceberg snapshot summary of bronze.orders the writer's idempotency ledger: recover_pending decides whether to re-append a pending load by scanning table.metadata.snapshots for its load-id. B-003 declares the maintenance DAG an allowed dependency on bronze because it 'optimizes'. But the DAG also runs expire_snapshots hourly with retention_threshold=1h and retain_last=5 and clean_expired_metadata=true, which deletes exactly the snapshot summaries the writer relies on. Two deployables therefore own one piece of state, and no declared rule states that the retention horizon must exceed the recovery horizon.",
+      "failureScenario": "iceberg-writer records load L in /state/ingested.json pending, commits the Iceberg append, and dies before clearing pending (the SIMULATE_CRASH_AFTER_COMMIT path, or any container kill in that window). Recovery does not run within the retention horizon — the stack is stopped overnight, or iceberg-rest stays unhealthy so the writer's depends_on gate holds it down while Airflow is up. lakehouse_maintenance expires the snapshot carrying load-id L. On restart, committed_load_ids no longer contains L, recover_pending prints 'NOT committed -> will re-append', and the same parquet files are appended to bronze.orders a second time.",
+      "impact": "Today the duplicate is invisible: the medallion's full-overwrite rebuild deduplicates bronze by order_id on every cycle, so bronze corruption never reaches silver. This is the strongest available confirmation of IR-002 — full overwrite is not only a substitute for progress state, it is silently repairing a cross-boundary idempotency violation. Any incremental Silver that consumes a bronze delta rather than rebuilding from a full scan loses that repair and propagates the duplicate.",
+      "recommendation": "Before incremental work starts, make the dependency explicit and testable: (a) state a declared rule that MAINTENANCE_RETENTION must exceed the maximum writer recovery window, and assert it in a fitness function that reads both values from configuration; or (b) stop using snapshot summaries as the idempotency ledger and move load-ids into durable storage the maintenance DAG does not own — a marts.ingest_loads table, or the writer state volume reconciled against it.",
+      "recommendationAlternatives": [
+        "Exclude bronze.orders from expire_snapshots entirely and let it grow, accepting metadata bloat in an educational stack.",
+        "Have the writer refuse to start if the oldest retained bronze snapshot is newer than the oldest pending load, failing loudly instead of re-appending."
+      ],
+      "locations": [
+        "iceberg/writer/iceberg_writer.py:201-212",
+        "iceberg/writer/iceberg_writer.py:215-237",
+        "dags/lakehouse_maintenance.py:23-31",
+        "dags/lakehouse_maintenance.py:105-121",
+        "trino/etc/catalog/iceberg.properties"
+      ],
+      "affectedQualityAttributes": [
+        "resilience",
+        "data integrity",
+        "modifiability"
+      ],
+      "assumptions": [
+        "Trino expire_snapshots removes the snapshot record, and with it summary.additional_properties, from table metadata; it does not preserve summaries of expired snapshots.",
+        "The writer's only recovery input is committed_load_ids(); no other reconciliation exists."
+      ],
+      "falsePositiveConditions": [
+        "If recovery is proven to always complete within one hour of the crash — for example the writer container is guaranteed to restart before Airflow's next hourly run — the window closes and this becomes a latent coupling rather than a live defect.",
+        "If retain_last=5 in practice always retains the pending snapshot because bronze snapshot creation is slower than one per twelve minutes."
+      ],
+      "evidence": [
+        {
+          "type": "direct",
+          "description": "Writer recovery decides re-append solely from load-ids read out of snapshot summaries.",
+          "path": "iceberg/writer/iceberg_writer.py",
+          "line": 207,
+          "symbol": "committed_load_ids"
+        },
+        {
+          "type": "direct",
+          "description": "Maintenance DAG expires snapshots on bronze.orders hourly with a 1h retention threshold and retain_last=5, clean_expired_metadata=true.",
+          "path": "dags/lakehouse_maintenance.py",
+          "line": 111
+        },
+        {
+          "type": "direct",
+          "description": "bronze.orders is in the hardcoded MAINTENANCE_TABLES list, and the DAG schedule is '0 * * * *'.",
+          "path": "dags/lakehouse_maintenance.py",
+          "line": 23
+        },
+        {
+          "type": "derived",
+          "description": "Trino's catalog floor iceberg.expire-snapshots.min-retention=1h permits the configured 1h threshold, so no engine-side guard blocks the expiry.",
+          "path": "trino/etc/catalog/iceberg.properties"
+        }
+      ],
+      "tags": [
+        "incremental-blocker",
+        "idempotency",
+        "shared-state",
+        "confirms-IR-002"
+      ],
+      "fingerprint": "6ca17e6ee0eb07b330d3"
+    },
+    {
+      "schemaVersion": "architecture-finding.v1",
+      "id": "F-302",
+      "ruleId": "DB-BOUNDARY-002",
+      "title": "The silver-to-gold edge does not exist in the data plane; gold is computed from an in-memory frame and stored unpartitioned",
+      "category": "dependency-boundaries",
+      "severity": "high",
+      "confidence": "high",
+      "sourceSkill": "audit-dependency-boundaries",
+      "architectureView": "observed",
+      "violatedDeclaredRule": false,
+      "status": "open",
+      "description": "The medallion layering bronze -> silver -> gold is real only inside one Python process. build_gold is called on silver_df, the in-memory Arrow table, never on a scan of silver.orders_clean. Gold has no read dependency on the silver table at all. Separately, gold is created with an empty PartitionSpec(), so it has no partition to target.",
+      "failureScenario": "An incremental Silver produces a delta of changed orders rather than the whole table. Gold's aggregates cannot be recomputed from that delta: distinct_customers is a count_distinct and avg_amount is a mean, neither of which composes from a partial input. The implementation must therefore read back the affected slices of silver — an edge that does not exist today and has no test, no schema contract, and no partition alignment. Because gold is unpartitioned, even a correctly scoped recomputation of one event_date cannot be written as a partition overwrite; it rewrites the whole gold table, which is precisely the cost the incremental change was meant to remove.",
+      "impact": "Two of the three medallion layers change shape. Any incremental plan that treats gold as 'the same aggregation, applied to less data' is wrong on both counts: the input edge must be created, and the output layout must be migrated.",
+      "recommendation": "Treat gold as a separate work item from silver. Introduce an explicit silver -> gold read (scan silver.orders_clean filtered to the affected event_date set) so the layering exists in the data plane and can be tested. Partition gold by event_date to make a scoped overwrite expressible; this is a table migration, not an edit, because partition spec evolution on an existing table does not rewrite existing files.",
+      "recommendationAlternatives": [
+        "Keep gold a full rebuild from silver on every cycle and make only silver incremental. Gold is small (one row per event_date x country x status) and this preserves aggregate correctness with no sketching.",
+        "Maintain additive pre-aggregates plus an HLL-style sketch for distinct_customers if gold is ever expected to outgrow a full rebuild."
+      ],
+      "locations": [
+        "iceberg/medallion/iceberg_medallion.py:195-214",
+        "iceberg/medallion/iceberg_medallion.py:279-297"
+      ],
+      "affectedQualityAttributes": [
+        "modifiability",
+        "performance",
+        "correctness"
+      ],
+      "assumptions": [
+        "QAS-001's equivalence measure (incremental and full-overwrite Gold aggregates equal for the same Bronze snapshot) is a hard requirement, not a target."
+      ],
+      "falsePositiveConditions": [
+        "If the incremental design keeps Gold as a full rebuild from Silver, the missing edge is trivially created and only the partitioning point survives."
+      ],
+      "evidence": [
+        {
+          "type": "direct",
+          "description": "Gold is built from the in-memory silver frame, not from the silver table.",
+          "path": "iceberg/medallion/iceberg_medallion.py",
+          "line": 290,
+          "symbol": "run"
+        },
+        {
+          "type": "direct",
+          "description": "Gold aggregates include count_distinct and mean, which are not composable from a delta.",
+          "path": "iceberg/medallion/iceberg_medallion.py",
+          "line": 196,
+          "symbol": "build_gold"
+        },
+        {
+          "type": "direct",
+          "description": "Gold is created with an empty PartitionSpec while silver is partitioned by event_date_day.",
+          "path": "iceberg/medallion/iceberg_medallion.py",
+          "line": 291
+        }
+      ],
+      "tags": [
+        "incremental-blocker",
+        "layering",
+        "aggregate-composability"
+      ],
+      "fingerprint": "9fc378dc9f86dc6b0874"
+    },
+    {
+      "schemaVersion": "architecture-finding.v1",
+      "id": "F-303",
+      "ruleId": "DB-BOUNDARY-003",
+      "title": "MERGE/upsert cannot express AR-004's ordering rule, and the pinned pyiceberg upsert crosses every silver partition",
+      "category": "dependency-boundaries",
+      "severity": "high",
+      "confidence": "high",
+      "sourceSkill": "audit-dependency-boundaries",
+      "architectureView": "observed",
+      "violatedDeclaredRule": true,
+      "status": "open",
+      "description": "AR-004 declares that silver is deduplicated by order_id with the highest kafka_offset winning. Under full overwrite that is a global maximum, recomputed from all of bronze every cycle. Table.upsert in the pinned pyiceberg 0.11.1 cannot express it: when_matched_update_all replaces the matched target row unconditionally, with no predicate comparing source and target kafka_offset. Three further constraints in the same API bear on the design.",
+      "failureScenario": "A duplicate of order X arrives in a later ingestion batch carrying a LOWER kafka_offset than the copy already in silver — possible whenever a bronze re-append replays an older parquet file, which is exactly what F-301 produces. The incremental cycle upserts it and silver regresses to the stale value. Full overwrite cannot produce this outcome because it recomputes the maximum across all of bronze. The declared rule AR-004 is silently violated by the mechanism intended to preserve it.",
+      "impact": "The ordering guarantee currently supplied by 'recompute everything' has to be re-created explicitly. This is the second and sharpest confirmation of IR-002: full overwrite substitutes not only for progress state but for the ordering semantics of the dedup rule.",
+      "recommendation": "Do not reach for Table.upsert as the primary mechanism. Either (a) read the affected silver rows, merge them with the delta in memory, apply the same max-by-kafka_offset rule, and write back with a scoped overwrite filtered to the touched event_date partitions — which keeps one implementation of AR-004 and needs no schema change; or (b) if upsert is used, pre-deduplicate the delta by order_id, pass join_cols explicitly, and add an explicit anti-join dropping source rows whose kafka_offset is below the target's. Whichever is chosen, add a fitness function that feeds a lower-offset duplicate through the pipeline and asserts silver does not regress.",
+      "recommendationAlternatives": [
+        "Declare bronze re-append impossible by fixing F-301 first, then accept unconditional upsert semantics under a stated assumption."
+      ],
+      "locations": [
+        "iceberg/medallion/iceberg_medallion.py:147-192",
+        "iceberg/medallion/iceberg_medallion.py:53-73",
+        "iceberg/Dockerfile:3"
+      ],
+      "affectedQualityAttributes": [
+        "correctness",
+        "modifiability",
+        "performance"
+      ],
+      "assumptions": [
+        "The incremental implementation stays on pyiceberg and does not move the medallion to Spark or Trino MERGE, either of which has different semantics and would need re-evaluating."
+      ],
+      "falsePositiveConditions": [
+        "If bronze is proven strictly append-only with monotonically non-decreasing kafka_offset per order_id — which requires F-301 to be closed and IR-003 to hold — the regression path disappears and only the partition-pruning point survives.",
+        "A later pyiceberg release adding a conditional match predicate would remove the primary objection."
+      ],
+      "evidence": [
+        {
+          "type": "direct",
+          "description": "Silver dedup is a sort by kafka_offset descending followed by group_by order_id with hash_first, i.e. a global max-by.",
+          "path": "iceberg/medallion/iceberg_medallion.py",
+          "line": 149,
+          "symbol": "build_silver"
+        },
+        {
+          "type": "direct",
+          "description": "pyiceberg 0.11.1 Table.upsert: when_matched_update_all takes no predicate; join_cols defaults to identifier-field-ids and raises ValueError('Join columns could not be found, please set identifier-field-ids or pass in explicitly.') when none exist; has_duplicate_rows raises if the source has duplicate keys.",
+          "command": "python -c \"import pyiceberg; print(pyiceberg.__version__)\" -> 0.11.1; source read from pyiceberg/table/__init__.py Table.upsert",
+          "limitations": [
+            "Read from the locally installed 0.11.1, which matches the version pinned in iceberg/Dockerfile:3; the container image was not introspected directly."
+          ]
+        },
+        {
+          "type": "direct",
+          "description": "SILVER_SCHEMA declares every field required=False and sets no identifier_field_ids anywhere in the repository, so upsert() without explicit join_cols raises.",
+          "path": "iceberg/medallion/iceberg_medallion.py",
+          "line": 53
+        },
+        {
+          "type": "derived",
+          "description": "upsert's match filter is built from the join key (order_id) while SILVER_PARTITION_SPEC partitions by event_date_day; the predicate is uncorrelated with the partition key, so the match scan and file rewrite cannot be partition-pruned and touch every partition containing any matched order.",
+          "path": "iceberg/medallion/iceberg_medallion.py",
+          "line": 66
+        }
+      ],
+      "tags": [
+        "incremental-blocker",
+        "idempotency",
+        "confirms-IR-002",
+        "answers-Q4",
+        "answers-Q5"
+      ],
+      "fingerprint": "7f157def1ee6d356ff7b"
+    },
+    {
+      "schemaVersion": "architecture-finding.v1",
+      "id": "F-1001",
+      "ruleId": "TE-DOMAIN-001",
+      "title": "The generator and the end-to-end fixture model two different domains, and the architecture decision depends on which one is real",
+      "category": "testability-evolution",
+      "severity": "high",
+      "confidence": "high",
+      "sourceSkill": "audit-testability-and-evolution",
+      "architectureView": "observed",
+      "violatedDeclaredRule": false,
+      "status": "open",
+      "description": "The production generator mints a fresh uuid4 per event, so no order_id ever recurs: an immutable-event domain with no updates (F-708). The end-to-end fixture does the opposite. Each of dup-1, dup-2 and dup-3 is published twice with genuinely different payloads — first (dave, 10.0, paid), then (erin, 30.0, delivered) — and the suite asserts that silver resolves to the second. That is a business update, asserted end to end. The system's own tests therefore describe a lifecycle domain while the system's own data source describes an immutable one, and nothing anywhere states which is intended.",
+      "failureScenario": "The incremental design is chosen against the immutable-event reading, because that is what the running stack produces. Partition-scoped rebuild is selected on the strength of F-708's invariant holding. The e2e suite continues to pass, because its duplicates share one event_date. Later the generator is given real status transitions — a small edit, and the obvious next lesson given that status already ranges over created/paid/shipped/delivered — and an order updated across midnight now yields two silver rows. Both the invariant and the design choice are invalidated by a change nobody classified as architectural.",
+      "impact": "This is the decision that should be made before F-702, not after. Under the immutable reading, dedup is pure replay defence and partition-scoped rebuild is safe. Under the lifecycle reading, order_id is a mutable business key, the F-708 invariant cannot be assumed, and option B's key-based approach rises sharply in value despite its costs. The two readings rank the six options differently.",
+      "recommendation": "Make the domain an explicit, recorded decision before choosing the merge strategy, and align the two artifacts to it. If orders are immutable facts, say so as a declared rule, guard it with the F-708 test, and treat the e2e fixture's dup rows as replay simulation rather than updates — renaming them is enough to remove the ambiguity. If orders have a lifecycle, change the generator to emit transitions now, before the architecture is chosen, so that every subsequent guard is written against the domain that will actually exist.",
+      "recommendationAlternatives": [
+        "Support both deliberately: declare the lifecycle domain as the target, keep the immutable generator as the default demo mode, and require every fitness function to run against both fixtures."
+      ],
+      "locations": [
+        "kafka/producer/orders_producer.py:57-65",
+        "tests/e2e/test_lakehouse_e2e.py:118-137",
+        "tests/e2e/test_lakehouse_e2e.py:1017-1027"
+      ],
+      "affectedQualityAttributes": [
+        "modifiability",
+        "correctness",
+        "testability"
+      ],
+      "assumptions": [
+        "The e2e fixture's differing payloads for one order_id were written to exercise dedup, not to assert a domain rule. The intent is not recorded either way."
+      ],
+      "falsePositiveConditions": [
+        "If a declared rule already states that orders are immutable and duplicates are purely transport-level, the fixture is simply an imprecise simulation and this reduces to a naming issue. No such rule was found in the repository."
+      ],
+      "evidence": [
+        {
+          "type": "direct",
+          "description": "Generator: a new uuid4 order_id on every event, so an order never has a second event.",
+          "path": "kafka/producer/orders_producer.py",
+          "line": 59,
+          "symbol": "create_event"
+        },
+        {
+          "type": "direct",
+          "description": "E2E fixture: dup-1/2/3 each published twice with different customer, amount and status.",
+          "path": "tests/e2e/test_lakehouse_e2e.py",
+          "line": 118,
+          "symbol": "build_fixture"
+        },
+        {
+          "type": "direct",
+          "description": "The suite asserts silver holds the second version: amount 30.0 and status 'delivered' for dup-1.",
+          "path": "tests/e2e/test_lakehouse_e2e.py",
+          "line": 1017
+        }
+      ],
+      "tags": [
+        "domain-mode",
+        "decision-prerequisite",
+        "blocks-F-702-decision"
+      ],
+      "fingerprint": "9d0632c43830126c3049"
+    },
+    {
+      "schemaVersion": "architecture-finding.v1",
+      "id": "F-1002",
+      "ruleId": "TE-FITNESS-001",
+      "title": "Nothing in the suite can distinguish an incremental cycle from a full rebuild",
+      "category": "testability-evolution",
+      "severity": "high",
+      "confidence": "high",
+      "sourceSkill": "audit-testability-and-evolution",
+      "architectureView": "observed",
+      "violatedDeclaredRule": false,
+      "status": "open",
+      "description": "Every existing assertion is about content: row counts, aggregate values, which version of a duplicate won. None is about work performed. QAS-001's response measure is equivalence, and a full rebuild satisfies equivalence perfectly. Combined with F-702's single hot partition, the consequence is that an implementation which is not incremental at all would pass the entire suite, including the deterministic nightly e2e.",
+      "failureScenario": "The change ships, all tests are green, and the medallion still reads every row of bronze on every cycle. Nobody finds out, because no artifact in the repository measures scan volume, file counts, or cycle duration against a baseline. The metrics table records duration_ms but no test asserts anything about it, and duration on a demo dataset is dominated by fixed overhead anyway.",
+      "impact": "Without this guard the incremental work is unfalsifiable. It is also the cheapest way to resolve F-702 without deciding it in advance: write the guard first, then discover whether a fixture exists that can make it pass. If none can be constructed, F-702 must be fixed. The guard is the decision procedure.",
+      "recommendation": "Add a scan-volume measure before adding incremental behaviour. DataScan exposes plan_files, so the number of data files a cycle plans to read is directly observable from pyiceberg with no instrumentation. Assert that an incremental cycle over a multi-partition fixture plans strictly fewer files than a full rebuild over the same bronze state. Add the same measure as a second response measure on QAS-001 so the quality scenario becomes falsifiable.",
+      "recommendationAlternatives": [
+        "Record files-scanned per cycle into marts.lakehouse_metrics and assert on it there, reusing the existing metrics path instead of adding a test-only measure."
+      ],
+      "locations": [
+        "tests/e2e/test_lakehouse_e2e.py:880-1050",
+        "iceberg/medallion/iceberg_medallion.py:257",
+        ".architecture-audit/02-intent/architecture-profile.json QAS-001"
+      ],
+      "affectedQualityAttributes": [
+        "performance",
+        "testability",
+        "demonstrability"
+      ],
+      "assumptions": [
+        "plan_files is stable enough across pyiceberg 0.11.x to assert on file counts rather than exact plans."
+      ],
+      "falsePositiveConditions": [
+        "If the goal of the exercise is only correctness of incremental semantics and not work reduction, this guard is unnecessary — but QAS-001 should then say so."
+      ],
+      "evidence": [
+        {
+          "type": "derived",
+          "description": "Enumeration of all 60 test functions: every assertion is on content or state, none on work performed.",
+          "command": "grep -rn '^def test_|^    def test_' tests/ --include=*.py"
+        },
+        {
+          "type": "direct",
+          "description": "DataScan exposes plan_files, count and to_arrow; file-level scan planning is observable without instrumentation.",
+          "command": "python -c \"from pyiceberg.table import DataScan; print([m for m in dir(DataScan) if not m.startswith('_')])\""
+        },
+        {
+          "type": "direct",
+          "description": "QAS-001's response measure is stated purely as equivalence of row counts and aggregates.",
+          "artifact": ".architecture-audit/02-intent/architecture-profile.json",
+          "sha256": "537bb4d93f4e166620fc754b00286d9bf75082aabc479367ff7294f9f4e1bab8"
+        }
+      ],
+      "tags": [
+        "fitness-function",
+        "answers-F-702",
+        "unfalsifiable-without-guard"
+      ],
+      "fingerprint": "ec246ffdb5e82fba9286"
+    },
+    {
+      "schemaVersion": "architecture-finding.v1",
+      "id": "F-1003",
+      "ruleId": "TE-FITNESS-002",
+      "title": "The ordering regression in F-303 cannot be produced by publication order; it needs a replay seam that does not exist",
+      "category": "testability-evolution",
+      "severity": "high",
+      "confidence": "high",
+      "sourceSkill": "audit-testability-and-evolution",
+      "architectureView": "observed",
+      "violatedDeclaredRule": false,
+      "status": "open",
+      "description": "The e2e suite already asserts latest-offset-wins: dup-1 resolves to the later, higher-offset version. That assertion cannot catch F-303. Kafka assigns offsets in publication order, so a later-published event always carries a higher offset and the winning version always arrives last. The regression F-303 describes — a lower offset applied after a higher one — is reachable only by replay: bronze re-appending an older landing file, which is exactly what F-301 and F-703 produce. No test in the repository injects a replay, and there is no seam for one. The writer's SIMULATE_CRASH hooks inject crashes, not replays.",
+      "failureScenario": "The incremental implementation adopts an unconditional match-and-update. The existing dup assertions pass, because they only ever see ascending offsets. The regression stays invisible until a real crash or a real orphan file replays an older batch in a running stack, at which point silver quietly reverts an order to a stale version and no test ever covered the path.",
+      "impact": "This is the single most important guard to get right, because it is the one whose absence is actively disguised by a passing test. It also only means anything in the lifecycle domain: in the immutable-event domain a replayed duplicate carries an identical payload, so a regression writes the same values and the assertion cannot fail. The guard and F-1001's domain decision are coupled.",
+      "recommendation": "Build the replay seam at the bronze level, not the Kafka level — it is both simpler and closer to the real failure. Append a previously ingested landing file to bronze a second time, run a medallion cycle, and assert silver still holds the higher-offset version. In the immutable domain the assertion is vacuous, so the fixture must carry differing payloads for one order_id; reuse the e2e's dup rows, which already have exactly that shape.",
+      "recommendationAlternatives": [
+        "Inject the replay by writing a hand-built Arrow batch with a deliberately lower kafka_offset directly to bronze, skipping the landing layer entirely. Less faithful to the real mechanism, but a unit-level test rather than an integration one."
+      ],
+      "locations": [
+        "tests/e2e/test_lakehouse_e2e.py:1017-1027",
+        "iceberg/medallion/iceberg_medallion.py:147-192",
+        "iceberg/writer/iceberg_writer.py:51-52"
+      ],
+      "affectedQualityAttributes": [
+        "correctness",
+        "testability"
+      ],
+      "assumptions": [
+        "Kafka offsets are strictly increasing per partition and the producer keys by order_id, so all events for one order share a partition and an ascending offset sequence."
+      ],
+      "falsePositiveConditions": [
+        "If a design is chosen that recomputes the max within a scope rather than applying a match-and-update — option C — the regression cannot occur by construction and this guard becomes a regression test for a property rather than a defence against a live risk. It is still worth having, and it is cheap."
+      ],
+      "evidence": [
+        {
+          "type": "direct",
+          "description": "The e2e duplicates are published in ascending order: the winning version is always published second.",
+          "path": "tests/e2e/test_lakehouse_e2e.py",
+          "line": 118
+        },
+        {
+          "type": "direct",
+          "description": "The only fault-injection seams in production code are SIMULATE_CRASH_BEFORE_COMMIT and SIMULATE_CRASH_AFTER_COMMIT in the writer; neither replays data.",
+          "path": "iceberg/writer/iceberg_writer.py",
+          "line": 51
+        },
+        {
+          "type": "derived",
+          "description": "No test writes to bronze twice from the same source file, and no test constructs a descending offset sequence.",
+          "command": "review of tests/integration/test_crash_recovery.py and tests/e2e/test_lakehouse_e2e.py"
+        }
+      ],
+      "tags": [
+        "fitness-function",
+        "replay",
+        "domain-dependent",
+        "guards-F-303"
+      ],
+      "fingerprint": "f39f885f5e09b9e37f5f"
+    },
+    {
+      "schemaVersion": "architecture-finding.v1",
+      "id": "F-1004",
+      "ruleId": "TE-SEAM-001",
+      "title": "The component about to acquire state has no fault-injection seam and no integration test at all",
+      "category": "testability-evolution",
+      "severity": "high",
+      "confidence": "high",
+      "sourceSkill": "audit-testability-and-evolution",
+      "architectureView": "observed",
+      "violatedDeclaredRule": false,
+      "status": "open",
+      "description": "The writer is well served: two crash seams built into production code, and an integration suite that starts it as a real subprocess, kills it at a chosen point, restarts it and asserts no duplicate append. That is genuine fault injection and it is the best testing asset in the repository. The medallion has neither. Its entire test surface is unit-level with mocked catalogs and tables; the only place it runs for real is inside the nightly e2e, which never interrupts it. The asymmetry is exactly backwards for the work ahead: the writer is stateful and tested for crash recovery, the medallion is stateless and untested for it, and the change makes the medallion stateful.",
+      "failureScenario": "The incremental medallion commits silver, then dies before recording progress. On restart it reprocesses the same scope — harmless if the rebuild is idempotent, silently wrong if it applies a delta. The reverse order fails the other way. Neither path has a test, and the e2e cannot produce one because it only ever runs the medallion to completion.",
+      "impact": "Progress state without crash tests is the specific failure mode this whole audit has been circling. F-301 exists because the writer's recovery depends on state another component may delete; repeating that at the medallion layer without even the writer's level of testing would be a regression in engineering quality, not just in architecture.",
+      "recommendation": "Mirror the writer's seam before writing the progress logic: SIMULATE_CRASH_BEFORE_SILVER_COMMIT and SIMULATE_CRASH_AFTER_SILVER_COMMIT, in the same style and read from the same kind of environment variable, plus a medallion equivalent of tests/integration/test_crash_recovery.py. The existing test file is the template — isolated namespace fixture, real subprocess, os._exit, restart, assert. Roughly a day's work and it is a prerequisite, not a follow-up.",
+      "recommendationAlternatives": [
+        "If a crash seam in production code is considered unacceptable, drive the crash externally by killing the subprocess at a point determined by log output — slower and flakier, but no production hook."
+      ],
+      "locations": [
+        "tests/integration/test_crash_recovery.py:143-201",
+        "tests/test_medallion.py:275-390",
+        "iceberg/medallion/iceberg_medallion.py:243-321"
+      ],
+      "affectedQualityAttributes": [
+        "resilience",
+        "testability"
+      ],
+      "assumptions": [],
+      "falsePositiveConditions": [
+        "If the chosen design keeps the medallion fully stateless — for example the outbox is read from and acknowledged by the writer, never by the medallion — the crash surface is smaller, though not zero."
+      ],
+      "evidence": [
+        {
+          "type": "direct",
+          "description": "Writer crash tests start a real subprocess, assert the exit code from os._exit, restart and verify no duplicate append.",
+          "path": "tests/integration/test_crash_recovery.py",
+          "line": 144
+        },
+        {
+          "type": "direct",
+          "description": "All medallion run() tests use mocked catalog and table objects; no medallion process is ever interrupted.",
+          "path": "tests/test_medallion.py",
+          "line": 275
+        },
+        {
+          "type": "derived",
+          "description": "tests/integration contains only test_crash_recovery.py and test_iceberg_trino.py; neither starts the medallion as a process.",
+          "command": "ls tests/integration"
+        }
+      ],
+      "tags": [
+        "fault-injection",
+        "seam",
+        "prerequisite"
+      ],
+      "fingerprint": "10fa72d2aa316f3a79fd"
+    },
+    {
+      "schemaVersion": "architecture-finding.v1",
+      "id": "F-703",
+      "ruleId": "DI-CONTRACT-001",
+      "title": "The Landing-to-Bronze bridge discards Spark's commit manifest and substitutes a five-second settle heuristic",
+      "category": "data-integration",
+      "severity": "high",
+      "confidence": "medium",
+      "sourceSkill": "audit-data-and-integration-architecture",
+      "architectureView": "observed",
+      "violatedDeclaredRule": false,
+      "status": "open",
+      "description": "Spark's streaming file sink does not treat the presence of a parquet file in the output directory as a commit. It maintains a manifest under _spark_metadata listing the files each batch actually committed; readers that honour it observe exactly-once output, and files left behind by failed or superseded attempts are excluded. iceberg-writer does not read that manifest. It lists the prefix, accepts anything ending in .parquet, skips paths containing /_temporary/, and treats a file as ready once its mtime is five seconds old. /_temporary/ is the marker used by the batch FileOutputCommitter, not by the streaming ManifestFileCommitProtocol — the guard is aimed at the wrong protocol.",
+      "failureScenario": "An executor dies after writing its output file but before the batch commits, or the driver fails between task commit and batch commit. The orphaned file stays in the landing prefix and is absent from _spark_metadata. Spark reprocesses the batch on restart and writes fresh files for the same Kafka offsets. iceberg-writer, which cannot distinguish the two, ingests both. Bronze now holds the same orders twice with different kafka_offset values only if the offsets differ — and they do not, because the replay covers the same offsets. The duplicate is byte-identical apart from file provenance.",
+      "impact": "This is the upstream source of the duplicate rows that AR-004's dedup exists to absorb, and it is why the whole medallion has depended on a full rebuild. It compounds F-301: that finding shows bronze can gain duplicates from writer re-append, this one shows it can gain them from the sink boundary as well. An incremental Silver that trusts bronze to be an append-only log of distinct facts is trusting a boundary that has no commit contract.",
+      "recommendation": "Make the boundary honour the producer's commit protocol. The direct fix is to read s3://<bucket>/streaming/orders_raw/_spark_metadata and ingest only files listed in committed batches, which also gives the writer a natural batch identity to use as its load-id and removes the settle-time heuristic entirely. If reading Spark's internal manifest format is considered too coupled, the alternative is to stop using the file sink as a contract and have Spark write bronze directly, or to publish an explicit completion marker per batch. What should not survive the incremental work is a time-based guess standing in for a commit.",
+      "recommendationAlternatives": [
+        "Keep the heuristic and treat bronze as at-least-once by contract, documenting that Silver's dedup is load-bearing rather than defensive — which is a defensible position, but it must then be a declared rule with a test, not an accident."
+      ],
+      "locations": [
+        "spark/jobs/orders_streaming.py:263-272",
+        "iceberg/writer/iceberg_writer.py:113-144"
+      ],
+      "affectedQualityAttributes": [
+        "correctness",
+        "data integrity",
+        "resilience"
+      ],
+      "assumptions": [
+        "The Spark version in use writes _spark_metadata for the parquet file sink, which has been the behaviour of Structured Streaming's FileStreamSink since 2.0."
+      ],
+      "falsePositiveConditions": [
+        "If no executor or driver failure ever occurs in a single-host demo stack, orphan files never appear and the boundary is fine in practice. The absence of a commit contract remains, but the live risk would be near zero.",
+        "If MinIO's listing and the writer's five-second settle window happen to exclude orphans for timing reasons, the failure is masked rather than absent.",
+        "Not observed in this stack: no orphan file was found, because no live stack was started for this phase."
+      ],
+      "evidence": [
+        {
+          "type": "direct",
+          "description": "Spark writes the landing prefix through the streaming parquet sink with a checkpoint location, which activates the manifest commit protocol.",
+          "path": "spark/jobs/orders_streaming.py",
+          "line": 263
+        },
+        {
+          "type": "direct",
+          "description": "The writer's file selection: any .parquet under the prefix, excluding only /_temporary/, gated by an mtime settle window.",
+          "path": "iceberg/writer/iceberg_writer.py",
+          "line": 120,
+          "symbol": "list_new_files"
+        },
+        {
+          "type": "direct",
+          "description": "The settle test is a five-second mtime age, configured by SETTLE_SECONDS and lowered to 1 in the e2e suite.",
+          "path": "iceberg/writer/iceberg_writer.py",
+          "line": 113,
+          "symbol": "is_settled"
+        },
+        {
+          "type": "external",
+          "description": "Spark Structured Streaming's FileStreamSink records committed output files in a _spark_metadata directory alongside the output path; readers that ignore it can observe files from failed or superseded batch attempts. Apache Spark Structured Streaming Programming Guide, file sink semantics.",
+          "limitations": [
+            "Behaviour taken from documented Spark semantics, not reproduced against this stack."
+          ]
+        }
+      ],
+      "tags": [
+        "exactly-once",
+        "commit-contract",
+        "duplicate-source"
+      ],
+      "fingerprint": "7d1530df18fb6da0a7af"
+    },
+    {
+      "schemaVersion": "architecture-finding.v1",
+      "id": "F-704",
+      "ruleId": "DI-CAPABILITY-001",
+      "title": "The pinned pyiceberg has no incremental scan, so snapshot-delta designs require hand-rolled manifest diffing",
+      "category": "data-integration",
+      "severity": "medium",
+      "confidence": "high",
+      "sourceSkill": "audit-data-and-integration-architecture",
+      "architectureView": "observed",
+      "violatedDeclaredRule": false,
+      "status": "open",
+      "description": "pyiceberg 0.11.1, the version pinned in iceberg/Dockerfile, exposes on Table only append and scan. Table.scan accepts snapshot_id, which is time travel — a full scan as of a snapshot — not a delta between snapshots. There is no incremental_append_scan and no changelog reader. A snapshot-delta design is still reachable through table.inspect.data_files(snapshot_id=...), which lists the files a given snapshot added, but that means reading the parquet files directly and reconstructing an incremental scan out of metadata inspection APIs.",
+      "failureScenario": "A design chooses 'read the bronze delta since snapshot N' on the assumption that the library supports it. Implementation discovers it does not, and the fallback is either a dependency on internal inspection APIs whose stability across pyiceberg versions is not guaranteed, or an unplanned runtime change to Spark or Trino mid-project. Both are late, expensive discoveries.",
+      "impact": "Directly constrains one of the six options under evaluation. It does not eliminate snapshot-delta, but it prices it correctly: it is the only option that requires building machinery the library does not provide, and that machinery is additionally exposed to the retention dependency in F-301.",
+      "recommendation": "Price this into the option comparison rather than discovering it during implementation. If a snapshot-delta design is chosen anyway, isolate the manifest-diffing behind one function with its own tests so a future pyiceberg upgrade or a move to Spark replaces one unit. Verify the API surface against the version actually installed in the image, not against current upstream documentation.",
+      "locations": [
+        "iceberg/Dockerfile:3",
+        "iceberg/medallion/iceberg_medallion.py:257"
+      ],
+      "affectedQualityAttributes": [
+        "modifiability",
+        "feasibility"
+      ],
+      "assumptions": [
+        "The pinned version is not going to be upgraded as part of this change. pyiceberg-core is pinned elsewhere in the project for a known reason, so version movement is not free."
+      ],
+      "falsePositiveConditions": [
+        "A pyiceberg upgrade that adds an incremental append scan removes this entirely.",
+        "Moving the medallion to Spark or Trino removes it, at the cost of a new runtime dependency in the medallion path."
+      ],
+      "evidence": [
+        {
+          "type": "direct",
+          "description": "Table exposes only 'append' and 'scan'; incremental_append_scan does not exist. Table.scan's snapshot_id parameter is time travel, not a delta.",
+          "command": "python -c \"from pyiceberg.table import Table; print([n for n in dir(Table) if 'scan' in n or 'append' in n])\" -> ['append', 'scan']"
+        },
+        {
+          "type": "direct",
+          "description": "Table.overwrite does accept overwrite_filter, so partition-scoped overwrite is available in the same pinned version.",
+          "command": "inspect.signature(Table.overwrite) -> (df, overwrite_filter=AlwaysTrue(), snapshot_properties={}, case_sensitive=True, branch='main')"
+        },
+        {
+          "type": "direct",
+          "description": "table.inspect exposes data_files/entries/manifests per snapshot, which is the only route to a delta in this version.",
+          "command": "dir(InspectTable) -> [... 'data_files', 'entries', 'manifests', 'snapshots' ...]"
+        },
+        {
+          "type": "direct",
+          "description": "The image pins pyiceberg[pyarrow]==0.11.1, matching the version introspected.",
+          "path": "iceberg/Dockerfile",
+          "line": 3
+        }
+      ],
+      "tags": [
+        "feasibility",
+        "answers-Q5",
+        "constrains-option-A"
+      ],
+      "fingerprint": "af105176544a6a5f72f4"
+    },
+    {
+      "schemaVersion": "architecture-finding.v1",
+      "id": "F-705",
+      "ruleId": "DI-RELIABILITY-001",
+      "title": "Malformed events are silently dropped and offset loss is silently tolerated, with no dead-letter path and no reconciliation",
+      "category": "data-integration",
+      "severity": "medium",
+      "confidence": "high",
+      "sourceSkill": "audit-data-and-integration-architecture",
+      "architectureView": "observed",
+      "violatedDeclaredRule": false,
+      "status": "open",
+      "description": "from_json in its default permissive mode yields an all-null struct for any payload it cannot parse against ORDER_SCHEMA. The next stage filters on order_id is not null, so those rows vanish with no counter, no dead-letter topic and no log line. Separately the Kafka source sets failOnDataLoss to false, which converts missing offsets — topic retention having overtaken the consumer — into a silent skip. Nothing anywhere compares events produced against rows landed.",
+      "failureScenario": "A payload change or a serialisation bug makes some fraction of events unparseable. Throughput looks normal, no error appears, and the loss is discovered only if someone counts. Under full overwrite this at least stays consistent — the missing rows are missing everywhere. Under an incremental design the same silence applies to the delta, and a cycle that processed nothing is indistinguishable from a cycle that silently dropped everything.",
+      "impact": "The medallion's quality checks run on bronze and count nulls that arrived; nothing counts what never arrived. Adding progress state without adding reconciliation means the pipeline will confidently record progress past data it dropped.",
+      "recommendation": "Before progress state is introduced, add the counterpart: route unparseable payloads to a dead-letter path — a marts table or a separate landing prefix is enough for this stack — and emit produced-versus-landed counts into the existing metrics table. A progress marker that can advance past silently dropped data is worse than no progress marker, because it makes the loss permanent instead of repaired by the next full rebuild.",
+      "recommendationAlternatives": [
+        "Set failOnDataLoss to true and let the job fail loudly, if the teaching goal favours visible failure over continuity."
+      ],
+      "locations": [
+        "spark/jobs/orders_streaming.py:234-261",
+        "iceberg/medallion/iceberg_medallion.py:217-240"
+      ],
+      "affectedQualityAttributes": [
+        "observability",
+        "data integrity"
+      ],
+      "assumptions": [
+        "from_json is running in its default PERMISSIVE mode; no mode option is set on the call."
+      ],
+      "falsePositiveConditions": [
+        "The producer is a controlled generator emitting well-formed JSON, so in the demo stack the parse failure rate is zero and this is latent rather than active."
+      ],
+      "evidence": [
+        {
+          "type": "direct",
+          "description": "from_json against ORDER_SCHEMA followed by a filter on order_id is not null, with no branch capturing the rejected rows.",
+          "path": "spark/jobs/orders_streaming.py",
+          "line": 259
+        },
+        {
+          "type": "direct",
+          "description": "failOnDataLoss is set to false on the Kafka source.",
+          "path": "spark/jobs/orders_streaming.py",
+          "line": 239
+        },
+        {
+          "type": "derived",
+          "description": "The metrics table records rows_processed, bronze_rows, silver_rows and quality_violations, but no produced-event count and no rejected-event count.",
+          "path": "iceberg/common/ops.py",
+          "line": 18
+        }
+      ],
+      "tags": [
+        "dead-letter",
+        "reconciliation",
+        "silent-loss"
+      ],
+      "fingerprint": "52833761436ac047e92c"
+    },
+    {
+      "schemaVersion": "architecture-finding.v1",
+      "id": "F-706",
+      "ruleId": "DI-CONTRACT-002",
+      "title": "The order schema is declared three times in three languages with no shared definition and no compatibility test",
+      "category": "data-integration",
+      "severity": "medium",
+      "confidence": "high",
+      "sourceSkill": "audit-data-and-integration-architecture",
+      "architectureView": "observed",
+      "violatedDeclaredRule": false,
+      "status": "open",
+      "description": "The same record is declared as a Spark StructType for JSON parsing, as an Iceberg Schema for bronze, and again as an Iceberg Schema for silver, plus a fourth time as SQL DDL for marts.streaming_orders. The four are currently consistent, which is the only thing keeping the pipeline working: pyiceberg validates the incoming Arrow schema against the table on append, so a drift between Spark's output and bronze's schema surfaces as a runtime append failure rather than a build failure. There is no registry, no generated code, and no test that compares them.",
+      "failureScenario": "The incremental work adds a column — a load_id or an ingested_at, exactly as F-701 may require. It is added to the writer's TABLE_SCHEMA and to the Spark projection but not to SILVER_SCHEMA, or in a different order. The medallion's cast in _normalize_null_typed_columns operates on a fixed dictionary of ten column names and silently ignores the eleventh. The failure surfaces as missing data in silver, not as an error.",
+      "impact": "Every option under consideration in this phase involves a schema change to at least one of the three declarations. The cost of that change is currently paid in coordination rather than in tooling.",
+      "recommendation": "Do not build a schema registry for a teaching stack. Do add one test that asserts the three declarations agree on field names, order and nullability, so that the coordination cost becomes a failing test rather than a silent divergence. It is roughly twenty lines and it is the cheapest guard in this report.",
+      "locations": [
+        "spark/jobs/orders_streaming.py:45-54",
+        "iceberg/writer/iceberg_writer.py:56-67",
+        "iceberg/medallion/iceberg_medallion.py:53-64",
+        "iceberg/medallion/iceberg_medallion.py:119-144",
+        "spark/jobs/orders_streaming.py:71-83"
+      ],
+      "affectedQualityAttributes": [
+        "modifiability",
+        "correctness"
+      ],
+      "assumptions": [],
+      "falsePositiveConditions": [
+        "If the three declarations are considered independent contracts for independent stores rather than copies of one contract, the finding becomes informational — but the incremental change would still touch all three."
+      ],
+      "evidence": [
+        {
+          "type": "direct",
+          "description": "Spark ORDER_SCHEMA: six JSON fields, extended with three kafka columns and event_date.",
+          "path": "spark/jobs/orders_streaming.py",
+          "line": 45
+        },
+        {
+          "type": "direct",
+          "description": "Bronze TABLE_SCHEMA: the same ten fields, hand-declared with explicit field ids.",
+          "path": "iceberg/writer/iceberg_writer.py",
+          "line": 56
+        },
+        {
+          "type": "direct",
+          "description": "Silver SILVER_SCHEMA: the same ten fields again, plus a parallel hand-maintained _SILVER_TYPES dictionary used for null-type normalisation.",
+          "path": "iceberg/medallion/iceberg_medallion.py",
+          "line": 119
+        }
+      ],
+      "tags": [
+        "schema-governance",
+        "answers-Q7"
+      ],
+      "fingerprint": "4068b4cb4d1c3cae27ce"
+    },
+    {
+      "schemaVersion": "architecture-finding.v1",
+      "id": "F-707",
+      "ruleId": "DI-PROGRESS-002",
+      "title": "The only existing progress state is an unbounded JSON file rewritten in full on every load",
+      "category": "data-integration",
+      "severity": "medium",
+      "confidence": "high",
+      "sourceSkill": "audit-data-and-integration-architecture",
+      "architectureView": "observed",
+      "violatedDeclaredRule": false,
+      "status": "open",
+      "description": "AR-003's state file holds a done set containing every landing path ever ingested, sorted and serialised in full on each save, and save_state is called two to three times per load. Nothing prunes it and nothing prunes the landing prefix it mirrors. It is also written non-atomically: write_text truncates before it writes, so a crash inside save_state leaves a truncated or empty state file, and load_state would then either raise on malformed JSON or silently return an empty done set and re-ingest everything.",
+      "failureScenario": "The stack runs long enough for the landing prefix to accumulate tens of thousands of files. Every ten-second poll rewrites the whole file. Separately, a kill during save_state corrupts it; on restart the writer sees an empty done set, re-ingests the entire landing prefix, and bronze doubles. Today the medallion's full rebuild absorbs that; after the incremental change it does not.",
+      "impact": "This is the existing precedent for progress state in this system, and the incremental medallion will be tempted to copy it. It should not be copied. It also raises the stakes on F-701's choice: whatever carries medallion progress must be atomically written and bounded, which a full-rewrite JSON on a Docker volume is not.",
+      "recommendation": "If the medallion's progress state goes into a file, write it atomically — temp file plus rename — and bound it. A single row in a control table with a real transaction is simpler than getting a file right, and the Postgres dependency already exists in both containers through common.ops. Whichever is chosen, apply the same fix to the writer's state file: the crash-recovery tests cover the pending/done logic but not a corrupted state file.",
+      "recommendationAlternatives": [
+        "Keep the JSON but prune done against the landing prefix listing, and add a landing retention policy so both bound together."
+      ],
+      "locations": [
+        "iceberg/writer/iceberg_writer.py:79-100",
+        "iceberg/writer/iceberg_writer.py:244-332"
+      ],
+      "affectedQualityAttributes": [
+        "resilience",
+        "performance",
+        "operability"
+      ],
+      "assumptions": [
+        "Path.write_text truncates the target before writing, so there is a window in which the file exists and is incomplete."
+      ],
+      "falsePositiveConditions": [
+        "In a demo stack that runs for hours rather than months, the unbounded growth never becomes visible. The non-atomic write remains a real defect independent of scale."
+      ],
+      "evidence": [
+        {
+          "type": "direct",
+          "description": "save_state serialises the full done set on every call.",
+          "path": "iceberg/writer/iceberg_writer.py",
+          "line": 90,
+          "symbol": "save_state"
+        },
+        {
+          "type": "direct",
+          "description": "It is called on load registration, on success, and again in the error path, i.e. two to three times per load.",
+          "path": "iceberg/writer/iceberg_writer.py",
+          "line": 260
+        },
+        {
+          "type": "derived",
+          "description": "No code path removes entries from done or deletes files from the landing prefix; a grep for the landing prefix finds only the writer's read and Spark's write.",
+          "command": "grep -rn 'orders_raw' --include=*.py --include=*.yml ."
+        }
+      ],
+      "tags": [
+        "progress-state",
+        "atomicity",
+        "answers-Q1",
+        "answers-Q2"
+      ],
+      "fingerprint": "5b1c1d20e65863fe7630"
+    },
+    {
+      "schemaVersion": "architecture-finding.v1",
+      "id": "F-708",
+      "ruleId": "DI-INVARIANT-001",
+      "title": "Partition-scoped rebuild is correct only while order_id maps to exactly one event_date, and nothing enforces that",
+      "category": "data-integration",
+      "severity": "medium",
+      "confidence": "high",
+      "sourceSkill": "audit-data-and-integration-architecture",
+      "architectureView": "inferred",
+      "violatedDeclaredRule": false,
+      "status": "open",
+      "description": "AR-004 deduplicates by order_id across the whole table. Any design that rebuilds silver one partition at a time deduplicates by order_id within a partition. The two agree only if every order_id occurs in exactly one event_date partition. That holds today for a reason that is incidental rather than designed: the generator mints a fresh uuid4 order_id for every event, so an order never has a second event at all, let alone one on another date. Nothing declares this, nothing tests it, and any move toward genuine order updates — the natural next teaching step after status is already a field — breaks it.",
+      "failureScenario": "The generator is changed to emit status transitions for existing orders, as a lesson on updates. An order created at 23:58 is paid at 00:03. The two events land in different event_date partitions. Partition-scoped dedup produces one silver row in each partition: the order appears twice in silver, and gold counts it twice. Full overwrite never had this failure mode, because its dedup was global. The regression is silent and appears only across midnight.",
+      "impact": "This is the hidden cost of the partition-scoped options, and it is easy to miss because the current data can never exhibit it. It should be a stated invariant with a guard, not an unexamined assumption.",
+      "recommendation": "If a partition-scoped design is chosen, declare the invariant explicitly — an order_id belongs to exactly one event_date — and guard it with a test that asserts no order_id spans two partitions in bronze. That test is cheap now and becomes the tripwire the day the generator gains update semantics. If genuine updates are a planned teaching goal, the invariant will not hold and the design should be keyed on order_id rather than on partition, which changes the option ranking.",
+      "recommendationAlternatives": [
+        "Partition silver by a stable derivation of order_id rather than by event_date, which makes dedup and partitioning agree by construction and makes updates safe — at the cost of losing date-range pruning for Trino consumers."
+      ],
+      "locations": [
+        "kafka/producer/orders_producer.py:57-65",
+        "iceberg/medallion/iceberg_medallion.py:147-192",
+        "iceberg/medallion/iceberg_medallion.py:66-73"
+      ],
+      "affectedQualityAttributes": [
+        "correctness",
+        "modifiability"
+      ],
+      "assumptions": [
+        "Inferred from the generator's behaviour, not from any declared rule. The repository nowhere states whether an order_id may recur."
+      ],
+      "falsePositiveConditions": [
+        "If a declared rule is added stating that orders are immutable facts and never updated, the invariant is guaranteed by contract and only the test is needed.",
+        "If no partition-scoped design is chosen, this does not apply at all."
+      ],
+      "evidence": [
+        {
+          "type": "direct",
+          "description": "The generator mints a new uuid4 order_id per event; no event ever refers to a previously emitted order.",
+          "path": "kafka/producer/orders_producer.py",
+          "line": 59,
+          "symbol": "create_event"
+        },
+        {
+          "type": "direct",
+          "description": "build_silver groups by order_id over the entire input with no partition scoping, i.e. today's dedup is global.",
+          "path": "iceberg/medallion/iceberg_medallion.py",
+          "line": 164
+        },
+        {
+          "type": "inferred",
+          "description": "status is drawn at random from created/paid/shipped/delivered per unique order, so the data has the shape of a lifecycle without the semantics of one. A future change to real transitions is a small edit with a large architectural consequence.",
+          "path": "kafka/producer/orders_producer.py",
+          "line": 31
+        }
+      ],
+      "tags": [
+        "invariant",
+        "answers-Q4",
+        "answers-Q5",
+        "fitness-function"
+      ],
+      "fingerprint": "a970b3df818dbce5a30f"
+    },
+    {
+      "schemaVersion": "architecture-finding.v1",
+      "id": "F-304",
+      "ruleId": "DB-BOUNDARY-004",
+      "title": "The deduplication rule is implemented twice, in two languages, on two sides of a boundary, with no owner and nothing reconciling them",
+      "category": "dependency-boundaries",
+      "severity": "medium",
+      "confidence": "high",
+      "sourceSkill": "audit-dependency-boundaries",
+      "architectureView": "observed",
+      "violatedDeclaredRule": false,
+      "status": "open",
+      "description": "AR-007 records that the PostgreSQL upsert is a second independent output of the same stream. It is more than that: both outputs implement the same business rule. orders-streaming deduplicates by order_id keeping the highest kafka_offset in SQL (row_number() over (partition by order_id order by kafka_offset desc), rn = 1); the medallion implements the identical rule in PyArrow. Neither references the other; no artifact names an owner; no test compares their outputs.",
+      "failureScenario": "The incremental change edits the medallion's dedup path — for instance to merge a delta against existing silver rows. marts.streaming_orders keeps the old semantics because nothing links them. Two serving surfaces, Metabase over Postgres and Superset over Trino, then disagree about the same order, and nothing in the stack detects it.",
+      "impact": "Focus question 2, who owns deduplication semantics, currently has the answer 'nobody'. Any incremental design must either name an owner or accept a permanent second implementation and test for divergence.",
+      "recommendation": "Name the owner explicitly in the incremental design. The lowest-cost option is to declare AR-004 owned by the medallion, document marts.streaming_orders as an independently derived low-latency view with intentionally weaker guarantees, and add one reconciliation test asserting that for a settled fixture the two agree on order_id and kafka_offset. Do not attempt to share code across the Spark and PyIceberg runtimes; they have no packaging boundary in common.",
+      "locations": [
+        "spark/jobs/orders_streaming.py:133-189",
+        "iceberg/medallion/iceberg_medallion.py:147-192"
+      ],
+      "affectedQualityAttributes": [
+        "consistency",
+        "modifiability"
+      ],
+      "assumptions": [
+        "Both paths are intended to represent the same orders; the repository never states this, but the column sets are identical apart from event_date."
+      ],
+      "falsePositiveConditions": [
+        "If the two outputs are intentionally different products with different freshness contracts and are documented as such, this drops to informational."
+      ],
+      "evidence": [
+        {
+          "type": "direct",
+          "description": "SQL dedup: row_number() over (partition by order_id order by kafka_offset desc), where rn = 1.",
+          "path": "spark/jobs/orders_streaming.py",
+          "line": 146
+        },
+        {
+          "type": "direct",
+          "description": "PyArrow dedup: sort_by kafka_offset descending then group_by order_id with hash_first.",
+          "path": "iceberg/medallion/iceberg_medallion.py",
+          "line": 149
+        },
+        {
+          "type": "derived",
+          "description": "No test in tests/ compares marts.streaming_orders with silver.orders_clean; the two are exercised by separate suites.",
+          "command": "enumeration of test functions across tests/"
+        }
+      ],
+      "tags": [
+        "duplicated-rule",
+        "answers-Q2"
+      ],
+      "fingerprint": "db29dc6c3260a0b84504"
+    },
+    {
+      "schemaVersion": "architecture-finding.v1",
+      "id": "F-305",
+      "ruleId": "DB-BOUNDARY-005",
+      "title": "The marts schema has five independent DDL owners, including a student exercise, and no migration owner",
+      "category": "dependency-boundaries",
+      "severity": "medium",
+      "confidence": "high",
+      "sourceSkill": "audit-dependency-boundaries",
+      "architectureView": "observed",
+      "violatedDeclaredRule": false,
+      "status": "open",
+      "description": "B-006 notes that no declared rule partitions ownership of the marts schema. The audit finds the situation is stronger than fan-in: five separate producers issue DDL against marts, three of them at runtime, all through the same 'app' credential. db/init/001_schemas.sql creates the schema; orders_streaming.initialise_database re-creates it and two tables on every job start; common.ops.Metrics._ensure_schema creates marts.lakehouse_metrics on first write from two different containers; lakehouse_maintenance.write_audit creates marts.maintenance_runs on every run; and db/tasks/01_create_payment_type_daily.sql invites a learner to create marts.v_payment_type_daily by hand.",
+      "failureScenario": "The incremental medallion needs somewhere to record progress — a watermark, a last-processed snapshot id, a per-run ledger. The obvious home is marts, next to lakehouse_metrics. That table then inherits the same regime: created by whichever process starts first, defined in Python string DDL with no migration history, and writable and droppable by a student following the exercises in db/tasks. Progress state is the one thing in an incremental design that must not be silently lost.",
+      "impact": "Directly constrains focus question 3, where incremental progress should live. marts as it exists today is not a safe home for it.",
+      "recommendation": "Before adding progress state, decide its owner and give it a real schema. Two defensible options: put medallion progress in a dedicated schema (for example ops) created only by db/init, owned by one writer, and outside the surface the exercises touch; or keep progress inside the lakehouse itself as Iceberg table properties or a control table in the iceberg catalog, so it shares the transactional boundary of the data it describes. Either way, stop creating operational tables from inline runtime DDL.",
+      "recommendationAlternatives": [
+        "Keep runtime DDL but move every operational table into a schema the exercises cannot reach, and grant the student a separate role."
+      ],
+      "locations": [
+        "db/init/001_schemas.sql:3",
+        "spark/jobs/orders_streaming.py:66-103",
+        "iceberg/common/ops.py:17-32",
+        "iceberg/common/ops.py:57-62",
+        "dags/lakehouse_maintenance.py:33-43",
+        "db/tasks/01_create_payment_type_daily.sql:16"
+      ],
+      "affectedQualityAttributes": [
+        "operability",
+        "data integrity",
+        "modifiability"
+      ],
+      "assumptions": [
+        "All five producers connect with the same POSTGRES_USER/DWH_USER 'app'; no per-component role separation was found in compose or db/init."
+      ],
+      "falsePositiveConditions": [
+        "If the educational stack deliberately gives learners full DDL rights to marts and operational tables are considered expendable, the severity drops — but the incremental progress table would still need to move."
+      ],
+      "evidence": [
+        {
+          "type": "direct",
+          "description": "marts created in db/init and re-created at runtime by the Spark job.",
+          "path": "spark/jobs/orders_streaming.py",
+          "line": 69
+        },
+        {
+          "type": "direct",
+          "description": "marts.lakehouse_metrics DDL is embedded in the shared ops module and executed on first metric write by both writer and medallion.",
+          "path": "iceberg/common/ops.py",
+          "line": 18
+        },
+        {
+          "type": "direct",
+          "description": "marts.maintenance_runs DDL executed inside the Airflow task.",
+          "path": "dags/lakehouse_maintenance.py",
+          "line": 165
+        },
+        {
+          "type": "direct",
+          "description": "A learner exercise creates a view in the same schema.",
+          "path": "db/tasks/01_create_payment_type_daily.sql",
+          "line": 16
+        }
+      ],
+      "tags": [
+        "shared-schema",
+        "answers-Q3",
+        "ownership"
+      ],
+      "fingerprint": "943fffc32b898bd20ffc"
+    },
+    {
+      "schemaVersion": "architecture-finding.v1",
+      "id": "F-306",
+      "ruleId": "DB-BOUNDARY-006",
+      "title": "The repository's only internal import edge is constructed by runtime sys.path mutation and is invisible to every static dependency tool",
+      "category": "dependency-boundaries",
+      "severity": "medium",
+      "confidence": "high",
+      "sourceSkill": "audit-dependency-boundaries",
+      "architectureView": "observed",
+      "violatedDeclaredRule": false,
+      "status": "open",
+      "description": "The discovery phase recorded internalEdgeCount 0 against unresolvedImportCount 159 and concluded the units never import one another. That conclusion needs one correction. iceberg-writer and iceberg-medallion both execute sys.path.insert on the parent directory at module load and then import common.ops. There is exactly one internal import edge in the repository, it has fan-in 2, and static resolution cannot see it because the path is built at runtime and there is no __init__.py anywhere under iceberg/.",
+      "failureScenario": "A rule intended to protect a boundary — 'the medallion must not import writer internals', 'only ops.py may talk to Postgres' — is written as an import-linter or dependency-cruiser contract and passes vacuously, because the tool resolves no internal edges at all. The guard reports green while the boundary is unprotected, and the failure is silent.",
+      "impact": "Bears directly on focus question 6. Import-based fitness functions are not available to this system as it is packaged today. Guards must be written against data-plane and configuration evidence, or the packaging must change first.",
+      "recommendation": "If import-plane guards are wanted, make the edge real: add __init__.py files and install iceberg/ as a package in the image (pip install -e or a src layout) instead of mounting the tree and mutating sys.path. If not, record explicitly that boundary enforcement in this repository is data-plane only, and write guards accordingly — assertions over Iceberg snapshot summaries, over which service principal wrote a table, over configuration invariants — not over imports.",
+      "locations": [
+        "iceberg/writer/iceberg_writer.py:11",
+        "iceberg/writer/iceberg_writer.py:31",
+        "iceberg/medallion/iceberg_medallion.py:7",
+        "iceberg/medallion/iceberg_medallion.py:26",
+        "iceberg/Dockerfile"
+      ],
+      "affectedQualityAttributes": [
+        "testability",
+        "modifiability"
+      ],
+      "assumptions": [],
+      "falsePositiveConditions": [
+        "If no import-plane guard is ever intended, this is documentation of a limitation rather than a defect."
+      ],
+      "evidence": [
+        {
+          "type": "direct",
+          "description": "sys.path.insert followed by 'from common.ops import Metrics' in the writer.",
+          "path": "iceberg/writer/iceberg_writer.py",
+          "line": 11
+        },
+        {
+          "type": "direct",
+          "description": "The same pattern in the medallion.",
+          "path": "iceberg/medallion/iceberg_medallion.py",
+          "line": 7
+        },
+        {
+          "type": "derived",
+          "description": "No __init__.py exists under iceberg/, iceberg/common, iceberg/writer or iceberg/medallion; the packages are implicit namespace packages resolved only because /app is on sys.path at runtime.",
+          "command": "ls -a iceberg/common iceberg/writer iceberg/medallion"
+        }
+      ],
+      "tags": [
+        "enforceability",
+        "inventory-correction",
+        "answers-Q6"
+      ],
+      "fingerprint": "9b06cb925f392cd58cfe"
+    },
+    {
+      "schemaVersion": "architecture-finding.v1",
+      "id": "F-1005",
+      "ruleId": "TE-CI-001",
+      "title": "No live-stack test is PR-blocking: every guard that needs a stack runs only after merge",
+      "category": "testability-evolution",
+      "severity": "medium",
+      "confidence": "high",
+      "sourceSkill": "audit-testability-and-evolution",
+      "architectureView": "observed",
+      "violatedDeclaredRule": false,
+      "status": "open",
+      "description": "ci-pr runs on pull_request: lint, compose validation, the unit suite with a 90 percent coverage gate on the iceberg package, and Airflow DAG validation. It starts no lakehouse. ci-integration triggers on workflow_dispatch and on push to main — that is, after the merge. ci-nightly is a schedule. Every guard proposed in this phase needs a live catalog, so as things stand each would run only once the change is already on main.",
+      "failureScenario": "An incremental medallion change breaks equivalence. The PR is green, because the PR tier cannot see it. The breakage is found by the post-merge integration run or by the nightly, on main, with the change already merged and possibly several changes deep.",
+      "impact": "For a change whose entire risk profile is about correctness under concurrency and recovery, a post-merge safety net is the wrong tier. This is a CI configuration issue rather than an architecture one, but it determines whether any of the proposed fitness functions actually protect anything.",
+      "recommendation": "Add pull_request to ci-integration, scoped by paths to iceberg/**, spark/**, dags/** and tests/integration/**, so the live guards block the PR that would break them. The workflow already provisions the stack in about the time a nightly does for the integration layer alone; if the full cost is unacceptable, promote only the equivalence and replay guards to a small PR-blocking job and leave the rest post-merge.",
+      "recommendationAlternatives": [
+        "Keep the current tiering and accept post-merge detection, but then require the incremental work to develop on a branch with ci-integration triggered manually before every merge."
+      ],
+      "locations": [
+        ".github/workflows/ci-pr.yml:1-13",
+        ".github/workflows/ci-integration.yml:1-7",
+        ".github/workflows/ci-nightly.yml:1-7"
+      ],
+      "affectedQualityAttributes": [
+        "testability",
+        "changeability"
+      ],
+      "assumptions": [
+        "Stack startup cost on a GitHub-hosted runner is tolerable for a PR-tier job; the integration workflow already does it on push to main."
+      ],
+      "falsePositiveConditions": [
+        "If the project deliberately trades PR latency for post-merge detection in an educational repository, this is an accepted risk rather than a defect."
+      ],
+      "evidence": [
+        {
+          "type": "direct",
+          "description": "ci-integration triggers: workflow_dispatch and push to main only.",
+          "path": ".github/workflows/ci-integration.yml",
+          "line": 3
+        },
+        {
+          "type": "direct",
+          "description": "ci-pr runs the unit suite only; pytest addopts exclude integration, e2e and airflow markers by default.",
+          "path": ".github/workflows/ci-pr.yml",
+          "line": 53
+        }
+      ],
+      "tags": [
+        "ci-tier",
+        "enforcement"
+      ],
+      "fingerprint": "836d86baab7dc81e948c"
+    },
+    {
+      "schemaVersion": "architecture-finding.v1",
+      "id": "F-1006",
+      "ruleId": "TE-FIXTURE-001",
+      "title": "Every test fixture in the repository is single-partition, so no test can exercise partition-scoped behaviour",
+      "category": "testability-evolution",
+      "severity": "medium",
+      "confidence": "high",
+      "sourceSkill": "audit-testability-and-evolution",
+      "architectureView": "observed",
+      "violatedDeclaredRule": false,
+      "status": "open",
+      "description": "The e2e fixture stamps every one of its 100 events with a single FIXTURE_TS, so all rows share one event_date. The crash-recovery fixture uses a single constant date. The unit fixtures in test_medallion.py are small hand-built tables with no date variation of consequence. The test corpus therefore mirrors F-702's property exactly: one partition everywhere.",
+      "failureScenario": "A changed-partition design is implemented and tested. Every test passes while never once exercising the case where some partitions change and others do not — which is the entire behaviour being built. The scoped overwrite filter is never proven to leave an untouched partition alone, and F-708's cross-partition invariant has no fixture that could violate it.",
+      "impact": "Compounds F-1002. Not only is there no measure of work reduction, there is no data shape in which work reduction could occur. Fixing this is a precondition for the scan-volume guard, and it is cheap: spreading FIXTURE_TS across three dates changes a handful of lines and a handful of expected values.",
+      "recommendation": "Introduce a multi-partition fixture as the first piece of work, before any medallion change. Spread the deterministic e2e fixture across at least three event_date values, keep the existing expectations by date so failures stay diagnosable, and add one order whose two versions fall on different dates so the F-708 invariant has a fixture that can violate it. This single fixture unlocks the scan-volume guard, the partition-isolation guard and the invariant guard at once.",
+      "recommendationAlternatives": [
+        "Keep the e2e fixture as is and add a separate multi-partition integration fixture, if the exact expected values in the nightly are considered too valuable to disturb."
+      ],
+      "locations": [
+        "tests/e2e/test_lakehouse_e2e.py:77",
+        "tests/e2e/test_lakehouse_e2e.py:99-234",
+        "tests/integration/test_crash_recovery.py:53-68"
+      ],
+      "affectedQualityAttributes": [
+        "testability",
+        "correctness"
+      ],
+      "assumptions": [],
+      "falsePositiveConditions": [
+        "If no partition-scoped design is chosen, only the invariant part of this matters."
+      ],
+      "evidence": [
+        {
+          "type": "direct",
+          "description": "A single FIXTURE_TS constant is applied to every generated event.",
+          "path": "tests/e2e/test_lakehouse_e2e.py",
+          "line": 77
+        },
+        {
+          "type": "direct",
+          "description": "The crash-recovery fixture uses one timestamp and one event_date for all rows.",
+          "path": "tests/integration/test_crash_recovery.py",
+          "line": 54
+        }
+      ],
+      "tags": [
+        "fixture",
+        "prerequisite",
+        "unlocks-F-1002"
+      ],
+      "fingerprint": "cf3d935fcb15ca6da31b"
+    },
+    {
+      "schemaVersion": "architecture-finding.v1",
+      "id": "F-1007",
+      "ruleId": "TE-MIGRATION-001",
+      "title": "No migration, shadow-run or rollback mechanism exists for a change that needs all three",
+      "category": "testability-evolution",
+      "severity": "medium",
+      "confidence": "high",
+      "sourceSkill": "audit-testability-and-evolution",
+      "architectureView": "observed",
+      "violatedDeclaredRule": false,
+      "status": "open",
+      "description": "There is no feature flag, no schema migration tool, no versioned table naming and no way to run the old and new medallion paths side by side. The only seam is environment configuration, and it is a good one: every table identifier the medallion touches is already an environment variable — SILVER_NAMESPACE, SILVER_TABLE, GOLD_NAMESPACE, GOLD_TABLE. A second medallion container pointed at a shadow silver table needs no code change at all. Nothing in the repository does this, and nothing compares two such tables.",
+      "failureScenario": "The incremental medallion replaces the existing one in a single change. Rollback means reverting code and rebuilding silver and gold from scratch, which is survivable only because full rebuild still works — an option the change is designed to remove. Any partitioning change to gold (F-302) or schema change to bronze (F-701) has no migration path and no rehearsal.",
+      "impact": "Migration safety is the difference between this being a reversible experiment and a one-way door. The mechanism is already there and unused.",
+      "recommendation": "Use the environment seam deliberately: run the incremental medallion into a shadow silver and gold pair for several cycles alongside the existing one, and make the equivalence guard a comparison between the two live tables rather than between two code paths in a test. That converts the riskiest change in the project into an observation. Cut over by changing two environment variables, and roll back by changing them again.",
+      "recommendationAlternatives": [
+        "Add an explicit MEDALLION_MODE flag selecting full or incremental within one process, if running two containers is considered too heavy."
+      ],
+      "locations": [
+        "iceberg/medallion/iceberg_medallion.py:35-42",
+        "docker-compose.extended.yml:276-316"
+      ],
+      "affectedQualityAttributes": [
+        "changeability",
+        "resilience",
+        "operability"
+      ],
+      "assumptions": [
+        "Two medallion containers writing to different silver tables from the same bronze do not conflict; both read bronze and neither writes it."
+      ],
+      "falsePositiveConditions": [
+        "If the project prefers a direct cutover in a teaching stack where losing silver and gold is inconsequential, the shadow run is optional — though the equivalence guard then loses its cheapest implementation."
+      ],
+      "evidence": [
+        {
+          "type": "direct",
+          "description": "All medallion table identifiers are environment-configurable, so a shadow instance needs no code change.",
+          "path": "iceberg/medallion/iceberg_medallion.py",
+          "line": 35
+        },
+        {
+          "type": "direct",
+          "description": "The compose service passes those identifiers explicitly, so a second service definition is a copy with four values changed.",
+          "path": "docker-compose.extended.yml",
+          "line": 288
+        },
+        {
+          "type": "derived",
+          "description": "No feature flag, migration tool or versioned table naming appears anywhere in the repository.",
+          "command": "review of compose files, medallion source and db/init"
+        }
+      ],
+      "tags": [
+        "migration",
+        "rollback",
+        "shadow-run",
+        "answers-Q10"
+      ],
+      "fingerprint": "5ea4cf521d9c71007606"
+    },
+    {
+      "schemaVersion": "architecture-finding.v1",
+      "id": "F-1008",
+      "ruleId": "TE-FITNESS-003",
+      "title": "The commit-eligibility rule from F-703 has no seam: file selection is computed inline and cannot be tested without a stack",
+      "category": "testability-evolution",
+      "severity": "medium",
+      "confidence": "high",
+      "sourceSkill": "audit-testability-and-evolution",
+      "architectureView": "observed",
+      "violatedDeclaredRule": false,
+      "status": "open",
+      "description": "The rule that should hold — only parquet files committed according to Spark's streaming metadata may become eligible for bronze ingestion — currently has no place to attach. list_new_files does listing, filtering, settle-time checking and sorting in one function against a live S3FileSystem. The existing unit tests reach it with a fake filesystem object, which is workable, but the eligibility decision itself is not separable from the listing, so the rule cannot be stated as a property of a pure function.",
+      "failureScenario": "The commit-manifest rule is implemented inside list_new_files alongside everything else. Its test needs MinIO, so it lands in the integration tier, which is post-merge (F-1005). A later refactor of the settle logic silently weakens the manifest check and the unit suite cannot notice.",
+      "impact": "F-703 is arguably a more fundamental defect than the incremental question itself, since it concerns whether bronze is a trustworthy log at all. A rule that important should be enforced by a fast test on every pull request, not by an integration test after merge.",
+      "recommendation": "Extract eligibility into a pure function — given a listing of file infos and the parsed set of committed paths, return the files eligible for ingestion — and test it directly with fabricated inputs on the PR tier. Then add one integration test that writes an orphan parquet file not present in _spark_metadata and asserts it is never ingested. The pure function is the guard; the integration test proves the wiring.",
+      "recommendationAlternatives": [
+        "If reading Spark's manifest format is rejected, the same extraction still applies to whatever completion marker replaces it; the seam matters more than the mechanism."
+      ],
+      "locations": [
+        "iceberg/writer/iceberg_writer.py:113-144",
+        "tests/test_writer.py:94-160"
+      ],
+      "affectedQualityAttributes": [
+        "testability",
+        "correctness"
+      ],
+      "assumptions": [],
+      "falsePositiveConditions": [
+        "If F-703 is accepted as a documented at-least-once contract rather than fixed, no eligibility rule is needed and this does not apply."
+      ],
+      "evidence": [
+        {
+          "type": "direct",
+          "description": "list_new_files combines listing, extension filtering, temporary-path exclusion, done-set exclusion, settle checking and sorting in one function bound to a filesystem object.",
+          "path": "iceberg/writer/iceberg_writer.py",
+          "line": 120,
+          "symbol": "list_new_files"
+        },
+        {
+          "type": "direct",
+          "description": "Existing tests exercise it through a fake filesystem, confirming the seam is usable but not that eligibility is separable.",
+          "path": "tests/test_writer.py",
+          "line": 108
+        }
+      ],
+      "tags": [
+        "fitness-function",
+        "seam",
+        "guards-F-703"
+      ],
+      "fingerprint": "2a17352528e228e3dd6f"
+    },
+    {
+      "schemaVersion": "architecture-finding.v1",
+      "id": "F-1009",
+      "ruleId": "TE-EFFECTIVENESS-001",
+      "title": "Test effectiveness is measured only by line coverage, on one of the three code trees",
+      "category": "testability-evolution",
+      "severity": "medium",
+      "confidence": "high",
+      "sourceSkill": "audit-testability-and-evolution",
+      "architectureView": "observed",
+      "violatedDeclaredRule": false,
+      "status": "open",
+      "description": "The PR gate is --cov=iceberg --cov-fail-under=90. Coverage is evidence that a line executed, not that a wrong result would have been caught. There is no mutation testing tooling in requirements-dev, and no fault injection outside the writer's two crash seams. The gate also covers only the iceberg tree: spark/jobs/orders_streaming.py and dags/ have no coverage requirement, and between them they hold the second dedup implementation (F-304), the silent-drop filter (F-705) and the snapshot expiry that F-301 turns on.",
+      "failureScenario": "A change to the Spark dedup SQL or to the maintenance retention parameters passes CI with no coverage obligation at all, while a trivial refactor inside iceberg/ is blocked for dropping below ninety percent. The gate applies pressure where the risk is lowest.",
+      "impact": "Moderate on its own. Relevant here because the incremental work will be judged partly by whether CI stays green, and CI's strongest signal is currently pointed at the wrong tree and measuring the wrong thing.",
+      "recommendation": "Do not raise the coverage number. Extend the gate to spark/ and dags/ at whatever threshold they currently achieve, so the ratchet exists there too, and treat the fitness functions in this plan as the real effectiveness measure. If one effectiveness experiment is affordable, run mutation testing once against build_silver and build_gold rather than adopting it permanently: those two functions carry AR-004 and the gold aggregates, and a single run would show directly whether the existing assertions constrain them.",
+      "recommendationAlternatives": [
+        "Leave the gate alone and rely entirely on the proposed fitness functions, accepting coverage as a smoke signal only."
+      ],
+      "locations": [
+        ".github/workflows/ci-pr.yml:52-53",
+        "requirements-dev.txt"
+      ],
+      "affectedQualityAttributes": [
+        "testability"
+      ],
+      "assumptions": [],
+      "falsePositiveConditions": [
+        "If spark/ and dags/ are considered demonstration scaffolding rather than maintained code, the narrower gate is deliberate."
+      ],
+      "evidence": [
+        {
+          "type": "direct",
+          "description": "The PR coverage gate targets the iceberg package only, at ninety percent.",
+          "path": ".github/workflows/ci-pr.yml",
+          "line": 53
+        },
+        {
+          "type": "direct",
+          "description": "requirements-dev.txt contains pytest, pytest-cov, ruff, black and runtime libraries; no mutation testing or property-based testing tool.",
+          "path": "requirements-dev.txt"
+        }
+      ],
+      "tags": [
+        "coverage",
+        "effectiveness"
+      ],
+      "fingerprint": "4adf048df4a0e4f74e1b"
+    },
+    {
+      "schemaVersion": "architecture-finding.v1",
+      "id": "F-307",
+      "ruleId": "DB-BOUNDARY-007",
+      "title": "Silver and gold write-exclusivity is convention only, and the boundary statement conflates row writes with file rewrites",
+      "category": "dependency-boundaries",
+      "severity": "medium",
+      "confidence": "medium",
+      "sourceSkill": "audit-dependency-boundaries",
+      "architectureView": "observed",
+      "violatedDeclaredRule": true,
+      "status": "open",
+      "description": "B-004 and B-005 forbid any writer other than iceberg-medallion on silver and gold, while listing the maintenance DAG's optimize as allowed. Those two clauses conflict: optimize, expire_snapshots and remove_orphan_files all commit new snapshots and rewrite data files. Nothing outside the wording enforces exclusivity either — the Trino catalog is configured read-write with static credentials, and Superset, Metabase and Jupyter all reach the lakehouse through it.",
+      "failureScenario": "An incremental medallion computes a delta against a silver state it believes it is the sole author of. A concurrent maintenance optimize commits between the medallion's read and its write, and the medallion's scoped overwrite either fails on a commit conflict with no retry — the medallion, unlike the writer, has no CommitFailedException handling — or silently rewrites files maintenance has just compacted. Under full overwrite the conflict is harmless because the next 60-second cycle rebuilds everything; under incremental it is a lost or duplicated delta.",
+      "impact": "The writer already handles commit conflicts with a bounded retry (MAX_APPEND_ATTEMPTS). The medallion has no equivalent: its only protection is that a failed cycle is retried wholesale 60 seconds later, which stops being true once cycles carry state.",
+      "recommendation": "Split the boundary statement into two rules: who may write rows (iceberg-medallion only) and who may rewrite files (maintenance only), and state that the second must be safe against the first. Give the medallion the same CommitFailedException retry the writer has before it becomes stateful. If exclusivity is meant to be real rather than conventional, give Trino a read-only principal for the BI consumers.",
+      "locations": [
+        "iceberg/medallion/iceberg_medallion.py:279-297",
+        "iceberg/writer/iceberg_writer.py:273-289",
+        "dags/lakehouse_maintenance.py:90-136",
+        "trino/etc/catalog/iceberg.properties"
+      ],
+      "affectedQualityAttributes": [
+        "resilience",
+        "correctness"
+      ],
+      "assumptions": [
+        "Iceberg's optimistic concurrency raises CommitFailedException on a conflicting commit rather than silently merging."
+      ],
+      "falsePositiveConditions": [
+        "Maintenance runs hourly and the medallion cycle is 60 seconds, so the overlap window is small; if Iceberg's conflict detection classifies compaction and row overwrite as non-conflicting for these operations, the concurrency half of this finding weakens. The missing retry in the medallion stands regardless."
+      ],
+      "evidence": [
+        {
+          "type": "direct",
+          "description": "The medallion calls overwrite with no retry and no conflict handling; the surrounding loop simply logs and sleeps.",
+          "path": "iceberg/medallion/iceberg_medallion.py",
+          "line": 282
+        },
+        {
+          "type": "direct",
+          "description": "The writer, by contrast, retries CommitFailedException up to MAX_APPEND_ATTEMPTS, reloading the table between attempts.",
+          "path": "iceberg/writer/iceberg_writer.py",
+          "line": 280
+        },
+        {
+          "type": "direct",
+          "description": "Maintenance issues optimize, expire_snapshots and remove_orphan_files against silver.orders_clean and gold.orders_daily_metrics.",
+          "path": "dags/lakehouse_maintenance.py",
+          "line": 23
+        },
+        {
+          "type": "direct",
+          "description": "Trino's iceberg catalog carries static read-write credentials and no read-only restriction.",
+          "path": "trino/etc/catalog/iceberg.properties"
+        }
+      ],
+      "tags": [
+        "concurrency",
+        "ownership",
+        "answers-Q1"
+      ],
+      "fingerprint": "fc273e78548861b734d6"
+    },
+    {
+      "schemaVersion": "architecture-finding.v1",
+      "id": "F-709",
+      "ruleId": "DI-PATTERN-001",
+      "title": "The full-overwrite-instead-of-progress-state pattern recurs in the PostgreSQL serving path, under an exclusive lock every ten seconds",
+      "category": "data-integration",
+      "severity": "low",
+      "confidence": "high",
+      "sourceSkill": "audit-data-and-integration-architecture",
+      "architectureView": "observed",
+      "violatedDeclaredRule": false,
+      "status": "open",
+      "description": "Every Spark micro-batch truncates marts.streaming_country_totals and re-inserts it in full from marts.streaming_orders. It is the same architectural move as the medallion's overwrite, in a different store: recompute the whole aggregate rather than maintain it, because maintaining it would require progress state. The orders table itself is a proper upsert on a primary key, so the pattern is confined to the aggregate. The truncate takes an ACCESS EXCLUSIVE lock, held inside the same transaction as the re-insert, every ten seconds.",
+      "failureScenario": "A Metabase dashboard querying streaming_country_totals blocks behind the lock for the duration of each rebuild. At demo scale that is milliseconds and invisible. The architectural point is not the lock; it is that IR-002's mechanism is a system-wide habit rather than a medallion-specific one, and a decision made for silver and gold should be made knowingly for this table too.",
+      "impact": "Low operationally. Relevant because focus question 2 asks who owns deduplication semantics, and this path implements the same rule against the same data with a different mechanism (F-304). If the medallion moves to incremental and this does not, the two serving surfaces diverge in freshness characteristics as well as in semantics.",
+      "recommendation": "Leave it alone for now and record it. If the incremental work succeeds for silver, this is the natural second exercise — the same problem, one order of magnitude simpler, in SQL where a student can see it. Use it deliberately as that, rather than fixing it silently.",
+      "locations": [
+        "spark/jobs/orders_streaming.py:191-209",
+        "spark/jobs/orders_streaming.py:212-220"
+      ],
+      "affectedQualityAttributes": [
+        "availability",
+        "consistency"
+      ],
+      "assumptions": [
+        "psycopg2's context-managed connection wraps the truncate and insert in one transaction, so readers see either the old or the new content, never an empty table."
+      ],
+      "falsePositiveConditions": [
+        "At demo volumes the lock window is negligible; this is an architectural observation, not a performance defect."
+      ],
+      "evidence": [
+        {
+          "type": "direct",
+          "description": "truncate followed by a full re-insert from marts.streaming_orders, inside the per-micro-batch merge SQL.",
+          "path": "spark/jobs/orders_streaming.py",
+          "line": 191
+        },
+        {
+          "type": "direct",
+          "description": "The merge runs on a ten-second processing-time trigger.",
+          "path": "spark/jobs/orders_streaming.py",
+          "line": 279
+        }
+      ],
+      "tags": [
+        "pattern-recurrence",
+        "confirms-IR-002"
+      ],
+      "fingerprint": "0a0ece313406c726dc18"
+    },
+    {
+      "schemaVersion": "architecture-finding.v1",
+      "id": "F-308",
+      "ruleId": "DB-BOUNDARY-008",
+      "title": "iceberg-writer and iceberg-medallion are not independently packaged: one image, the whole source tree mounted into both",
+      "category": "dependency-boundaries",
+      "severity": "low",
+      "confidence": "high",
+      "sourceSkill": "audit-dependency-boundaries",
+      "architectureView": "observed",
+      "violatedDeclaredRule": false,
+      "status": "open",
+      "description": "Both services build from the same context with the same Dockerfile, which installs dependencies and nothing else, and both mount ./iceberg to /app read-only. Each container therefore carries the other's source, and common/ is shared by co-location rather than by a versioned contract. The two deployables listed separately in the inventory are one artifact with two entry points.",
+      "failureScenario": "A change to the medallion is delivered into the running writer container as soon as it is restarted, with no version boundary and no independent rollback. During the incremental transition, when the medallion changes repeatedly and the writer must stay stable, there is no packaging mechanism that lets one move without the other.",
+      "impact": "Low today because both are restarted together in a demo stack. It matters if the incremental work is staged, or if the writer's idempotency behaviour is ever pinned while the medallion changes.",
+      "recommendation": "Accept and record it as a deliberate simplification for a single-host educational stack, or, if F-306's packaging fix is taken, split the image at the same time. Do not treat the two as independently deployable in remediation planning until one of those happens.",
+      "locations": [
+        "iceberg/Dockerfile",
+        "docker-compose.extended.yml:236-274",
+        "docker-compose.extended.yml:276-316"
+      ],
+      "affectedQualityAttributes": [
+        "deployability",
+        "modifiability"
+      ],
+      "assumptions": [],
+      "falsePositiveConditions": [
+        "Explicitly accepted as a design decision for a single-host teaching stack, in which case this is informational."
+      ],
+      "evidence": [
+        {
+          "type": "direct",
+          "description": "The Dockerfile installs pyiceberg and psycopg2 and sets WORKDIR /app; it copies no source.",
+          "path": "iceberg/Dockerfile",
+          "line": 3
+        },
+        {
+          "type": "direct",
+          "description": "Both services mount ./iceberg:/app:ro and differ only in the command entry point.",
+          "path": "docker-compose.extended.yml",
+          "line": 265
+        }
+      ],
+      "tags": [
+        "packaging",
+        "deployability"
+      ],
+      "fingerprint": "7c69f630649dd66465c4"
+    },
+    {
+      "schemaVersion": "architecture-finding.v1",
+      "id": "F-309",
+      "ruleId": "DB-BOUNDARY-009",
+      "title": "No architectural fitness function exists: every test asserts behaviour, none asserts a boundary",
+      "category": "dependency-boundaries",
+      "severity": "info",
+      "confidence": "high",
+      "sourceSkill": "audit-dependency-boundaries",
+      "architectureView": "observed",
+      "violatedDeclaredRule": false,
+      "status": "informational",
+      "description": "The suite is substantial for its size: unit tests over dedup, aggregation and quality checks, integration tests over Trino, snapshot history, crash recovery and maintenance procedures, and one deterministic nightly e2e. Every one of them asserts what a function or a query returns. None asserts who may write a table, that a retention horizon exceeds a recovery horizon, that two dedup implementations agree, or that a boundary has not been crossed.",
+      "failureScenario": "Not a failure in itself. It means every boundary this audit describes is currently protected by convention and review only, and that the incremental change will remove the mechanism (full overwrite) that has been compensating for several of them.",
+      "impact": "Focus question 6 has no existing foundation to build on; the fitness functions will be new artifacts, not extensions.",
+      "recommendation": "Derive the first fitness functions from the highest-severity findings rather than from a generic list: a retention-versus-recovery assertion for F-301, a lower-offset-duplicate regression test for F-303, a silver/streaming reconciliation test for F-304, and a medallion commit-conflict retry test for F-307. Defer the rest to the testability-and-evolution phase.",
+      "locations": [
+        "tests/",
+        "tests/integration/test_crash_recovery.py",
+        "tests/integration/test_iceberg_trino.py",
+        "tests/e2e/test_lakehouse_e2e.py"
+      ],
+      "affectedQualityAttributes": [
+        "testability",
+        "modifiability"
+      ],
+      "assumptions": [],
+      "falsePositiveConditions": [],
+      "evidence": [
+        {
+          "type": "derived",
+          "description": "Enumeration of all test functions across the 8 test files: 60 tests, all behavioural; no test name or body asserts an ownership, direction, retention or reconciliation property.",
+          "command": "grep -rn '^def test_|^    def test_' tests/ --include=*.py"
+        }
+      ],
+      "tags": [
+        "fitness-functions",
+        "answers-Q6"
+      ],
+      "fingerprint": "74815f444982d9c34086"
+    },
+    {
+      "schemaVersion": "architecture-finding.v1",
+      "id": "F-1010",
+      "ruleId": "TE-ASSET-001",
+      "title": "The existing test assets are strong and should be extended rather than replaced",
+      "category": "testability-evolution",
+      "severity": "info",
+      "confidence": "high",
+      "sourceSkill": "audit-testability-and-evolution",
+      "architectureView": "observed",
+      "violatedDeclaredRule": false,
+      "status": "informational",
+      "description": "Recorded so that remediation planning does not treat this as a greenfield. Three assets are genuinely good and every guard in the plan builds on one of them. The crash-recovery suite performs real fault injection through production seams, with isolated namespaces and full cleanup. The nightly e2e is deterministic to exact values — 100 events, 98 landed, 95 silver rows, 3 duplicates removed, 7 violations, 90.0 UK delivered total — and already asserts latest-offset-wins end to end and unique load-ids on bronze. Run scoping by namespace and by a Postgres-side now() watermark is a working, if awkward, answer to the medallion's missing run identity (QAS-003).",
+      "failureScenario": "Not applicable.",
+      "impact": "The cost estimates in the fitness function plan assume these are available as templates. Without them, every guard would be two to three times the work.",
+      "recommendation": "Extend, do not rewrite. The medallion crash suite should be a copy of the writer's with the process and assertions changed. The multi-partition fixture should be a modification of build_fixture, keeping its exact-value discipline. And when the medallion gains a run identity, the e2e's now() watermark should be replaced by it — that is the natural close of QAS-003.",
+      "locations": [
+        "tests/integration/test_crash_recovery.py",
+        "tests/e2e/test_lakehouse_e2e.py:880-1050",
+        "tests/test_writer.py",
+        "tests/test_medallion.py"
+      ],
+      "affectedQualityAttributes": [
+        "testability"
+      ],
+      "assumptions": [],
+      "falsePositiveConditions": [],
+      "evidence": [
+        {
+          "type": "direct",
+          "description": "Crash tests assert the exact exit code from os._exit, restart the writer and verify snapshot count and row count are unchanged.",
+          "path": "tests/integration/test_crash_recovery.py",
+          "line": 151
+        },
+        {
+          "type": "direct",
+          "description": "The e2e asserts exact expected values and that bronze load-ids are unique.",
+          "path": "tests/e2e/test_lakehouse_e2e.py",
+          "line": 973
+        }
+      ],
+      "tags": [
+        "existing-asset",
+        "estimation-input"
+      ],
+      "fingerprint": "da92fc67da43d57ee8e1"
+    }
+  ]
+}
