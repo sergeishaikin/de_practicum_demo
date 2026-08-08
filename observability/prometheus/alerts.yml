@@ -1,0 +1,47 @@
+groups:
+  - name: lakehouse-runtime
+    rules:
+      - alert: LakehouseUnresolvedWork
+        expr: lakehouse_work{state="in_flight"} > 0 and time() - lakehouse_source_last_event_timestamp_seconds{source="medallion"} > 900
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Medallion work has remained in-flight
+          description: In-flight work has not produced a recent medallion metric for ten minutes.
+
+      - alert: LakehouseFF14Conflict
+        expr: increase(lakehouse_correctness_total{kind="ff14_conflicts"}[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: FF-14 equal-version conflict detected
+          description: An equal business version with conflicting payload was rejected.
+
+      - alert: LakehouseShadowMismatch
+        expr: increase(lakehouse_correctness_total{kind="shadow_mismatches"}[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Shadow comparison mismatch detected
+          description: Legacy and persisted-Silver projections diverged.
+
+      - alert: LakehouseApplicationFailure
+        expr: increase(lakehouse_events_total{status="failed"}[10m]) > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Lakehouse application failure recorded
+          description: Writer or medallion reported a failed operation in the last ten minutes.
+
+      - alert: LakehouseMaintenanceFailure
+        expr: lakehouse_maintenance_up == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Latest maintenance audit is unhealthy
+          description: The durable maintenance audit reports a non-healthy status.

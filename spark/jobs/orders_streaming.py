@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 
 import psycopg2
+from prometheus_client import Counter, Gauge, start_http_server
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import (
@@ -56,6 +57,7 @@ KAFKA_FAIL_ON_DATA_LOSS = os.getenv(
 ).strip().lower() in {"1", "true", "yes", "on"}
 KAFKA_MAX_OFFSETS_PER_TRIGGER = os.getenv("KAFKA_MAX_OFFSETS_PER_TRIGGER")
 STREAMING_TRIGGER_SECONDS = int(os.getenv("STREAMING_TRIGGER_SECONDS", "10"))
+PROMETHEUS_METRICS_PORT = int(os.getenv("PROMETHEUS_METRICS_PORT", "9103"))
 
 POSTGRES_HOST = os.getenv("POSTGRES_HOST", "de-demo-postgres")
 POSTGRES_PORT = int(os.getenv("POSTGRES_PORT", "5432"))
@@ -64,6 +66,30 @@ POSTGRES_USER = os.getenv("POSTGRES_USER", "app")
 POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "app")
 
 JDBC_URL = f"jdbc:postgresql://{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
+
+SPARK_BATCHES = Counter(
+    "spark_batches",
+    "Spark foreachBatch executions",
+    ["sink", "status"],
+)
+SPARK_VALID_EVENTS = Gauge(
+    "spark_valid_events",
+    "Latest reconciliation valid event count",
+)
+SPARK_DEAD_LETTER_EVENTS = Counter(
+    "spark_dead_letter_events",
+    "Dead-letter events observed by reconciliation",
+)
+SPARK_QUERY_UP = Gauge(
+    "spark_query_up",
+    "Whether a streaming query was started",
+    ["query"],
+)
+SPARK_LAST_BATCH = Gauge(
+    "spark_last_batch_id",
+    "Latest Spark micro-batch id observed",
+    ["sink"],
+)
 
 POSTGRES_VERSION_GUARD = """
 where excluded.business_version is not null
@@ -261,6 +287,8 @@ def upsert_postgres(batch_df: DataFrame, batch_id: int) -> None:
         with connection.cursor() as cursor:
             cursor.execute(merge_sql)
 
+    SPARK_BATCHES.labels("postgres", "success").inc()
+    SPARK_LAST_BATCH.labels("postgres").set(batch_id)
     print(
         f"Completed PostgreSQL micro-batch "
         f"batch_id={batch_id}, rows={prepared_df.count()}"
@@ -290,6 +318,11 @@ def write_reconciliation(batch_df: DataFrame, batch_id: int) -> None:
         F.max("kafka_offset").alias("max_kafka_offset"),
     ).withColumn("batch_id", F.lit(batch_id))
 
+    summary = counts.collect()[0]
+    SPARK_VALID_EVENTS.set(int(summary["valid_count"] or 0))
+    SPARK_DEAD_LETTER_EVENTS.inc(int(summary["dead_letter_count"] or 0))
+    SPARK_LAST_BATCH.labels("reconciliation").set(batch_id)
+
     # The batch-id directory is overwritten on retry, so a retried micro-batch
     # cannot create a second reconciliation receipt.
     (
@@ -299,6 +332,7 @@ def write_reconciliation(batch_df: DataFrame, batch_id: int) -> None:
 
 
 def main() -> None:
+    start_http_server(PROMETHEUS_METRICS_PORT, addr="0.0.0.0")
     initialise_database()
     spark = create_spark()
 
@@ -397,6 +431,9 @@ def main() -> None:
         .trigger(processingTime=f"{STREAMING_TRIGGER_SECONDS} seconds")
         .start()
     )
+
+    for query_name in ("raw", "postgres", "dead_letter", "reconciliation"):
+        SPARK_QUERY_UP.labels(query_name).set(1)
 
     print(f"Raw MinIO query: {raw_query.id}")
     print(f"PostgreSQL query: {postgres_query.id}")

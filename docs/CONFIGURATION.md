@@ -35,6 +35,10 @@
 | `ICEBERG_REST_PORT` | Optional | `18181` | Iceberg REST catalog host port. |
 | `TRINO_IMAGE` | Optional | `trinodb/trino:483` | Trino image tag. |
 | `TRINO_HOST_PORT` | Optional | `18082` | Trino host port. |
+| `PROMETHEUS_IMAGE` | Optional | `prom/prometheus:v3.5.0` | Prometheus image tag. |
+| `PROMETHEUS_HOST_PORT` | Optional | `19090` | Prometheus host port. |
+| `GRAFANA_IMAGE` | Optional | `grafana/grafana:11.2.0` | Grafana image tag. |
+| `GRAFANA_HOST_PORT` | Optional | `13001` | Grafana host port. |
 
 ### Required beyond `.env.example`
 
@@ -60,12 +64,13 @@ Iceberg writer (`iceberg/writer/iceberg_writer.py`):
 | `STATE_FILE` | `/state/ingested.json` | Persisted ingestion state. |
 | `MAX_APPEND_ATTEMPTS` | `5` | How many times to retry a commit that fails with `CommitFailedException` (conflict with a concurrent writer or maintenance). |
 | `SIMULATE_CRASH_AFTER_COMMIT` / `SIMULATE_CRASH_BEFORE_COMMIT` | `0` | Demo switches that force a simulated crash (`1` enables). |
+| `PROMETHEUS_METRICS_PORT` | unset locally; `9101` in Compose | In-process metrics HTTP port. |
 
-Iceberg medallion (`iceberg/medallion/iceberg_medallion.py`): `BRONZE_NAMESPACE`/`BRONZE_TABLE` (defaults `bronze`/`orders`), `SILVER_NAMESPACE`/`SILVER_TABLE` (defaults `silver`/`orders_clean`), `GOLD_NAMESPACE`/`GOLD_TABLE` (defaults `gold`/`orders_daily_metrics`), `MEDALLION_INTERVAL_SECONDS` (default `60`), `QUALITY_VALID_STATUSES` (default `created,paid,shipped,delivered`, comma-separated allowed `status` values), `QUALITY_FAIL_ON_VIOLATIONS` (default `0`; `1` aborts the cycle when a quality check fails), plus the shared `ICEBERG_CATALOG_URI`, `ICEBERG_WAREHOUSE`, `S3_ENDPOINT`, `S3_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`.
+Iceberg medallion (`iceberg/medallion/iceberg_medallion.py`): `BRONZE_NAMESPACE`/`BRONZE_TABLE` (defaults `bronze`/`orders`), `SILVER_NAMESPACE`/`SILVER_TABLE` (defaults `silver`/`orders_clean`), `GOLD_NAMESPACE`/`GOLD_TABLE` (defaults `gold`/`orders_daily_metrics`), `MEDALLION_INTERVAL_SECONDS` (default `60`), `QUALITY_VALID_STATUSES` (default `created,paid,shipped,delivered`, comma-separated allowed `status` values), `QUALITY_FAIL_ON_VIOLATIONS` (default `0`; `1` aborts the cycle when a quality check fails), `PROMETHEUS_METRICS_PORT` (unset locally; `9102` in Compose), plus the shared `ICEBERG_CATALOG_URI`, `ICEBERG_WAREHOUSE`, `S3_ENDPOINT`, `S3_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`.
 
 Metrics (`iceberg/common/ops.py`, used by writer and medallion): `METRICS_ENABLED` (default `1`; `0` disables metric writes), `POSTGRES_HOST` (`de-demo-postgres`), `POSTGRES_PORT` (`5432`), `POSTGRES_DB` (`dwh`), `POSTGRES_USER` (`app`), `POSTGRES_PASSWORD` (`app`). Metric writes are best-effort: a Postgres failure is logged and never breaks ingestion.
 
-Orders streaming (`spark/jobs/orders_streaming.py`): `KAFKA_BOOTSTRAP_SERVERS` (`kafka:9092`), `KAFKA_TOPIC` (`orders`), `KAFKA_FAIL_ON_DATA_LOSS` (`true`, stop loudly when Kafka offsets are unavailable), optional `KAFKA_MAX_OFFSETS_PER_TRIGGER` and `STREAMING_TRIGGER_SECONDS` throttles, `MINIO_BUCKET` (`de-practicum`), `RAW_OUTPUT_PATH` (`s3a://de-practicum/streaming/orders_raw`), `RAW_CHECKPOINT_PATH`, `POSTGRES_CHECKPOINT_PATH`, `DEAD_LETTER_OUTPUT_PATH`, `DEAD_LETTER_CHECKPOINT_PATH`, `RECONCILIATION_OUTPUT_PATH`, `RECONCILIATION_CHECKPOINT_PATH`, and `POSTGRES_HOST`/`PORT`/`DB`/`USER`/`PASSWORD` (defaults `de-demo-postgres`/`5432`/`dwh`/`app`/`app`). Invalid JSON or records without `order_id` are retained under the dead-letter prefix with the raw payload and Kafka metadata. Each micro-batch also writes an idempotent disposition receipt with observed, valid, and dead-letter counts plus Kafka partition/offset bounds for source-window reconciliation.
+Orders streaming (`spark/jobs/orders_streaming.py`): `KAFKA_BOOTSTRAP_SERVERS` (`kafka:9092`), `KAFKA_TOPIC` (`orders`), `KAFKA_FAIL_ON_DATA_LOSS` (`true`, stop loudly when Kafka offsets are unavailable), optional `KAFKA_MAX_OFFSETS_PER_TRIGGER` and `STREAMING_TRIGGER_SECONDS` throttles, `PROMETHEUS_METRICS_PORT` (`9103` in Compose), `MINIO_BUCKET` (`de-practicum`), `RAW_OUTPUT_PATH` (`s3a://de-practicum/streaming/orders_raw`), `RAW_CHECKPOINT_PATH`, `POSTGRES_CHECKPOINT_PATH`, `DEAD_LETTER_OUTPUT_PATH`, `DEAD_LETTER_CHECKPOINT_PATH`, `RECONCILIATION_OUTPUT_PATH`, `RECONCILIATION_CHECKPOINT_PATH`, and `POSTGRES_HOST`/`PORT`/`DB`/`USER`/`PASSWORD` (defaults `de-demo-postgres`/`5432`/`dwh`/`app`/`app`). Invalid JSON or records without `order_id` are retained under the dead-letter prefix with the raw payload and Kafka metadata. Each micro-batch also writes an idempotent disposition receipt with observed, valid, and dead-letter counts plus Kafka partition/offset bounds for source-window reconciliation.
 
 Orders producer (`kafka/producer/orders_producer.py`): `KAFKA_BOOTSTRAP_SERVERS` (`kafka:9092`), `KAFKA_TOPIC` (`orders`), `EVENTS_PER_SECOND` (`2`).
 

@@ -1,0 +1,26 @@
+{
+  "annotations": {"list": []},
+  "editable": false,
+  "graphTooltip": 0,
+  "panels": [
+    {"type": "row", "title": "Pipeline Health", "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0}, "collapsed": false, "panels": []},
+    {"type": "timeseries", "title": "Application events by status", "gridPos": {"h": 8, "w": 12, "x": 0, "y": 1}, "targets": [{"expr": "sum by (source, status) (rate(lakehouse_events_total[5m]))", "legendFormat": "{{source}} / {{status}}", "refId": "A"}]},
+    {"type": "timeseries", "title": "Source availability", "gridPos": {"h": 8, "w": 12, "x": 12, "y": 1}, "targets": [{"expr": "lakehouse_source_up", "legendFormat": "{{source}}", "refId": "A"}]},
+    {"type": "row", "title": "Progress & Recovery", "gridPos": {"h": 1, "w": 24, "x": 0, "y": 9}, "collapsed": false, "panels": []},
+    {"type": "timeseries", "title": "Work state", "gridPos": {"h": 8, "w": 12, "x": 0, "y": 10}, "targets": [{"expr": "lakehouse_work", "legendFormat": "{{source}} / {{state}}", "refId": "A"}]},
+    {"type": "timeseries", "title": "Maintenance health", "gridPos": {"h": 8, "w": 12, "x": 12, "y": 10}, "targets": [{"expr": "lakehouse_maintenance_up", "legendFormat": "maintenance", "refId": "A"}]},
+    {"type": "row", "title": "Correctness", "gridPos": {"h": 1, "w": 24, "x": 0, "y": 18}, "collapsed": false, "panels": []},
+    {"type": "timeseries", "title": "Correctness signals", "gridPos": {"h": 8, "w": 24, "x": 0, "y": 19}, "targets": [{"expr": "sum by (source, kind) (rate(lakehouse_correctness_total[5m]))", "legendFormat": "{{source}} / {{kind}}", "refId": "A"}, {"expr": "rate(spark_dead_letter_events_total[5m])", "legendFormat": "spark / dead-letter", "refId": "B"}]},
+    {"type": "row", "title": "Performance", "gridPos": {"h": 1, "w": 24, "x": 0, "y": 27}, "collapsed": false, "panels": []},
+    {"type": "timeseries", "title": "Stage duration", "gridPos": {"h": 8, "w": 12, "x": 0, "y": 28}, "targets": [{"expr": "lakehouse_stage_duration_seconds", "legendFormat": "{{source}} / {{stage}}", "refId": "A"}]},
+    {"type": "timeseries", "title": "Processed work and file amplification", "gridPos": {"h": 8, "w": 12, "x": 12, "y": 28}, "targets": [{"expr": "lakehouse_processed", "legendFormat": "{{source}} / {{kind}}", "refId": "A"}, {"expr": "lakehouse_files", "legendFormat": "files / {{source}} / {{kind}}", "refId": "B"}, {"expr": "lakehouse_bytes", "legendFormat": "bytes / {{source}} / {{kind}}", "refId": "C"}]}
+  ],
+  "schemaVersion": 39,
+  "tags": ["lakehouse", "runtime"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "timezone": "browser",
+  "title": "Lakehouse Runtime",
+  "uid": "lakehouse-runtime",
+  "version": 1
+}

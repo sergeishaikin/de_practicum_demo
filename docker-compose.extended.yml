@@ -262,6 +262,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       METRICS_ENABLED: "1"
+      PROMETHEUS_METRICS_PORT: "9101"
     volumes:
       - ./iceberg:/app:ro
       - de_demo_iceberg_writer_state:/state
@@ -310,6 +311,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       METRICS_ENABLED: "1"
+      PROMETHEUS_METRICS_PORT: "9102"
       QUALITY_VALID_STATUSES: "created,paid,shipped,delivered"
       QUALITY_FAIL_ON_VIOLATIONS: "0"
     volumes:
@@ -319,6 +321,91 @@ services:
         condition: service_healthy
       minio:
         condition: service_started
+    restart: unless-stopped
+    networks:
+      - de_demo_net
+
+  observability-exporter:
+    build:
+      context: ./observability
+      dockerfile: Dockerfile
+    container_name: de-demo-observability-exporter
+    environment:
+      POSTGRES_HOST: de-demo-postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PROMETHEUS_METRICS_PORT: "9104"
+      PROMETHEUS_EXPORTER_POLL_SECONDS: "15"
+    ports:
+      - "${OBSERVABILITY_EXPORTER_HOST_PORT:-19104}:9104"
+    depends_on:
+      de-demo-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9104/metrics')"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - de_demo_net
+
+  prometheus:
+    image: ${PROMETHEUS_IMAGE:-prom/prometheus:v3.5.0}
+    container_name: de-demo-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    ports:
+      - "${PROMETHEUS_HOST_PORT:-19090}:9090"
+    volumes:
+      - ./observability/prometheus:/etc/prometheus:ro
+      - de_demo_prometheus_data:/prometheus
+    depends_on:
+      observability-exporter:
+        condition: service_healthy
+      iceberg-writer:
+        condition: service_started
+      iceberg-medallion:
+        condition: service_started
+      orders-streaming:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:9090/-/ready >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    restart: unless-stopped
+    networks:
+      - de_demo_net
+
+  grafana:
+    image: ${GRAFANA_IMAGE:-grafana/grafana:11.2.0}
+    container_name: de-demo-grafana
+    ports:
+      - "${GRAFANA_HOST_PORT:-13001}:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - de_demo_grafana_data:/var/lib/grafana
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:3000/api/health >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
     restart: unless-stopped
     networks:
       - de_demo_net
@@ -431,6 +518,7 @@ services:
       DEAD_LETTER_CHECKPOINT_PATH: s3a://de-practicum/checkpoints/orders_dead_letter
       RECONCILIATION_OUTPUT_PATH: s3a://de-practicum/streaming/orders_reconciliation
       RECONCILIATION_CHECKPOINT_PATH: s3a://de-practicum/checkpoints/orders_reconciliation
+      PROMETHEUS_METRICS_PORT: "9103"
 
     volumes:
       - ./spark/jobs:/opt/spark/jobs:ro
@@ -519,6 +607,8 @@ volumes:
   # so it must not carry the Compose project-name prefix.
   de_demo_spark_ivy_cache:
     name: de_demo_spark_ivy_cache
+  de_demo_prometheus_data:
+  de_demo_grafana_data:
 
 networks:
   de_demo_net:
