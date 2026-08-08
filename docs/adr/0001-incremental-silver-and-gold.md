@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Status** | **Proposed** — P-0 and D-4 decided, D-1 open and blocking D-3 |
-| **Date** | 2026-08-08 |
+| **Status** | **Proposed** — P-0, D-1, D-1a, D-2, D-4 and PREREQ-1 accepted; **D-3 open, blocked on SPIKE-1** |
+| **Date** | 2026-08-08 (revised same day: D-1 closed as mutable lifecycle, D-3 reopened) |
 | **Deciders** | *(unassigned)* |
 | **Supersedes** | nothing — this is the repository's first ADR |
 | **Evidence base** | [`docs/architecture-audit/baseline/`](../architecture-audit/baseline/README.md) — committed, frozen |
@@ -93,7 +93,7 @@ Not a wish-list. Each is a verified property of the system as it stands.
 | **F-303** | **`Table.upsert` cannot express AR-004.** `when_matched_update_all` takes no predicate, so a lower `kafka_offset` overwrites a higher one. No identifier fields exist. The match key is uncorrelated with the partition spec, so no pruning. | `iceberg_medallion.py:53, 66`, pyiceberg 0.11.1 |
 | **F-702** | **Every event lands in one partition.** `event_time = now()` → `event_date` = today → the changed-partition set is always a single partition holding the whole working set. | `orders_producer.py:64` |
 | **F-703** | **Landing→Bronze has no commit contract.** A five-second mtime heuristic stands in for Spark's `_spark_metadata`; the `/_temporary/` guard is aimed at the batch committer, not the streaming one. | `iceberg_writer.py:113-144` |
-| **F-708** | **Partition-scoped dedup is correct only while `order_id` → `event_date` is functionally determined.** True today only because the generator never repeats an order. Unstated, untested. | `orders_producer.py:59` |
+| **F-708** | **Partition-scoped dedup is correct only while `order_id` → `event_date` is functionally determined.** True today only because the generator never repeats an order. Unstated, untested. **D-1 decided this invariant does not hold** — see §4, option C. | `orders_producer.py:59` |
 | **F-1005/1006** | **No live-stack test blocks a PR** (`ci-integration` triggers on push to `main`), and **every fixture is single-partition**. | workflows, `test_lakehouse_e2e.py:77` |
 
 ### The thing that makes this hard
@@ -154,70 +154,124 @@ Stated so this ADR can be attacked rather than merely believed.
 
 ## 3. Decisions
 
-### D-1 — Domain model · **OPEN, blocking D-3**
+### D-1 — Order domain semantics · ✅ **ACCEPTED — mutable business entity**
 
-> Is `order_id` an immutable event identifier, or a mutable business entity key?
+> **An order is a mutable business entity. Kafka records are immutable, versioned observations of
+> that entity.**
+>
+> - `order_id` identifies the business entity.
+> - `business_version` is the authoritative per-order version.
+> - Silver contains **exactly one** current representation of each `order_id`.
+> - The row with the greatest `business_version` wins.
+> - Re-delivery of the same `(order_id, business_version)` is idempotent.
+> - The same `(order_id, business_version)` carrying a **different** payload is a data-quality
+>   violation and MUST NOT be resolved silently.
 
-| | **A · Immutable event** | **B · Mutable business entity** |
-|---|---|---|
-| A repeat is | a replay | an order update |
-| AR-004 is | transport-level duplicate defence | a business projection rule |
-| F-303 | largely dissolves — a replay carries identical values | **becomes a blocker** |
-| F-708 invariant | holds by construction | cannot be assumed; orders cross partitions |
-| Silver is | a derived view | a stateful business projection |
-| Natural execution model | changed-partition rebuild (C) | business-key approaches (B) |
-| Must change | the e2e fixture's naming | **the generator** |
+#### Why B, over A
 
-**Status: undecided.** The evidence is 2:1 for B; the dissenting artifact is the live data source.
-This ADR does not resolve it because resolving it is a product decision about what the platform
-teaches, not an inference from the code.
+The evidence was never 2:1 by count alone — the three artifacts carry different weight:
 
-**It must be closed before D-3.** Nothing else in this document is blocked by it.
+| Artifact | Weight |
+|---|---|
+| The e2e fixture | **Behavioural.** It does not merely permit an update, it *asserts* one: `dup-1` must resolve to `(erin, 30.0, delivered)`, the second payload |
+| The Postgres serving DDL | **Formal and persisted.** `PRIMARY KEY (order_id)` with `ON CONFLICT DO UPDATE` of business attributes is a schema-level declaration that an order mutates |
+| `status` | **Vocabulary.** `created / paid / shipped / delivered` is a lifecycle, already |
+| The producer's `uuid4` | **Incidental.** The only artifact modelling immutable entities, and the cheapest of the four to change |
 
-#### D-1-R1 — the ordering contract that B requires (derived rule)
+The weakest candidate for the source of domain truth is the generator. Building the whole Silver
+architecture around its accidental simplicity would be backwards.
 
-If D-1 resolves to **B**, `kafka_offset` becomes a *version* number, and AR-004 —
-"highest `kafka_offset` wins" — becomes a business rule rather than replay defence. That rule is
-only meaningful if all versions of one order are comparable, and **Kafka offsets are monotonic
-only within a partition.** Comparing offsets across partitions is meaningless.
+**And for a data-engineering practicum, B is materially more valuable.** Under A, most of the
+interesting findings in this audit become edge cases the producer can never produce. Under B, the
+platform genuinely demonstrates late and out-of-order delivery, replay, stateful projection,
+version resolution, idempotency, recovery, shadow migration, and — most usefully — **the
+difference between transport ordering and business ordering.**
 
-The comparison is sound today, but **not** because the topic has a single partition:
+#### D-1a — `business_version`, not `kafka_offset` · ✅ **ACCEPTED**
 
-- **The producer already keys by `order_id`** — `producer.produce(topic, key=event["order_id"].encode("utf-8"), …)`
-  at `orders_producer.py:92`. The default partitioner therefore routes every version of an order
-  to the same partition **at any partition count**. The required behaviour is already implemented.
-- **It is nowhere declared, tested, or protected.** No test asserts the key is set; removing it
-  would still produce a working pipeline whose ordering rule is silently wrong.
-- **The single partition is a broker default, not a decision.** No `KAFKA_NUM_PARTITIONS` is set
-  in `docker-compose.extended.yml`; the `orders` topic is auto-created. The e2e suite creates its
-  own topic explicitly with `--partitions 1` (`test_lakehouse_e2e.py:316`) — the only place a
-  partition count is written down anywhere, and it is test-only.
+`kafka_offset` is **not** the version comparator. Two concepts are separated:
 
-The residual risk is therefore **not** multi-partition operation. It is a **change in partition
-count**: Kafka's partitioner is `hash(key) % partitions`, so increasing the count remaps existing
-keys. An order whose versions straddle that change lands in two partitions, and its version
-ordering becomes undefined. Nothing would report an error.
+```text
+business_version  = domain ordering
+kafka partition / offset = transport ordering
+```
 
-**Decision, if D-1 resolves to B:**
+This removes a hidden coupling that would otherwise be permanent:
 
-> All versions of a given `order_id` MUST be routed to the same Kafka partition, using `order_id`
-> as the message key. The topic's partition count is part of the ordering contract and MUST NOT
-> be changed while `kafka_offset` is used as the version comparator.
+```text
+change Kafka partition count → an order may move to another partition
+    → offsets no longer comparable → business semantics silently change
+```
 
-**Guard:** assert the producer sets the key (unit, PR tier — cheap), and assert no `order_id`
-appears under two `kafka_partition` values in Bronze (integration, alongside FF-09 which has the
-same shape for `event_date`).
+With `business_version`, changing the partition count stops being a change to the domain model.
+The producer should still key by `order_id` — it is good for locality and load distribution — but
+**Silver's correctness no longer depends on it.**
 
-**Alternative worth weighing:** carry an explicit business version or event sequence in the
-payload instead. That removes the dependency on transport metadata entirely, and it is the more
-honest model if orders genuinely have a lifecycle — but it changes the event contract and all
-three schema declarations (F-706), so it is a larger change than it looks.
+#### The resolution table this produces
 
-Under D-1-A this rule is unnecessary: there are no versions to order.
+Stronger than "latest `kafka_offset` wins", and each row is directly testable:
 
-### D-2 — Progress ownership · **OPEN**
+| Situation | Outcome |
+|---|---|
+| v4, then v4 replayed with identical payload | Harmless duplicate — idempotent, Silver unchanged |
+| v4, then a **second v4 with a different payload** | **Invalid data.** Must surface, must not be silently resolved |
+| v3 arriving after v4 | Valid late or replayed event — Silver unchanged |
+| v5 | Advances Silver |
 
-> Bronze snapshot ids, Kafka offsets, a control table, or a writer-published outbox?
+#### What this costs
+
+- **`business_version` must be added to the event contract** and to all four schema declarations —
+  Spark `ORDER_SCHEMA`, Bronze `TABLE_SCHEMA`, Silver `SILVER_SCHEMA`, and `marts.streaming_orders`.
+  F-706 priced this: the declarations are hand-maintained with no compatibility test, which is why
+  **FF-08 should land before this change, not after.**
+- **The generator must emit lifecycle transitions** — reusing `order_id` across events and
+  incrementing `business_version`.
+- **The e2e fixture must carry versions.** Its `dup-1/2/3` rows already model updates; they need
+  explicit versions and should gain a case for each row of the resolution table above.
+
+#### D-1-R1 — transport ordering · **demoted by D-1a, deliberately retained**
+
+An earlier draft of this ADR made the Kafka partition contract a *correctness* requirement,
+because `kafka_offset` was the candidate version comparator. **D-1a removes that.** The rule is
+kept here, downgraded, because the analysis behind it explains why D-1a was worth its cost.
+
+What the audit established, and it is worth stating precisely because it is easy to get wrong:
+
+- **The producer already keys by `order_id`** — `key=event["order_id"].encode("utf-8")` at
+  `orders_producer.py:92`. The default partitioner therefore co-locates every version of an order
+  **at any partition count**. The single partition is *not* what makes offsets comparable.
+- **The single partition is a broker default, not a decision.** No `KAFKA_NUM_PARTITIONS` is set;
+  the `orders` topic is auto-created. The only place a partition count is written down anywhere is
+  `--partitions 1` in the e2e suite (`test_lakehouse_e2e.py:316`), and that is test-only.
+- **The residual risk was never multi-partition operation.** It was a *change* in partition count:
+  the partitioner is `hash(key) % partitions`, so increasing the count remaps existing keys. An
+  order whose versions straddle that change lands in two partitions and loses its ordering, and
+  **Kafka would report nothing.** A routine, permitted operation would have silently changed
+  domain semantics.
+
+That is the coupling D-1a buys its way out of. Under `business_version`, changing the partition
+count is an operational change with no semantic consequence.
+
+**Retained as a non-correctness rule:** continue keying by `order_id`. It preserves per-order
+locality and even load distribution, and it keeps transport ordering aligned with business
+ordering in the common case — which makes divergence easier to spot. It is no longer load-bearing,
+and **FF-13 is downgraded accordingly** (see §7).
+
+### D-2 — Progress ownership · ✅ **ACCEPTED**
+
+> **Medallion progress is durable, explicit control state owned by the component that writes it.
+> It MUST NOT be derived from Bronze snapshot history, whose retention belongs to the maintenance
+> DAG.**
+>
+> ```text
+> Bronze commit → durable explicit control / outbox state → Silver processor
+>     → mark processed only after a successful Silver commit
+> ```
+>
+> A Bronze snapshot id MAY be stored alongside as evidence or as a reference for diagnostics. It
+> MUST NOT be the only durable progress mechanism.
+
+D-1 did not change this conclusion. The reasoning below stands as originally recorded.
 
 **Eliminated on evidence:**
 
@@ -233,26 +287,115 @@ Under D-1-A this rule is unnecessary: there are no versions to order.
 | Medallion control table | Depends on nothing the medallion does not own — but `marts` has five DDL owners, three issuing runtime DDL, one of them a student exercise, all on one credential (F-305) |
 | **Writer-published outbox** | The writer already holds the delta in memory at append time |
 
-**Recommendation: the writer-published outbox.** It is the only option that *removes* a
-cross-component ownership conflict instead of adding one, and it takes F-301 off the medallion's
-critical path entirely. This is an argument from ownership, not from performance.
+**Chosen: the writer-published outbox.** It is the only option that *removes* a cross-component
+ownership conflict instead of adding one, and it takes F-301 off the medallion's critical path
+entirely. This is an argument from ownership, not from performance.
 
-**Binding constraint on whatever is chosen:** it must be **atomically written and bounded**. The
-one existing precedent — the writer's `done` set, serialised in full through a truncating write on
-every load (F-707) — is neither, and must not be copied.
+**Binding constraint:** the control state must be **atomically written and bounded**. The one
+existing precedent — the writer's `done` set, serialised in full through a truncating write on
+every load (F-707) — is neither, and must not be copied. It also must not live in `marts` as that
+schema currently stands (F-305: five DDL owners, one of them a student exercise).
 
-### D-3 — Silver execution model · **OPEN, depends on D-1 and D-2**
+### D-3 — Silver execution model · ⛔ **OPEN — reopened by D-1**
 
-**Recommendation: option F** (see §4), *conditional on D-1 resolving to A*.
+**The earlier conditional recommendation of option F is withdrawn.** D-1 did not merely re-rank
+the options; it invalidated the mechanism at the centre of options C and F.
 
-Its principal merit is **not** performance:
+#### Why changed-partition rebuild no longer works
 
-> The rebuild of a changed scope remains **deterministic and idempotent** — the same property that
-> makes the current full overwrite correct.
+Silver is partitioned by `event_date`. Under a mutable lifecycle, an order's versions can fall in
+different partitions:
 
-Under D-1-B this recommendation is withdrawn and option B becomes competitive.
+```text
+order X  v1  event_date = 2026-08-08   → written to partition 08-08
+order X  v2  event_date = 2026-08-09   → rebuild touches partition 08-09 only
+                                       → v1 is STILL THERE in partition 08-08
+                                       → Silver now holds two rows for order X
+```
 
-### D-4 — Gold execution model · **DECIDED**
+A scoped rebuild of the changed partition cannot delete a representation living in a partition it
+never reads. **Scoped partition rebuild is therefore no longer a sufficient correctness model** —
+the invariant "exactly one current representation per `order_id`" is global, and cannot be
+enforced by an operation whose scope is local.
+
+This is F-708 arriving as a consequence rather than as a risk. The audit flagged the invariant as
+unstated and untested; D-1 has now decided that it does not hold.
+
+#### What D-1 requires instead
+
+A **business-key projection**: the unit of work is the affected set of `order_id` values, not the
+affected set of partitions. That is option B's shape — and option B was priced with F-303:
+
+> `Table.upsert` in pyiceberg 0.11.1 cannot atomically express
+> `WHEN MATCHED AND source.business_version > target.business_version THEN UPDATE`.
+> `when_matched_update_all` takes no predicate.
+
+Writing a hand-rolled quasi-MERGE on top of pyiceberg to work around that is exactly the kind of
+machinery this ADR rejected when it eliminated option A.
+
+#### SPIKE-1 — narrow capability check, blocking D-3
+
+This is **not** a new architecture audit. It is a check of one alternative the audit recorded as
+unexamined and which D-1 has made directly relevant.
+
+> **Can the Trino or Spark path already present in this stack express a conditional Iceberg MERGE
+> safely and efficiently?**
+>
+> ```sql
+> MERGE INTO silver.orders_clean t USING <delta> s ON t.order_id = s.order_id
+> WHEN MATCHED AND s.business_version > t.business_version THEN UPDATE SET ...
+> WHEN NOT MATCHED THEN INSERT ...
+> ```
+
+**Established statically, before the spike runs:**
+
+| Fact | Consequence |
+|---|---|
+| **Trino 483** is already in the stack, wired to the same REST catalog, and `dags/lakehouse_maintenance.py` already executes statements through the `trino` Python client | A Trino-executing component is an established pattern here. **Zero new infrastructure.** |
+| **Spark 4.2.0** carries no Iceberg runtime — `--packages` is kafka, hadoop-aws, postgresql only (`docker-compose.extended.yml:392`). Released `iceberg-spark-runtime` artifacts target Spark 3.4 / 3.5 / 4.0 | Spark is the expensive path and **may be blocked outright** by the absence of a 4.2-compatible runtime |
+| Tables are created at **format-version 2** (`pyiceberg.TableProperties.DEFAULT_FORMAT_VERSION = 2`); nothing in the repo overrides it | The precondition for row-level MERGE is already met. **No format migration needed.** |
+
+**A priori this strongly favours Trino.** The spike must still measure, not assume.
+
+**Questions the spike must answer:**
+
+1. Does Trino 483's Iceberg connector accept the conditional `WHEN MATCHED AND …` clause above,
+   and does it apply the predicate correctly for out-of-order versions?
+2. Which delete mode results — copy-on-write or merge-on-read position deletes? `write.delete.mode`
+   is unset on these tables.
+3. **Can pyiceberg 0.11.1 read a table Trino has written with position deletes?** This is the
+   critical one: the medallion reads Silver through pyiceberg, and D-4 requires Gold to be rebuilt
+   from persisted Silver. If this fails, the whole shape fails.
+4. What does merge-on-read do to `lakehouse_maintenance`? `optimize` and `expire_snapshots` would
+   now also be managing delete files — a direct interaction with F-301 and F-307.
+5. Cost per cycle on a realistic Silver, versus the full overwrite baseline (FF-02's measure).
+
+**Non-goal:** the spike does not choose the architecture. It answers whether the engine can carry
+the semantics D-1 requires, so that D-3 can be decided on evidence.
+
+**Likely outcome if the answer is yes** — recorded as a hypothesis, not a decision:
+
+```text
+PyIceberg        → catalog, writer, control-plane
+Trino (or Spark) → mutable Silver projection via conditional MERGE
+```
+
+That is preferable to hand-building a quasi-MERGE over pyiceberg, and it uses the stack as it
+already exists.
+
+### D-4 — Gold execution model · ✅ **ACCEPTED**
+
+**D-1 strengthens this rather than disturbing it.** The boundary is now unusually clean:
+
+```text
+mutable, versioned events → current-state persisted Silver → deterministic full Gold rebuild
+```
+
+**Gold does not participate in the lifecycle at all.** Its input contract is *current persisted
+Silver state*, never events, never versions, never deltas. Every complication D-1 introduces —
+version resolution, out-of-order arrival, idempotency — is absorbed by Silver and never reaches
+Gold. That is the whole value of the boundary.
+
 
 > **Gold is not made incremental. It is rebuilt in full from persisted Silver on every cycle.**
 
@@ -296,34 +439,40 @@ it on the PR tier.
 
 ## 4. Alternatives considered
 
-Six options were assessed against the pinned stack. Two are eliminated, one is not an alternative.
+Six options were assessed against the pinned stack. **D-1 subsequently eliminated two more** — the
+verdicts below are the post-D-1 state, with the pre-D-1 reasoning preserved so the reversal is
+legible.
 
 | | Available in 0.11.1 | Verdict |
 |---|---|---|
-| **A** · snapshot-delta + selective partition overwrite | **no** | **Eliminated.** Requires rebuilding an incremental scan from `inspect` metadata, on library internals, on top of snapshots F-301 lets maintenance delete. Highest machinery cost of the six. |
-| **B** · business-key upsert | yes | **Live.** Immune to F-702; correct under D-1-B. But cannot express latest-offset-wins (F-303), needs explicit `join_cols` because no identifier fields exist, scans every partition, and requires a pre-deduplicated delta. |
-| **C** · changed-partition rebuild | yes | **Live.** Uses only `scan(row_filter)` and `overwrite(overwrite_filter)`. **F-303 dissolves rather than needing mitigation.** Idempotent by construction. Rests on F-708's invariant; reduces no work until F-702 is fixed. |
-| **D** · Silver changelog / CDC intermediate | yes | **Eliminated.** A fourth persisted layer and a fourth schema declaration in a system already failing to keep three in sync (F-706). No consumer needs row-level change events. |
-| **E** · control / progress table | yes | **Not an alternative.** It is the missing component *every* other option needs. It is D-2. |
-| **F** · writer outbox + changed-partition Silver + full Gold rebuild | yes | **Recommended, conditional on D-1-A.** Combines E with C; makes the silver→gold read real; removes F-301 from the medallion's critical path. Still requires F-702 and F-708 resolved. |
+| **A** · snapshot-delta + selective partition overwrite | **no** | **Eliminated (pre-D-1).** Requires rebuilding an incremental scan from `inspect` metadata, on library internals, on top of snapshots F-301 lets maintenance delete. Highest machinery cost of the six. |
+| **B** · business-key upsert | yes | **The required shape.** D-1 makes the unit of work the affected `order_id` set. Its F-702 immunity is now a benefit rather than a tiebreak — but F-303 stands: pyiceberg's `when_matched_update_all` takes no predicate, so the *engine* question moves to **SPIKE-1**. |
+| **C** · changed-partition rebuild | yes | **Eliminated by D-1.** Was the leading candidate: only `scan(row_filter)` + `overwrite(overwrite_filter)`, idempotent by construction, F-303 dissolving rather than mitigated. **It rested entirely on F-708's invariant, and D-1 decided that invariant does not hold.** A scoped rebuild cannot delete a stale representation in a partition it never reads. |
+| **D** · Silver changelog / CDC intermediate | yes | **Eliminated (pre-D-1).** A fourth persisted layer and a fourth schema declaration in a system already failing to keep three in sync (F-706). No consumer needs row-level change events. |
+| **E** · control / progress table | yes | **Not an alternative.** It is the missing component *every* other option needs. **Accepted as D-2.** |
+| **F** · writer outbox + changed-partition Silver + full Gold rebuild | yes | **Withdrawn by D-1.** Its Silver half was C. Its other two parts survive intact and are now D-2 and D-4 — the outbox and the exact Gold rebuild from persisted Silver. |
 
-### The dependency that decides the ranking
+### What actually decided it, and it was not the ranking
 
-**B and C fail in opposite conditions.**
+The pre-D-1 analysis turned on a trade-off between **C** and **B**: C was correct and cheap but
+demonstrated nothing until F-702 was fixed, while B was insensitive to F-702 but carried every
+constraint in F-303. The conclusion was that F-702 would decide the ranking.
 
-- **C** is correct and cheap, but demonstrates nothing until F-702 is addressed — with one hot
-  partition, a changed-partition rebuild performs exactly the work the full overwrite did.
-- **B** is insensitive to F-702, but carries every constraint in F-303.
+**That framing did not survive D-1.** The domain decision did not re-rank the options — it
+removed C's correctness, and with it F's. A trade-off analysis was answered by a domain fact,
+which is the strongest argument in this document for having settled P-0 and D-1 first.
 
-**If F-702 is not addressed, the ranking inverts.**
+### F-702's role has changed
 
-### F-702 is settled by a guard, not by a decision
+`DataScan.plan_files()` still makes files-per-cycle observable with no instrumentation, and
+**FF-02 is still required** — it remains the only evidence that the change achieved anything.
 
-`DataScan.plan_files()` makes files-per-cycle observable with no instrumentation. Write **FF-02**
-first, then attempt to build a fixture that makes it pass. If none can exist, F-702 has answered
-itself and either the generator or the partition grain must change.
+But it is no longer a *design* input. With a business-key projection the unit of work is the
+affected `order_id` set, not the partition set, so a single hot partition no longer flattens the
+optimisation. F-702 became a measurement obligation rather than a blocker.
 
-This avoids both failure modes: choosing an architecture to fit an artificially simple generator,
+The original reasoning is retained because it avoided both failure modes worth avoiding: choosing
+an architecture to fit an artificially simple generator,
 and choosing a data shape to fit a preferred architecture.
 
 ---
@@ -334,44 +483,44 @@ and choosing a data shape to fit a preferred architecture.
 
 | Decision | Status |
 |---|---|
-| **P-0** Canonical domain model | ✅ **Decided** — this ADR is the single authoritative source |
-| **D-1** Immutable vs mutable | ⛔ **Open — blocking D-3** |
-| **D-2** Progress ownership | 🟡 **Recommended** (writer outbox), not ratified |
-| **D-3** Silver execution model | ⛔ **Open** — recommendation conditional on D-1-A |
-| **D-4** Gold execution model | ✅ **Decided** — full rebuild from persisted Silver |
-| **PREREQ-1** Bronze commit contract | ✅ **Decided** — fix independently, in parallel |
+| **P-0** Canonical domain model | ✅ **Accepted** — this ADR is the single authoritative source |
+| **D-1** Order domain semantics | ✅ **Accepted** — mutable business entity, versioned observations |
+| **D-1a** Version comparator | ✅ **Accepted** — explicit `business_version`, not `kafka_offset` |
+| **D-2** Progress ownership | ✅ **Accepted** — durable explicit control state, writer-published; never derived from Bronze snapshot retention |
+| **D-3** Silver execution model | ⛔ **Open** — business-key projection required; engine pending **SPIKE-1** |
+| **D-4** Gold execution model | ✅ **Accepted** — exact full rebuild from persisted Silver |
+| **PREREQ-1** Bronze commit contract | ✅ **Accepted** (decision only — the severity claim is not ratified) |
 
-### The target, if D-1 resolves to A
+**This ADR remains `Proposed` solely because of D-3.** Everything else is settled.
+
+### The settled shape
 
 ```mermaid
 graph TD
   W[iceberg-writer] -->|append| B[(bronze.orders)]
-  W -->|publishes: load_id, event_dates touched, row count| O[(outbox / control record)]
-  O --> M[iceberg-medallion]
+  W -->|publishes: load_id, affected order_ids, row count| O[(durable control / outbox)]
+  O --> M[Silver processor]
   B --> M
-  M -->|scan row_filter: affected event_dates| B
-  M -->|overwrite_filter: same partitions| SV[(silver.orders_clean)]
-  SV -->|full scan — a real persisted edge| M
-  M -->|full overwrite, exact aggregates| G[(gold.orders_daily_metrics)]
+  M -->|"business-key projection<br/>greatest business_version wins"| SV[(silver.orders_clean<br/>one current row per order_id)]
+  SV -->|full scan — a real persisted edge| G0[Gold builder]
+  G0 -->|exact full rebuild| G[(gold.orders_daily_metrics)]
+  M -.->|mark processed only after<br/>a successful Silver commit| O
 ```
 
-Read as a sequence:
+### What is still undetermined
 
-```text
-writer commit → explicit committed-batch record → identify affected scope
-   → deterministic rebuild of that scope → persist Silver
-   → full Gold rebuild from persisted Silver
-```
+**Only the box labelled "business-key projection"** — specifically which engine executes it, and
+therefore how the conditional update is expressed. SPIKE-1 answers that.
 
-**What this preserves, and why it is the point:** the rebuild of any scope stays a pure function
-of Bronze. Re-running it is a no-op. That is precisely the property that makes today's full
-overwrite correct, and it is the reason F-303 dissolves under this design rather than needing
-mitigation.
+Everything else in the diagram is decided: the control state and its ownership, the versioned
+resolution rule, the one-row-per-`order_id` invariant, the persisted Silver→Gold edge, and Gold's
+exact full rebuild.
 
-**What remains open under D-1-B:** if orders genuinely mutate, `order_id` → `event_date` is no
-longer functionally determined, partition-scoped dedup can emit one row per partition for a single
-order, and a key-based model becomes the honest choice. **Do not implement the diagram above until
-D-1 is closed.**
+**What was lost, and it is worth naming.** The earlier target preserved a property this one does
+not: *the rebuild of a scope was a pure function of Bronze, so re-running it was a no-op.* Under a
+business-key projection, idempotency has to be **constructed** — from `business_version` monotonicity
+and the control state — rather than inherited from determinism. That is a real cost of D-1, and it
+is why FF-03 and FF-04 stop being regression guards and become primary correctness guards.
 
 ---
 
@@ -413,7 +562,7 @@ call is not.**
 |---|---|---|
 | **X-1** | ≥ 50 consecutive cycles with **zero** row-level differences between `silver` and `silver_shadow`, compared against a **pinned Bronze snapshot** so both see identical input | FF-01 against real accumulated data rather than a fixture. Snapshot pinning is what makes the comparison non-racy while the writer keeps appending |
 | **X-2** | `silver_shadow` plans **strictly fewer** data files than the full rebuild in ≥ 90% of cycles, measured by `DataScan.plan_files()` | FF-02. Not 100%: a cycle that legitimately touches every partition is allowed. **If this cannot be met, F-702 is unresolved and the change is incremental in name only** |
-| **X-3** | The window spans **at least one `event_date` boundary** (local midnight) | The only condition under which more than one partition exists, and therefore the only way partition-scoped behaviour is exercised at all. Also the only way F-708's cross-partition case can occur |
+| **X-3** | The window spans **at least one `event_date` boundary** (local midnight), **and contains at least one order updated across that boundary** | The condition D-1 made real and C could not survive: an order whose versions land in different partitions. This is FF-09's failure case, and midnight is the only time it occurs naturally |
 | **X-4** | ≥ 1 unplanned or induced **restart of the shadow medallion** mid-cycle, recovering with no loss and no double-apply | FF-05 under production conditions rather than in a test harness |
 | **X-5** | ≥ 1 **maintenance DAG run** completed during the window with the shadow medallion active | Exercises the F-307 concurrency window between `optimize` / `expire_snapshots` and the medallion's commit — the one interaction no test covers |
 | **X-6** | Gold rebuilt from **persisted** `silver_shadow` matches Gold rebuilt from `silver`, exactly | FF-06 and D-4. Exact, not approximate — that is the whole argument for a full Gold rebuild |
@@ -448,46 +597,56 @@ Every guard below is therefore stated against the **data plane**.
 | **FF-01** | `TE-FF-EQUIV` | Incremental Silver equals full-rebuild Silver over the same Bronze snapshot | Integration | QAS-001, F-302 | both |
 | **FF-02** | `TE-FF-SCAN` | An incremental cycle plans strictly fewer data files than a full rebuild | Integration | F-702, F-1002 | both |
 | **FF-03** | `TE-FF-IDEM` | Re-applying the same committed batch leaves Silver unchanged | Integration | F-301, F-703 | both |
-| **FF-04** | `TE-FF-ORDER` | A lower `kafka_offset` never overwrites an applied higher one | Integration | F-303 | **D-1-B only** |
+| **FF-04** | `TE-FF-ORDER` | A lower `business_version` never overwrites an applied higher one | Integration | F-303, D-1 | **primary** |
 | **FF-05** | `TE-FF-RECOVER` | A crash before or after the Silver commit recovers with no loss and no double-apply | Integration | F-1004 | both |
 | **FF-06** | `TE-FF-PERSIST` | Gold is built from persisted Silver, not an in-memory frame | Integration | F-302 | both |
 | **FF-07** | `TE-FF-COMMIT` | Only files committed per Spark's streaming metadata are eligible for Bronze | **PR** + integration | F-703 | both |
-| **FF-08** | `TE-FF-SCHEMA` | The three order-schema declarations agree on names, order and nullability | **PR** | F-706 | both |
-| **FF-09** | `TE-FF-INVARIANT` | No `order_id` spans two `event_date` partitions in Bronze | Integration | F-708 | both |
+| **FF-08** | `TE-FF-SCHEMA` | The **four** order-schema declarations agree on names, order and nullability — including `business_version` | **PR** | F-706, D-1a | **prerequisite** |
+| **FF-09** | `TE-FF-UNIQUE` | **Silver holds exactly one row per `order_id`, globally** | Integration | F-708, D-1 | **primary** |
 | **FF-10** | `TE-FF-RETENTION` | `MAINTENANCE_RETENTION` exceeds the maximum writer recovery window | **PR** | F-301 | both |
 | **FF-11** | `TE-FF-ATOMIC` | A crash mid-state-write never yields a truncated state file | **PR** | F-707 | both |
 | **FF-12** | `TE-FF-RECONCILE` | Produced events equal landed rows plus dead-lettered rows | Integration | F-705 | both |
-| **FF-13** | `TE-FF-ORDERING-CONTRACT` | The transport ordering contract holds: the producer keys by `order_id`, **and** the topic partition count equals the declared architectural value | **PR** + integration | D-1-R1 | **D-1-B only** |
+| **FF-13** | `TE-FF-KEYING` | The producer keys records by `order_id` | **PR** | D-1-R1 | **downgraded** — locality, not correctness |
+| **FF-14** | `TE-FF-VERSION-CONFLICT` | Two records sharing `(order_id, business_version)` but carrying different payloads are surfaced as a data-quality violation, never silently resolved | Integration | D-1 | **primary** |
 
-### Three notes that matter more than the table
+### Five notes that matter more than the table
 
 **FF-01 is only testable because time travel exists.** `Table.scan(snapshot_id=…)` is available in
 0.11.1 even though a delta scan is not (F-704). Pin the snapshot and both paths see identical input
 despite a continuously appending writer. Without it the test would be inherently racy.
 
-**FF-04 cannot be built from publication order.** Kafka assigns offsets in publication order, so the
-winning version always arrives last — which is why the existing e2e assertion passes and *cannot*
-catch F-303. The regression is reachable only by **replay**: re-appending an older landing file to
-Bronze. And it is vacuous under D-1-A, where a replayed duplicate carries identical values.
+**FF-04 got easier and more important at the same time.** Under the rejected `kafka_offset` model it
+could not be built from publication order at all — Kafka assigns offsets in publication order, so the
+winning version always arrived last, which is why the existing e2e assertion passes and *cannot*
+catch F-303. The only route was replay injection.
+
+With `business_version` decoupled from transport, **a late low version is just an event you can
+publish**: emit v5, then publish v3, assert Silver still holds v5. No replay seam needed. And the
+guard is no longer conditional or vacuous — D-1 made out-of-order arrival a first-class domain
+case, so this is now a **primary** correctness guard rather than a regression test. Replay
+injection remains worth having for FF-03, where the failure is duplication rather than regression.
 
 **FF-05 needs a seam that does not exist.** The writer has two crash hooks and a real fault-injection
 suite; the medallion has neither, and its tests are entirely mocked. The change makes the medallion
 stateful. **Add `SIMULATE_CRASH_BEFORE_SILVER_COMMIT` / `_AFTER_` before writing the progress logic,
 not after.** `tests/integration/test_crash_recovery.py` is the template.
 
-**FF-13 guards a contract that Kafka will let you break silently.** Increasing a topic's partition
-count is a routine, permitted operation with no warning — and under D-1-B it is a **semantics-breaking
-change**, because `hash(key) % partitions` remaps existing keys and an order whose versions straddle
-the change loses its ordering. Three parts, and all three are needed:
+**FF-09 inverted, and the inversion is the whole point of D-1.** It previously asserted that no
+`order_id` spans two `event_date` partitions in Bronze — the invariant a partition-scoped rebuild
+would have depended on. D-1 decided that invariant does **not** hold. The guard now asserts the
+property that actually matters and that a scoped rebuild cannot deliver: **Silver holds exactly one
+row per `order_id`, globally.** Same finding (F-708), opposite assertion. It is also the single
+cheapest test that would catch a mis-scoped projection.
 
-1. the producer MUST key records by `order_id` — unit assertion, cheap;
-2. the topic partition count MUST equal the declared architectural value — asserted against the live
-   broker;
-3. CI MUST fail if either changes.
+**FF-13 is downgraded, and the analysis behind it is still worth keeping.** Increasing a topic's
+partition count is routine and permitted, and Kafka reports nothing — under the *rejected* design
+where `kafka_offset` was the comparator, it would have silently changed domain semantics. D-1a
+removed that exposure, so this is now a locality assertion, not a correctness gate. **It stays on
+the PR tier because it costs almost nothing and it documents the intent.**
 
-This is a good illustration of why §7 is stated against the data plane: no import-level architecture
-tool could ever see this rule, and the property it protects lives entirely in broker configuration
-and one line of producer code.
+Both are good illustrations of why §7 is stated against the data plane: no import-level architecture
+tool could ever see either rule. One lives in broker configuration and a single line of producer
+code; the other is a property of table contents that only a query can establish.
 
 ### Enforcement prerequisite
 
@@ -532,27 +691,44 @@ meaningful window.
 
 ## Open questions
 
-1. **D-1** — immutable event or mutable business entity? *Blocks D-3. Product decision.*
-   1a. **If B: `kafka_offset` or an explicit `business_version`?** Reusing `kafka_offset` as the
-   version comparator makes a transport detail into a hidden domain field, and buys the ordering
-   contract D-1-R1 and FF-13 have to defend. An explicit version in the payload removes that
-   dependency entirely and is the more honest model for a real lifecycle — at the cost of changing
-   the event contract and all three schema declarations (F-706). **This ADR now makes that
-   trade-off available as a conscious choice rather than an inherited default.**
-2. **D-2** — outbox, control table, or snapshot ids? *Recommendation stands; not ratified.*
-3. **F-702** — is the demonstration goal correctness, or work reduction? *Settled empirically by
-   FF-02, not by discussion.*
-4. **The unexamined alternative** — should the medallion move to Spark or Trino? Engine-native
-   change tracking would make F-701 and F-704 irrelevant. Never evaluated; out of the audit's
-   scope.
+1. **D-3 — which engine executes the business-key projection?** Blocked on **SPIKE-1**. The
+   sub-question that decides it: *can pyiceberg 0.11.1 read a Silver table that Trino has written
+   with position deletes?* If not, the shape fails regardless of how well the MERGE itself works.
+2. **F-702** — is the demonstration goal correctness, or work reduction? *Settled empirically by
+   FF-02, not by discussion.* Note that D-1 changes its urgency: with a business-key projection the
+   unit of work is affected `order_id` values rather than partitions, so F-702's single hot
+   partition no longer flattens the optimisation. **FF-02 is still required** — it is the only
+   evidence the change achieved anything — but it is no longer a blocker for the design.
+3. **Delete-mode fallout** — if SPIKE-1 lands on merge-on-read, `lakehouse_maintenance` inherits
+   delete files it was never written for. Direct interaction with F-301 and F-307, and it needs a
+   decision of its own once the spike reports.
+4. **Silver partitioning** — `event_date` was chosen for a table with one row per event. With one
+   row per `order_id` and updates arriving against arbitrary partitions, it is no longer obviously
+   right. Not urgent; revisit after SPIKE-1, since the engine choice affects it.
+
+*Resolved since the first revision: D-1 (mutable lifecycle), D-1a (`business_version`), D-2
+(writer-published durable control state). The "unexamined alternative" — moving execution to Trino
+or Spark — is no longer unexamined-and-ignored; it is SPIKE-1.*
 
 ---
 
 ## Next step
 
-`plan-architecture-remediation`, once P-0 is ratified and D-1 is closed. Decomposing work items
-before then would produce tasks for two mutually exclusive projects: D-1-A yields replay handling,
-provenance, partition rebuild and scan optimisation; D-1-B yields update semantics, ordering
-guarantees, version-conflict policy and lifecycle modelling.
+**SPIKE-1**, then D-3, then `Accepted`, then `plan-architecture-remediation`.
 
-**PREREQ-1, FF-07, FF-08, FF-10 and FF-11 do not depend on any open decision and can start now.**
+Decomposing work items now would produce tasks for two different projects: a hand-rolled
+quasi-MERGE over pyiceberg, versus a Trino-executed conditional MERGE with pyiceberg confined to
+the catalog and control plane. Those differ in almost every work item.
+
+**Ready to start immediately, dependent on no open decision:**
+
+| Item | Why it is unblocked |
+|---|---|
+| **PREREQ-1** + **FF-07** | The Bronze commit contract is orthogonal to everything above |
+| **FF-08** | Schema agreement — and D-1a *requires* it before `business_version` is threaded through four declarations |
+| **FF-10**, **FF-11** | Retention-versus-recovery and atomic state writes; both PR-tier and cheap |
+| **FF-13** | One assertion, already-true behaviour, documents intent |
+| **PREREQ-2** | The multi-partition fixture — still needed for FF-02 and now also for FF-09's cross-partition case |
+| **PREREQ-3** | PR-blocking live-stack tier; without it none of the above actually gates anything |
+
+**Not ready:** anything touching the Silver write path.
