@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Status** | **Proposed** — P-0, D-1, D-1a, D-2, D-4 and PREREQ-1 accepted; **D-3 open, blocked on SPIKE-1** |
-| **Date** | 2026-08-08 (revised same day: D-1 closed as mutable lifecycle, D-3 reopened) |
+| **Status** | **Proposed** — P-0, D-1, D-1a, D-2, D-4 and PREREQ-1 accepted; **D-3 open — SPIKE-1 ran and FAILED, candidates narrowed to B1/B2/B3** |
+| **Date** | 2026-08-08 (revised twice same day: D-1 closed as mutable lifecycle; SPIKE-1 executed, Trino path rejected on interop) |
 | **Deciders** | *(unassigned)* |
 | **Supersedes** | nothing — this is the repository's first ADR |
 | **Evidence base** | [`docs/architecture-audit/baseline/`](../architecture-audit/baseline/README.md) — committed, frozen |
@@ -355,7 +355,73 @@ unexamined and which D-1 has made directly relevant.
 | **Spark 4.2.0** carries no Iceberg runtime — `--packages` is kafka, hadoop-aws, postgresql only (`docker-compose.extended.yml:392`). Released `iceberg-spark-runtime` artifacts target Spark 3.4 / 3.5 / 4.0 | Spark is the expensive path and **may be blocked outright** by the absence of a 4.2-compatible runtime |
 | Tables are created at **format-version 2** (`pyiceberg.TableProperties.DEFAULT_FORMAT_VERSION = 2`); nothing in the repo overrides it | The precondition for row-level MERGE is already met. **No format migration needed.** |
 
-**A priori this strongly favours Trino.** The spike must still measure, not assume.
+**A priori this strongly favoured Trino. The spike measured, and the answer was no.**
+
+#### SPIKE-1 RESULT · ❌ **FAIL** — executed against the live stack
+
+Permanent guard: [`tests/integration/test_trino_merge_interop.py`](../../tests/integration/test_trino_merge_interop.py)
+— 6 passed, 1 `xfail(strict=True)`.
+
+**The blocker, and it is the one flagged in advance as fatal:**
+
+> **PyIceberg cannot read a table Trino has written with position deletes.**
+>
+> ```text
+> OSError: Not yet implemented: DecodeArrow of DictAccumulator
+>          for DeltaLengthByteArrayDecoder
+> ```
+>
+> PyArrow cannot decode Trino's delete files. Reproduced on **pyarrow 21.0.0**
+> (the `requirements-dev.txt` pin) **and on pyarrow 25.0.0** — which is what the
+> `iceberg` image actually installs, since the Dockerfile pins `pyiceberg[pyarrow]==0.11.1`
+> without pinning pyarrow. *That version drift between the test environment and the
+> running containers is itself worth fixing.*
+
+D-4 requires Gold to be rebuilt from **persisted** Silver, and the medallion reads Silver through
+PyIceberg. The chain breaks at exactly that link.
+
+**Both obvious escapes were tested and neither survives:**
+
+| Escape | Result |
+|---|---|
+| `write.merge.mode = copy-on-write` (plus `update`/`delete` modes) | Trino 483 **accepts and stores** the properties — they are visible in `$properties` — and then **ignores them**, writing position deletes anyway |
+| `optimize` after each MERGE | **Works** — compaction removes the deletes and PyIceberg reads again. But Silver is unreadable by PyIceberg between MERGE and compaction, so it would have to run every cycle: a file rewrite per cycle, which removes the performance rationale for incremental processing, plus snapshot churn straight into F-301 |
+
+No Trino-side knob exists to change the delete file's Parquet encoding — Trino 483 exposes only
+read-side Parquet properties for Iceberg.
+
+**What the spike confirmed as working, and these results survive the verdict:**
+
+| Scenario | Result |
+|---|---|
+| `v1 → v5 → late v3` | ✅ Silver stays at v5. The conditional MERGE expresses D-1a's semantics exactly |
+| `v1(day 8) → v2(day 9)` | ✅ Exactly one row per `order_id` globally, across partitions. **Option C's elimination is now empirically demonstrated, not merely reasoned** |
+| Two versions of one key in one batch | ❌ `One MERGE target table row matched more than one source row`. **Pre-collapse of the delta to `(order_id, max(business_version))` is a hard requirement**, whatever engine is chosen. The failed MERGE is atomic — Silver is untouched |
+| Same `(order_id, business_version)`, different payload | Silently dropped — the strictly-greater predicate ignores it. **FF-14 must run before the MERGE**, on delta construction; the MERGE itself cannot surface it |
+
+**Physical evidence captured:** after MERGE — 2 data files + 1 position-delete file, `plan_files=2`;
+after `optimize` — 1 data file, no deletes, `plan_files=1`, snapshots 2→3.
+
+#### Verdict
+
+**D-3 returns to the design space.** Per the go/no-go criterion, a failed interop link is not
+something to work around inside the current implementation.
+
+The remaining candidates, with what is already known about each:
+
+| | Shape | Known cost |
+|---|---|---|
+| **B1** | Trino owns the Silver MERGE **and** the Gold rebuild; PyIceberg is confined to Bronze writes and the catalog | Removes PyIceberg from the Silver read path entirely, so the blocker disappears. Requires moving every Silver/Gold read — including the e2e assertions — to Trino, and makes Trino a hard runtime dependency of the medallion path |
+| **B2** | PyIceberg-owned copy-on-write projection: read the affected keys, resolve versions in memory, `overwrite(overwrite_filter=order_id IN …)` | **Single engine, so no interop surface at all** — PyIceberg's overwrite is delete-and-append and writes no delete files. Cost is the file-rewrite scope: the filter is on `order_id`, uncorrelated with the `event_date` partitioning (F-303's pruning objection, unchanged) |
+| **B3** | Spark-owned projection | Needs an `iceberg-spark-runtime` for **Spark 4.2.0**; released artifacts target 3.4 / 3.5 / 4.0. **Unverified and possibly unavailable** — check before considering it live |
+
+**B2 was previously dismissed as "hand-rolling a quasi-MERGE".** That judgement was made when a
+clean engine-native path looked available. It no longer does, and B2's single-engine property has
+become its main argument rather than a consolation.
+
+**The guard stays.** `test_pyiceberg_reads_trino_position_deletes` is `xfail(strict=True)`: **if a
+future PyArrow implements that decoder, the test fails by passing and D-3 should be reopened.**
+The copy-on-write test carries the same reversal check.
 
 **Questions the spike must answer:**
 
@@ -487,7 +553,7 @@ and choosing a data shape to fit a preferred architecture.
 | **D-1** Order domain semantics | ✅ **Accepted** — mutable business entity, versioned observations |
 | **D-1a** Version comparator | ✅ **Accepted** — explicit `business_version`, not `kafka_offset` |
 | **D-2** Progress ownership | ✅ **Accepted** — durable explicit control state, writer-published; never derived from Bronze snapshot retention |
-| **D-3** Silver execution model | ⛔ **Open** — business-key projection required; engine pending **SPIKE-1** |
+| **D-3** Silver execution model | ⛔ **Open** — business-key projection required; **SPIKE-1 ran and rejected the Trino path on interop.** Candidates: B1 / B2 / B3 |
 | **D-4** Gold execution model | ✅ **Accepted** — exact full rebuild from persisted Silver |
 | **PREREQ-1** Bronze commit contract | ✅ **Accepted** (decision only — the severity claim is not ratified) |
 
@@ -691,9 +757,15 @@ meaningful window.
 
 ## Open questions
 
-1. **D-3 — which engine executes the business-key projection?** Blocked on **SPIKE-1**. The
-   sub-question that decides it: *can pyiceberg 0.11.1 read a Silver table that Trino has written
-   with position deletes?* If not, the shape fails regardless of how well the MERGE itself works.
+1. **D-3 — which engine executes the business-key projection?** SPIKE-1 answered its own
+   sub-question — *can PyIceberg read a Silver table Trino wrote with position deletes?* — with
+   **no**, on both pyarrow versions in play. Remaining choice is **B1** (Trino owns Silver *and*
+   Gold, PyIceberg leaves the read path), **B2** (single-engine PyIceberg copy-on-write
+   projection), or **B3** (Spark, pending an Iceberg runtime for 4.2). B3 needs a five-minute
+   availability check before it can even be called a candidate.
+1b. **PyArrow version drift** — `requirements-dev.txt` pins 21.0.0; the `iceberg` image installs
+   `pyiceberg[pyarrow]==0.11.1` unpinned and gets 25.0.0. Tests and production do not run the same
+   reader. Harmless here only because both fail identically. Worth pinning regardless.
 2. **F-702** — is the demonstration goal correctness, or work reduction? *Settled empirically by
    FF-02, not by discussion.* Note that D-1 changes its urgency: with a business-key projection the
    unit of work is affected `order_id` values rather than partitions, so F-702's single hot
@@ -714,11 +786,23 @@ or Spark — is no longer unexamined-and-ignored; it is SPIKE-1.*
 
 ## Next step
 
-**SPIKE-1**, then D-3, then `Accepted`, then `plan-architecture-remediation`.
+**Choose between B1 and B2** (after a quick availability check on B3), then D-3, then `Accepted`,
+then `plan-architecture-remediation`.
 
-Decomposing work items now would produce tasks for two different projects: a hand-rolled
-quasi-MERGE over pyiceberg, versus a Trino-executed conditional MERGE with pyiceberg confined to
-the catalog and control plane. Those differ in almost every work item.
+SPIKE-1 is done and its guard is permanent. The choice that remains is narrow and well-priced:
+
+- **B1** removes PyIceberg from the Silver read path — the blocker disappears, but Trino becomes a
+  hard runtime dependency of the medallion and every Silver/Gold read moves to SQL.
+- **B2** keeps one engine and has no interop surface at all, at the cost of the file-rewrite scope
+  F-303 identified.
+
+**A second, smaller spike would settle it on evidence rather than taste**: implement B2's
+`overwrite(overwrite_filter=order_id IN …)` against the same fixtures this suite already builds,
+and compare `plan_files()` and rewritten-file counts against the Trino MERGE numbers already
+captured (2 data files + 1 delete file, `plan_files=2`). That is the FF-02 measure applied to a
+design choice instead of to a finished implementation.
+
+Decomposing work items before that would produce tasks for two different projects.
 
 **Ready to start immediately, dependent on no open decision:**
 
