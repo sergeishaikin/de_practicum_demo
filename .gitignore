@@ -60,3 +60,8 @@ db/work/
 # The kit is versioned in its own repository, not vendored here.
 .agents/
 .claude/
+
+# GSD scratch artifacts, regenerated locally from the repo and its docs.
+# Only .planning/todos/ is versioned.
+.planning/intel/
+.planning/INGEST-CONFLICTS.md

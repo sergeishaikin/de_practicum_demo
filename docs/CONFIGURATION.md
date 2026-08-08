@@ -57,7 +57,6 @@ Iceberg writer (`iceberg/writer/iceberg_writer.py`):
 | `MINIO_BUCKET` | `de-practicum` | Bucket with the landing data. |
 | `LANDING_PREFIX` | `streaming/orders_raw` | Prefix polled for new Parquet files. |
 | `POLL_INTERVAL_SECONDS` | `10` | Polling interval. |
-| `SETTLE_SECONDS` | `5` | How long a file must be untouched before ingestion. |
 | `STATE_FILE` | `/state/ingested.json` | Persisted ingestion state. |
 | `MAX_APPEND_ATTEMPTS` | `5` | How many times to retry a commit that fails with `CommitFailedException` (conflict with a concurrent writer or maintenance). |
 | `SIMULATE_CRASH_AFTER_COMMIT` / `SIMULATE_CRASH_BEFORE_COMMIT` | `0` | Demo switches that force a simulated crash (`1` enables). |

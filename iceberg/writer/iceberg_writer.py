@@ -5,8 +5,8 @@ import os
 import sys
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -44,7 +44,6 @@ ACCESS_KEY = os.getenv("AWS_ACCESS_KEY_ID", "")
 SECRET_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "")
 
 POLL_INTERVAL = int(os.getenv("POLL_INTERVAL_SECONDS", "10"))
-SETTLE_SECONDS = int(os.getenv("SETTLE_SECONDS", "5"))
 STATE_FILE = Path(os.getenv("STATE_FILE", "/state/ingested.json"))
 MAX_APPEND_ATTEMPTS = int(os.getenv("MAX_APPEND_ATTEMPTS", "5"))
 
@@ -64,6 +63,7 @@ TABLE_SCHEMA = Schema(
     NestedField(8, "kafka_partition", IntegerType(), required=False),
     NestedField(9, "kafka_offset", LongType(), required=False),
     NestedField(10, "event_date", DateType(), required=False),
+    NestedField(11, "business_version", LongType(), required=False),
 )
 
 PARTITION_SPEC = PartitionSpec(
@@ -110,11 +110,60 @@ def get_fs() -> S3FileSystem:
     )
 
 
-def is_settled(info: FileInfo) -> bool:
-    mtime = info.mtime
-    if mtime.tzinfo is None:
-        mtime = mtime.replace(tzinfo=timezone.utc)
-    return datetime.now(timezone.utc) - mtime >= timedelta(seconds=SETTLE_SECONDS)
+SPARK_METADATA_DIR = "_spark_metadata"
+
+
+def _normalize_spark_path(path: str) -> str:
+    """Convert Spark's URI form to the S3FileSystem bucket/key form."""
+
+    parsed = urlparse(path)
+    if parsed.scheme in {"s3", "s3a", "s3n"}:
+        return f"{parsed.netloc}/{parsed.path.lstrip('/')}"
+    if parsed.scheme:
+        raise ValueError(f"Unsupported Spark commit path scheme: {parsed.scheme}")
+    if path.startswith(f"{BUCKET}/"):
+        return path
+    return f"{BUCKET}/{path.lstrip('/')}"
+
+
+def _read_spark_commit_log(fs: S3FileSystem, path: str) -> set[str]:
+    """Read one Spark FileStreamSink metadata log and return added files."""
+
+    raw = fs.open_input_file(path).read().decode("utf-8")
+    lines = [line.strip() for line in raw.splitlines() if line.strip()]
+    if not lines or lines[0] != "v1":
+        raise ValueError(f"Unsupported or invalid Spark commit log: {path}")
+
+    committed: set[str] = set()
+    for line in lines[1:]:
+        entry = json.loads(line)
+        if entry.get("action") != "add":
+            continue
+        raw_file_path = entry.get("path")
+        if not isinstance(raw_file_path, str):
+            raise ValueError(f"Spark commit entry has no path: {path}")
+        committed.add(_normalize_spark_path(raw_file_path))
+    return committed
+
+
+def committed_landing_paths(fs: S3FileSystem) -> set[str]:
+    """Return files represented by Spark's committed file-sink metadata."""
+
+    metadata_base = f"{BUCKET}/{LANDING_PREFIX}/{SPARK_METADATA_DIR}"
+    selector = FileSelector(
+        base_dir=metadata_base,
+        recursive=True,
+        allow_not_found=True,
+    )
+    metadata_files = [
+        info
+        for info in fs.get_file_info(selector)
+        if info.is_file and not info.path.endswith(".crc")
+    ]
+    committed: set[str] = set()
+    for info in sorted(metadata_files, key=lambda item: item.path):
+        committed.update(_read_spark_commit_log(fs, info.path))
+    return committed
 
 
 def list_new_files(fs: S3FileSystem, done: set[str]) -> list[FileInfo]:
@@ -125,6 +174,7 @@ def list_new_files(fs: S3FileSystem, done: set[str]) -> list[FileInfo]:
         allow_not_found=True,
     )
     infos = fs.get_file_info(selector)
+    committed = committed_landing_paths(fs)
 
     new_files = []
     for info in infos:
@@ -132,15 +182,13 @@ def list_new_files(fs: S3FileSystem, done: set[str]) -> list[FileInfo]:
             continue
         if not info.path.endswith(".parquet"):
             continue
-        if "/_temporary/" in info.path:
-            continue
         if info.path in done:
             continue
-        if not is_settled(info):
+        if info.path not in committed:
             continue
         new_files.append(info)
 
-    new_files.sort(key=lambda i: i.mtime)
+    new_files.sort(key=lambda info: info.path)
     return new_files
 
 
@@ -189,13 +237,27 @@ def get_catalog() -> RestCatalog:
 def ensure_table(catalog: RestCatalog) -> None:
     catalog.create_namespace_if_not_exists(NAMESPACE)
     try:
-        catalog.load_table(TABLE_IDENTIFIER)
+        table = catalog.load_table(TABLE_IDENTIFIER)
     except NoSuchTableError:
         catalog.create_table(
             identifier=TABLE_IDENTIFIER,
             schema=TABLE_SCHEMA,
             partition_spec=PARTITION_SPEC,
         )
+        return
+
+    # M1 is additive: a Bronze table created before the contract can be
+    # upgraded without rewriting its existing data files.
+    schema_fn = getattr(table, "schema", None)
+    update_schema_fn = getattr(table, "update_schema", None)
+    if schema_fn is None or update_schema_fn is None:
+        return
+    if "business_version" not in schema_fn().column_names:
+        update_schema_fn().add_column(
+            "business_version",
+            LongType(),
+            doc="Domain ordering; Kafka offset is transport metadata only",
+        ).commit()
 
 
 def committed_load_ids(catalog: RestCatalog) -> set[str]:

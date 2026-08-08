@@ -45,11 +45,30 @@ class FakeCatalog:
 
 
 class FakeFS:
-    def __init__(self, infos: list[FileInfo]) -> None:
+    def __init__(self, infos: list[FileInfo], metadata: dict[str, str] | None = None) -> None:
         self.infos = infos
+        self.metadata = metadata or {}
 
     def get_file_info(self, selector) -> list[FileInfo]:
+        if "_spark_metadata" in selector.base_dir:
+            return [
+                FileInfo(path, type=FileType.File)
+                for path in sorted(self.metadata)
+            ]
         return self.infos
+
+    def open_input_file(self, path: str):
+        from io import BytesIO
+
+        return BytesIO(self.metadata[path].encode("utf-8"))
+
+
+def spark_metadata(*paths: str) -> str:
+    entries = [
+        {"path": path, "action": "add"}
+        for path in paths
+    ]
+    return "v1\n" + "\n".join(json.dumps(entry) for entry in entries) + "\n"
 
 
 class FakeMetrics:
@@ -90,71 +109,81 @@ class TestState:
         assert w.load_state() == (set(), {})
 
 
-class TestIsSettled:
-    def test_respects_settle_seconds(self, monkeypatch) -> None:
-        monkeypatch.setattr(w, "SETTLE_SECONDS", 5)
-        now = datetime.now(timezone.utc)
-        assert w.is_settled(FileInfo("x", mtime=now - timedelta(seconds=10)))
-        assert not w.is_settled(FileInfo("x", mtime=now - timedelta(seconds=1)))
-
-    def test_naive_mtime_treated_as_utc(self, monkeypatch) -> None:
-        monkeypatch.setattr(w, "SETTLE_SECONDS", 5)
-        now = datetime.now(timezone.utc)
-        naive = (now - timedelta(seconds=10)).replace(tzinfo=None)
-        assert w.is_settled(SimpleNamespace(mtime=naive))
-
-
 class TestListNewFiles:
-    def test_filters_and_sorts(self, monkeypatch) -> None:
-        monkeypatch.setattr(w, "SETTLE_SECONDS", 5)
+    def test_only_spark_committed_files_are_eligible(self) -> None:
         now = datetime.now(timezone.utc)
+        base = "de-practicum/streaming/orders_raw"
+        orphan_path = f"{base}/event_date=2026-01-01/orphan-old.parquet"
+        committed_path = f"{base}/event_date=2026-01-01/committed.parquet"
         fs = FakeFS(
             [
                 FileInfo(
-                    "old.parquet", type=FileType.File, mtime=now - timedelta(seconds=60)
+                    orphan_path,
+                    type=FileType.File,
+                    mtime=now - timedelta(days=30),
                 ),
                 FileInfo(
-                    "new.parquet", type=FileType.File, mtime=now - timedelta(seconds=6)
+                    committed_path,
+                    type=FileType.File,
+                    mtime=now,
                 ),
                 FileInfo("dir", type=FileType.Directory, mtime=now),
                 FileInfo(
-                    "x.csv", type=FileType.File, mtime=now - timedelta(seconds=60)
-                ),
-                FileInfo(
-                    "c/_temporary/y.parquet",
+                    f"{base}/event_date=2026-01-01/x.csv",
                     type=FileType.File,
-                    mtime=now - timedelta(seconds=60),
+                    mtime=now,
                 ),
                 FileInfo(
-                    "done.parquet",
+                    f"{base}/event_date=2026-01-01/_temporary/y.parquet",
                     type=FileType.File,
-                    mtime=now - timedelta(seconds=60),
+                    mtime=now,
                 ),
-                FileInfo(
-                    "recent.parquet",
-                    type=FileType.File,
-                    mtime=now - timedelta(seconds=1),
-                ),
-            ]
-        )
-        result = w.list_new_files(fs, {"done.parquet"})
-        assert [i.path for i in result] == ["old.parquet", "new.parquet"]
-
-    def test_sort_by_mtime_ascending(self, monkeypatch) -> None:
-        monkeypatch.setattr(w, "SETTLE_SECONDS", 0)
-        now = datetime.now(timezone.utc)
-        fs = FakeFS(
-            [
-                FileInfo(
-                    "b.parquet", type=FileType.File, mtime=now - timedelta(seconds=2)
-                ),
-                FileInfo(
-                    "a.parquet", type=FileType.File, mtime=now - timedelta(seconds=6)
-                ),
-            ]
+            ],
+            metadata={
+                f"{base}/_spark_metadata/0": spark_metadata(
+                    "s3a://de-practicum/streaming/orders_raw/event_date=2026-01-01/committed.parquet"
+                )
+            },
         )
         result = w.list_new_files(fs, set())
-        assert [i.path for i in result] == ["a.parquet", "b.parquet"]
+        assert [i.path for i in result] == [committed_path]
+
+    def test_committed_file_is_eligible_regardless_of_mtime(self) -> None:
+        base = "de-practicum/streaming/orders_raw"
+        old_path = f"{base}/event_date=2026-01-01/old.parquet"
+        fs = FakeFS(
+            [FileInfo(old_path, type=FileType.File, mtime=datetime.now(timezone.utc))],
+            metadata={
+                f"{base}/_spark_metadata/7": spark_metadata(
+                    "s3a://de-practicum/streaming/orders_raw/event_date=2026-01-01/old.parquet"
+                )
+            },
+        )
+        result = w.list_new_files(fs, set())
+        assert [i.path for i in result] == [old_path]
+
+    def test_repeated_discovery_is_suppressed_by_done_paths(self) -> None:
+        base = "de-practicum/streaming/orders_raw"
+        path = f"{base}/event_date=2026-01-01/part.parquet"
+        fs = FakeFS(
+            [FileInfo(path, type=FileType.File)],
+            metadata={
+                f"{base}/_spark_metadata/0": spark_metadata(
+                    "s3a://de-practicum/streaming/orders_raw/event_date=2026-01-01/part.parquet"
+                )
+            },
+        )
+        assert [item.path for item in w.list_new_files(fs, set())] == [path]
+        assert w.list_new_files(fs, {path}) == []
+
+    def test_invalid_commit_log_fails_closed(self) -> None:
+        base = "de-practicum/streaming/orders_raw"
+        fs = FakeFS(
+            [],
+            metadata={f"{base}/_spark_metadata/0": "not-a-spark-log\n"},
+        )
+        with pytest.raises(ValueError, match="invalid Spark commit log"):
+            w.committed_landing_paths(fs)
 
 
 class TestCommittedLoadIds:
@@ -265,6 +294,7 @@ class TestFsCatalogAndBatch:
                     "status": ["paid", "paid"],
                     "event_time": pa.array([ts, ts], type=pa.timestamp("us")),
                     "kafka_offset": pa.array([1, 2], type=pa.int64()),
+                    "business_version": pa.array([1, 1], type=pa.int64()),
                 }
             ),
             partition_dir / "part-00000.parquet",
@@ -275,6 +305,8 @@ class TestFsCatalogAndBatch:
         )
         assert result.num_rows == 2
         assert "event_date" in result.column_names
+        assert result.column_names.count("business_version") == 1
+        assert result["business_version"].to_pylist() == [1, 1]
         assert pa.types.is_date32(result.schema.field("event_date").type)
 
 

@@ -7,6 +7,7 @@ from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import (
     DoubleType,
+    LongType,
     StringType,
     StructField,
     StructType,
@@ -50,6 +51,7 @@ ORDER_SCHEMA = StructType(
         StructField("country", StringType(), nullable=True),
         StructField("status", StringType(), nullable=True),
         StructField("event_time", TimestampType(), nullable=True),
+        StructField("business_version", LongType(), nullable=True),
     ]
 )
 
@@ -78,9 +80,13 @@ def initialise_database() -> None:
         kafka_timestamp timestamptz,
         kafka_partition integer,
         kafka_offset bigint,
+        business_version bigint,
         batch_id bigint,
         updated_at timestamptz not null default now()
     );
+
+    alter table marts.streaming_orders
+        add column if not exists business_version bigint;
 
     create table if not exists marts.streaming_country_totals (
         country varchar primary key,
@@ -114,6 +120,7 @@ def upsert_postgres(batch_df: DataFrame, batch_id: int) -> None:
         "country",
         "status",
         "event_time",
+        "business_version",
         "kafka_timestamp",
         "kafka_partition",
         "kafka_offset",
@@ -139,13 +146,14 @@ def upsert_postgres(batch_df: DataFrame, batch_id: int) -> None:
             country,
             status,
             event_time,
+            business_version,
             kafka_timestamp,
             kafka_partition,
             kafka_offset,
             batch_id,
             row_number() over (
                 partition by order_id
-                order by kafka_offset desc
+                order by business_version desc nulls last, kafka_offset desc
             ) as rn
         from stg.streaming_orders_batch
     )
@@ -156,6 +164,7 @@ def upsert_postgres(batch_df: DataFrame, batch_id: int) -> None:
         country,
         status,
         event_time,
+        business_version,
         kafka_timestamp,
         kafka_partition,
         kafka_offset,
@@ -169,6 +178,7 @@ def upsert_postgres(batch_df: DataFrame, batch_id: int) -> None:
         country,
         status,
         event_time,
+        business_version,
         kafka_timestamp,
         kafka_partition,
         kafka_offset,
@@ -182,6 +192,7 @@ def upsert_postgres(batch_df: DataFrame, batch_id: int) -> None:
         country = excluded.country,
         status = excluded.status,
         event_time = excluded.event_time,
+        business_version = excluded.business_version,
         kafka_timestamp = excluded.kafka_timestamp,
         kafka_partition = excluded.kafka_partition,
         kafka_offset = excluded.kafka_offset,

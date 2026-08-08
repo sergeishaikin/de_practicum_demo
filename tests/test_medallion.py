@@ -22,6 +22,7 @@ SILVER_COLUMNS = [
     "kafka_partition",
     "kafka_offset",
     "event_date",
+    "business_version",
 ]
 
 
@@ -38,6 +39,9 @@ def bronze_table(rows: list[tuple]) -> pa.Table:
             "kafka_partition": pa.array([r[5] for r in rows], type=pa.int32()),
             "kafka_offset": pa.array([r[6] for r in rows], type=pa.int64()),
             "event_date": pa.array([EVENT_DATE] * len(rows), type=pa.date32()),
+            "business_version": pa.array(
+                [r[7] if len(r) > 7 else None for r in rows], type=pa.int64()
+            ),
         }
     )
 
@@ -116,6 +120,20 @@ class TestBuildSilver:
         )
         silver = m.build_silver(df)
         assert silver.num_rows == 2
+
+    def test_business_version_beats_transport_offset(self) -> None:
+        silver = m.build_silver(
+            bronze_table(
+                [
+                    ("a", "v5", 50.0, "US", "delivered", 0, 1, 5),
+                    ("a", "v3", 30.0, "US", "shipped", 0, 99, 3),
+                ]
+            )
+        )
+        row = silver.to_pylist()[0]
+        assert row["business_version"] == 5
+        assert row["kafka_offset"] == 1
+        assert row["customer"] == "v5"
 
     def test_output_column_order_is_silver_schema(self) -> None:
         df = bronze_table([("a", "c1", 10.0, "US", "paid", 0, 1)])

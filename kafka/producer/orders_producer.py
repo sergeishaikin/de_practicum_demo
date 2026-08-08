@@ -63,6 +63,8 @@ def create_event() -> dict:
         "amount": round(random.uniform(5, 500), 2),
         "country": random.choice(COUNTRIES),
         "status": random.choice(STATUSES),
+        # Domain ordering. Kafka partition/offset remains transport metadata.
+        "business_version": 1,
         "event_time": datetime.now(timezone.utc).isoformat(),
     }
 

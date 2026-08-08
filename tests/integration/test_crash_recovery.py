@@ -64,6 +64,7 @@ def _orders_table(n: int) -> pa.Table:
             "kafka_partition": pa.array(list(range(n)), type=pa.int32()),
             "kafka_offset": pa.array(list(range(n)), type=pa.int64()),
             "event_date": [date(2026, 1, 1)] * n,
+            "business_version": pa.array([1] * n, type=pa.int64()),
         }
     )
 
@@ -88,7 +89,6 @@ def _start_writer(
             "AWS_ACCESS_KEY_ID": ACCESS_KEY,
             "AWS_SECRET_ACCESS_KEY": SECRET_KEY,
             "STATE_FILE": str(state_file),
-            "SETTLE_SECONDS": "0",
             "POLL_INTERVAL_SECONDS": "1",
             "METRICS_ENABLED": "0",
             "SIMULATE_CRASH_BEFORE_COMMIT": "1" if crash_mode == "before" else "0",
@@ -108,12 +108,25 @@ def _landing_path(landing_prefix: str, filename: str) -> str:
     return f"{BUCKET}/{landing_prefix}/{filename}"
 
 
+def _mark_spark_committed(fs: S3FileSystem, landing_prefix: str, filename: str) -> None:
+    metadata_path = _landing_path(landing_prefix, "_spark_metadata/0")
+    source_path = f"s3a://{_landing_path(landing_prefix, filename)}"
+    payload = "v1\n" + json.dumps({"path": source_path, "action": "add"}) + "\n"
+    with fs.open_output_stream(metadata_path) as out:
+        out.write(payload.encode("utf-8"))
+
+
 def _snapshot_count_and_rows(
     namespace: str, table: str, cat: RestCatalog
 ) -> tuple[int, int]:
     ice = cat.load_table(f"{namespace}.{table}")
     snapshots = list(ice.metadata.snapshots)
     return len(snapshots), ice.scan().to_arrow().num_rows
+
+
+def _snapshot_business_versions(namespace: str, table: str, cat: RestCatalog) -> list[int]:
+    ice = cat.load_table(f"{namespace}.{table}")
+    return ice.scan().to_arrow()["business_version"].to_pylist()
 
 
 @pytest.fixture
@@ -147,6 +160,7 @@ def test_crash_after_commit_no_duplicate_append(isolated_lake):
     path = _landing_path(landing, "part-00000.parquet")
     with fs.open_output_stream(path) as out:
         pq.write_table(_orders_table(5), out)
+    _mark_spark_committed(fs, landing, "part-00000.parquet")
 
     proc = _start_writer(namespace, table, landing, state_file, "after")
     assert proc.wait(timeout=90) == 3
@@ -155,6 +169,7 @@ def test_crash_after_commit_no_duplicate_append(isolated_lake):
     count, rows = _snapshot_count_and_rows(namespace, table, cat)
     assert count == 1
     assert rows == 5
+    assert _snapshot_business_versions(namespace, table, cat) == [1] * 5
 
     proc2 = _start_writer(namespace, table, landing, state_file, None)
     time.sleep(8)
@@ -164,6 +179,7 @@ def test_crash_after_commit_no_duplicate_append(isolated_lake):
     count2, rows2 = _snapshot_count_and_rows(namespace, table, cat)
     assert count2 == 1
     assert rows2 == 5
+    assert _snapshot_business_versions(namespace, table, cat) == [1] * 5
     state = json.loads(state_file.read_text(encoding="utf-8"))
     assert state["pending"] == {}
     assert path in state["done"]
@@ -176,6 +192,7 @@ def test_crash_before_commit_reappends_exactly_once(isolated_lake):
     path = _landing_path(landing, "part-00000.parquet")
     with fs.open_output_stream(path) as out:
         pq.write_table(_orders_table(5), out)
+    _mark_spark_committed(fs, landing, "part-00000.parquet")
 
     proc = _start_writer(namespace, table, landing, state_file, "before")
     assert proc.wait(timeout=90) == 2
@@ -196,5 +213,6 @@ def test_crash_before_commit_reappends_exactly_once(isolated_lake):
 
     assert count == 1
     assert rows == 5
+    assert _snapshot_business_versions(namespace, table, _catalog()) == [1] * 5
     state = json.loads(state_file.read_text(encoding="utf-8"))
     assert path in state["done"]

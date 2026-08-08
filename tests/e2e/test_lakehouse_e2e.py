@@ -1,6 +1,6 @@
 """Deterministic end-to-end test of the real-time lakehouse pipeline.
 
-Publishes a fixed 100-event fixture to a dedicated Kafka topic and drives the
+Publishes a fixed 101-event fixture to a dedicated Kafka topic and drives the
 real chain end-to-end:
 
     fixture -> Kafka -> Spark 4.2 streaming -> landing parquet
@@ -46,6 +46,7 @@ import time
 import traceback
 import urllib.request
 import uuid
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -122,6 +123,7 @@ def build_fixture() -> list[dict]:
                 "amount": 10.0,
                 "country": "UK",
                 "status": "paid",
+                "business_version": 1,
                 "event_time": FIXTURE_TS,
             }
         )
@@ -132,9 +134,22 @@ def build_fixture() -> list[dict]:
                 "amount": 30.0,
                 "country": "UK",
                 "status": "delivered",
+                "business_version": 5,
                 "event_time": FIXTURE_TS,
             }
         )
+        if dup == "dup-1":
+            events.append(
+                {
+                    "order_id": dup,
+                    "customer": "frank",
+                    "amount": 20.0,
+                    "country": "UK",
+                    "status": "shipped",
+                    "business_version": 3,
+                    "event_time": FIXTURE_TS,
+                }
+            )
 
     events.append(
         {
@@ -228,12 +243,20 @@ def build_fixture() -> list[dict]:
         }
     )
 
+    for event in events:
+        event.setdefault("business_version", 1)
+
     return events
 
 
 def expected_pipeline(fixture: list[dict]) -> dict:
     landed = [e for e in fixture if e["order_id"] is not None]
-    silver_rows = list({e["order_id"]: e for e in landed}.values())
+    latest: dict[str, dict] = {}
+    for event in landed:
+        current = latest.get(event["order_id"])
+        if current is None or event["business_version"] > current["business_version"]:
+            latest[event["order_id"]] = event
+    silver_rows = list(latest.values())
 
     violations = {
         "status_invalid": sum(1 for e in landed if e["status"] not in VALID_STATUSES),
@@ -271,6 +294,9 @@ def expected_pipeline(fixture: list[dict]) -> dict:
         "uk_delivered_total": groups[(FIXTURE_DATE, "UK", "delivered")]["total"],
         "uk_paid_total": groups[(FIXTURE_DATE, "UK", "paid")]["total"],
         "cancelled_count": groups[(FIXTURE_DATE, "US", "cancelled")]["orders_count"],
+        "business_version_counts": dict(
+            Counter(event["business_version"] for event in landed)
+        ),
     }
 
 
@@ -581,6 +607,14 @@ def landing_rows(fs: S3FileSystem, run_id: str) -> int:
     return arrow_dataset(base, filesystem=fs, format="parquet").count_rows()
 
 
+def landing_business_versions(fs: S3FileSystem, run_id: str) -> list[int | None]:
+    base = f"{BUCKET}/e2e/{run_id}/orders_raw"
+    table = arrow_dataset(base, filesystem=fs, format="parquet").to_table(
+        columns=["business_version"]
+    )
+    return table["business_version"].to_pylist()
+
+
 def _pending_empty(state_file: Path) -> bool:
     try:
         return (
@@ -605,7 +639,6 @@ def _start_writer(run_id: str, state_file: Path, log_file: Path) -> subprocess.P
             "AWS_ACCESS_KEY_ID": ACCESS_KEY,
             "AWS_SECRET_ACCESS_KEY": SECRET_KEY,
             "STATE_FILE": str(state_file),
-            "SETTLE_SECONDS": "1",
             "POLL_INTERVAL_SECONDS": "1",
             "METRICS_ENABLED": "1",
             "POSTGRES_HOST": E2E_PG["host"],
@@ -881,10 +914,11 @@ def test_deterministic_nightly_pipeline() -> None:
     fixture = build_fixture()
     expected = expected_pipeline(fixture)
 
-    assert expected["total_events"] == 100
-    assert expected["landing_rows"] == 98
+    assert all("business_version" in event for event in fixture)
+    assert expected["total_events"] == 101
+    assert expected["landing_rows"] == 99
     assert expected["silver_rows"] == 95
-    assert expected["duplicates_removed"] == 3
+    assert expected["duplicates_removed"] == 4
     assert expected["total_violations"] == 7
     assert expected["uk_delivered_total"] == 90.0
     assert expected["cancelled_count"] == 2
@@ -930,6 +964,13 @@ def test_deterministic_nightly_pipeline() -> None:
             "landing parquet",
             probes=(landing_probe,),
             logs=(lambda: _docker_logs(stream_name),),
+        )
+        landed_versions = landing_business_versions(_fs(), run_id)
+        assert landed_versions and all(version is not None for version in landed_versions)
+        assert Counter(landed_versions) == Counter(
+            event["business_version"]
+            for event in fixture
+            if event["order_id"] is not None
         )
         sink_probe = Probe(lambda: _e2e_sink_rows(expected["silver_rows"]))
 
@@ -1003,6 +1044,34 @@ def test_deterministic_nightly_pipeline() -> None:
         assert (
             int(
                 trino_scalar(
+                    f"SELECT count(*) FROM iceberg.{ns}.orders "
+                    "WHERE business_version IS NULL"
+                )
+            )
+            == 0
+        )
+        assert (
+            int(
+                trino_scalar(
+                    f"SELECT max(business_version) FROM iceberg.{ns}.orders "
+                    "WHERE order_id = 'dup-1'"
+                )
+            )
+            == 5
+        )
+        for version, count in expected["business_version_counts"].items():
+            assert (
+                int(
+                    trino_scalar(
+                        f"SELECT count(*) FROM iceberg.{ns}.orders "
+                        f"WHERE business_version = {version}"
+                    )
+                )
+                == count
+            )
+        assert (
+            int(
+                trino_scalar(
                     f"SELECT count(DISTINCT order_id) FROM iceberg.{ns}.orders"
                 )
             )
@@ -1019,6 +1088,15 @@ def test_deterministic_nightly_pipeline() -> None:
                 )
             )
             == 30.0
+        )
+        assert (
+            int(
+                trino_scalar(
+                    f"SELECT business_version FROM iceberg.{ns}.orders_clean "
+                    "WHERE order_id = 'dup-1'"
+                )
+            )
+            == 5
         )
         assert (
             trino_scalar(

@@ -61,6 +61,7 @@ SILVER_SCHEMA = Schema(
     NestedField(8, "kafka_partition", IntegerType(), required=False),
     NestedField(9, "kafka_offset", LongType(), required=False),
     NestedField(10, "event_date", DateType(), required=False),
+    NestedField(11, "business_version", LongType(), required=False),
 )
 
 SILVER_PARTITION_SPEC = PartitionSpec(
@@ -107,13 +108,34 @@ def ensure_table(
     namespace = identifier.split(".")[0]
     catalog.create_namespace_if_not_exists(namespace)
     try:
-        catalog.load_table(identifier)
+        table = catalog.load_table(identifier)
     except NoSuchTableError:
         catalog.create_table(
             identifier=identifier,
             schema=schema,
             partition_spec=partition_spec,
         )
+        return
+
+    # Keep the existing full-overwrite path readable while schemas migrate
+    # additively. New fields are optional and receive nulls for old snapshots.
+    schema_fn = getattr(table, "schema", None)
+    update_schema_fn = getattr(table, "update_schema", None)
+    if schema_fn is None or update_schema_fn is None:
+        return
+    existing_names = set(schema_fn().column_names)
+    missing = [field for field in schema.columns if field.name not in existing_names]
+    if not missing:
+        return
+    update = update_schema_fn()
+    for field in missing:
+        update.add_column(
+            field.name,
+            field.field_type,
+            doc=field.doc,
+            required=False,
+        )
+    update.commit()
 
 
 _SILVER_TYPES: dict[str, pa.DataType] = {
@@ -127,6 +149,7 @@ _SILVER_TYPES: dict[str, pa.DataType] = {
     "kafka_partition": pa.int32(),
     "kafka_offset": pa.int64(),
     "event_date": pa.date32(),
+    "business_version": pa.int64(),
 }
 
 
@@ -145,8 +168,18 @@ def _normalize_null_typed_columns(df: pa.Table) -> pa.Table:
 
 
 def build_silver(df: pa.Table) -> pa.Table:
+    if "business_version" not in df.column_names:
+        df = df.append_column(
+            "business_version",
+            pa.array([None] * df.num_rows, type=pa.int64()),
+        )
     df = _normalize_null_typed_columns(df)
-    ordered = df.sort_by([("kafka_offset", "descending")])
+    ordered = df.sort_by(
+        [
+            ("business_version", "descending"),
+            ("kafka_offset", "descending"),
+        ]
+    )
     aggs = [
         (name, "hash_first")
         for name in [
@@ -159,6 +192,7 @@ def build_silver(df: pa.Table) -> pa.Table:
             "event_date",
             "kafka_partition",
             "kafka_offset",
+            "business_version",
         ]
     ]
     deduped = ordered.group_by("order_id", use_threads=False).aggregate(aggs)
@@ -174,6 +208,7 @@ def build_silver(df: pa.Table) -> pa.Table:
             "event_date",
             "kafka_partition",
             "kafka_offset",
+            "business_version",
         ]
     )
     return deduped.select(
@@ -188,6 +223,7 @@ def build_silver(df: pa.Table) -> pa.Table:
             "kafka_partition",
             "kafka_offset",
             "event_date",
+            "business_version",
         ]
     )
 

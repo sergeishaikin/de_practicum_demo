@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Status** | **Proposed** — P-0, D-1, D-1a, D-2, D-4 and PREREQ-1 accepted; **D-3 open — SPIKE-1 ran and FAILED, candidates narrowed to B1/B2/B3** |
-| **Date** | 2026-08-08 (revised twice same day: D-1 closed as mutable lifecycle; SPIKE-1 executed, Trino path rejected on interop) |
+| **Status** | **Accepted** — P-0, D-1, D-1a, D-2, D-3, D-4 and PREREQ-1 accepted; **D-3a physical layout tuning deferred** |
+| **Date** | 2026-08-08 (revised after SPIKE-1 and SPIKE-2: PyIceberg B2 accepted for Silver execution; layout tuning deferred) |
 | **Deciders** | *(unassigned)* |
 | **Supersedes** | nothing — this is the repository's first ADR |
 | **Evidence base** | [`docs/architecture-audit/baseline/`](../architecture-audit/baseline/README.md) — committed, frozen |
@@ -296,7 +296,7 @@ existing precedent — the writer's `done` set, serialised in full through a tru
 every load (F-707) — is neither, and must not be copied. It also must not live in `marts` as that
 schema currently stands (F-305: five DDL owners, one of them a student exercise).
 
-### D-3 — Silver execution model · ⛔ **OPEN — reopened by D-1**
+### D-3 — Silver execution model · ✅ **ACCEPTED — PyIceberg B2**
 
 **The earlier conditional recommendation of option F is withdrawn.** D-1 did not merely re-rank
 the options; it invalidated the mechanism at the centre of options C and F.
@@ -333,7 +333,7 @@ affected set of partitions. That is option B's shape — and option B was priced
 Writing a hand-rolled quasi-MERGE on top of pyiceberg to work around that is exactly the kind of
 machinery this ADR rejected when it eliminated option A.
 
-#### SPIKE-1 — narrow capability check, blocking D-3
+#### SPIKE-1 — narrow capability check, historical evidence
 
 This is **not** a new architecture audit. It is a check of one alternative the audit recorded as
 unexamined and which D-1 has made directly relevant.
@@ -404,50 +404,52 @@ after `optimize` — 1 data file, no deletes, `plan_files=1`, snapshots 2→3.
 
 #### Verdict
 
-**D-3 returns to the design space.** Per the go/no-go criterion, a failed interop link is not
-something to work around inside the current implementation.
+SPIKE-1 rejected the Trino-owned execution path for the current stack: Trino's position-delete
+output is not readable by the PyIceberg reader required by D-4. SPIKE-2 then tested the remaining
+single-engine shape directly and passed all correctness gates for both physical layouts. D-3 is
+therefore **accepted as B2**, independently of the later physical-layout tuning decision.
 
-The remaining candidates, with what is already known about each:
-
-| | Shape | Known cost |
-|---|---|---|
-| **B1** | Trino owns the Silver MERGE **and** the Gold rebuild; PyIceberg is confined to Bronze writes and the catalog | Removes PyIceberg from the Silver read path entirely, so the blocker disappears. Requires moving every Silver/Gold read — including the e2e assertions — to Trino, and makes Trino a hard runtime dependency of the medallion path |
-| **B2** | PyIceberg-owned copy-on-write projection: read the affected keys, resolve versions in memory, `overwrite(overwrite_filter=order_id IN …)` | **Single engine, so no interop surface at all** — PyIceberg's overwrite is delete-and-append and writes no delete files. Cost is the file-rewrite scope: the filter is on `order_id`, uncorrelated with the `event_date` partitioning (F-303's pruning objection, unchanged) |
-| **B3** | Spark-owned projection | Needs an `iceberg-spark-runtime` for **Spark 4.2.0**; released artifacts target 3.4 / 3.5 / 4.0. **Unverified and possibly unavailable** — check before considering it live |
-
-**B2 was previously dismissed as "hand-rolling a quasi-MERGE".** That judgement was made when a
-clean engine-native path looked available. It no longer does, and B2's single-engine property has
-become its main argument rather than a consolation.
-
-**The guard stays.** `test_pyiceberg_reads_trino_position_deletes` is `xfail(strict=True)`: **if a
-future PyArrow implements that decoder, the test fails by passing and D-3 should be reopened.**
-The copy-on-write test carries the same reversal check.
-
-**Questions the spike must answer:**
-
-1. Does Trino 483's Iceberg connector accept the conditional `WHEN MATCHED AND …` clause above,
-   and does it apply the predicate correctly for out-of-order versions?
-2. Which delete mode results — copy-on-write or merge-on-read position deletes? `write.delete.mode`
-   is unset on these tables.
-3. **Can pyiceberg 0.11.1 read a table Trino has written with position deletes?** This is the
-   critical one: the medallion reads Silver through pyiceberg, and D-4 requires Gold to be rebuilt
-   from persisted Silver. If this fails, the whole shape fails.
-4. What does merge-on-read do to `lakehouse_maintenance`? `optimize` and `expire_snapshots` would
-   now also be managing delete files — a direct interaction with F-301 and F-307.
-5. Cost per cycle on a realistic Silver, versus the full overwrite baseline (FF-02's measure).
-
-**Non-goal:** the spike does not choose the architecture. It answers whether the engine can carry
-the semantics D-1 requires, so that D-3 can be decided on evidence.
-
-**Likely outcome if the answer is yes** — recorded as a hypothesis, not a decision:
+For each committed input batch, the accepted Silver projection is:
 
 ```text
-PyIceberg        → catalog, writer, control-plane
-Trino (or Spark) → mutable Silver projection via conditional MERGE
+1. pre-collapse by (order_id, max(business_version))
+2. reject equal-version / conflicting-payload observations (FF-14)
+3. read current Silver rows for affected business keys
+4. resolve monotonic business_version in memory
+5. overwrite only affected order_ids through PyIceberg
+6. advance durable progress only after the Iceberg commit succeeds
 ```
 
-That is preferable to hand-building a quasi-MERGE over pyiceberg, and it uses the stack as it
-already exists.
+Evidence: [`docs/spikes/SPIKE-2-b2.md`](../../docs/spikes/SPIKE-2-b2.md) and
+[`tests/integration/test_b2_pyiceberg_layout.py`](../../tests/integration/test_b2_pyiceberg_layout.py).
+The 10,000-row live fixture passed G1, G2, G3, G4, G5, and G6. B2 has no Trino-to-PyIceberg
+delete-file interoperability contract and preserves the existing persisted-Silver-to-Gold path.
+
+| Candidate | Verdict | Evidence-based reason |
+|---|---|---|
+| **B1** Trino owns Silver and Gold | **Rejected/deferred** | Avoids the delete-file blocker only by moving all Silver/Gold reads and ownership to Trino, adding runtime coupling and a larger migration surface. |
+| **B2** PyIceberg business-key projection | **Accepted** | Correctness passed, replay is a no-op, PyIceberg remains the sole Silver writer/reader, and physical cost is measurable without cross-engine interop. |
+| **B3** Spark-owned projection | **Deferred** | No compatible Iceberg runtime has been established for Spark 4.2.0; it is unnecessary after B2 passed. |
+
+The SPIKE-1 interop tests remain permanent guards. If a future PyArrow/PyIceberg combination can
+read Trino position deletes, B1 may be reconsidered as an optimization alternative, not as a
+condition for the accepted D-3 decision.
+
+### D-3a — Silver physical layout · ⏸ **DEFERRED / OPTIMIZATION**
+
+D-3 does not select `bucket(order_id, 16)`. The SPIKE-2 comparison is evidence for a later layout
+tuning decision:
+
+- `day(event_date)` is semantically less aligned with the mutable business key, but was cheaper in
+  absolute read/write cost in the tested fixture: 40 initial files, 10 planned, 43 KB planned.
+- `bucket(order_id, 16)` improves locality as a fraction of its larger table: 640 initial files,
+  27 planned (4.22%), and 85 KB planned. It also creates more files and higher absolute read/write
+  cost than B2a in this fixture.
+- The result is not evidence against bucket partitioning in general. It is evidence that bucket
+  count, target file size, and compaction must be tuned before adopting a specific bucket layout.
+
+The existing layout remains the implementation baseline. FF-13/FF-02 must observe physical cost;
+a future layout spike may compare bucket counts with normalized file sizes or controlled compaction.
 
 ### D-4 — Gold execution model · ✅ **ACCEPTED**
 
@@ -545,7 +547,7 @@ and choosing a data shape to fit a preferred architecture.
 
 ## 5. Chosen architecture
 
-**Partially decided. Recorded honestly rather than forced to completion.**
+**Accepted.** The execution model is decided; physical layout tuning is explicitly deferred as D-3a.
 
 | Decision | Status |
 |---|---|
@@ -553,11 +555,13 @@ and choosing a data shape to fit a preferred architecture.
 | **D-1** Order domain semantics | ✅ **Accepted** — mutable business entity, versioned observations |
 | **D-1a** Version comparator | ✅ **Accepted** — explicit `business_version`, not `kafka_offset` |
 | **D-2** Progress ownership | ✅ **Accepted** — durable explicit control state, writer-published; never derived from Bronze snapshot retention |
-| **D-3** Silver execution model | ⛔ **Open** — business-key projection required; **SPIKE-1 ran and rejected the Trino path on interop.** Candidates: B1 / B2 / B3 |
+| **D-3** Silver execution model | ✅ **Accepted** — PyIceberg-owned deterministic business-key projection with targeted overwrite; SPIKE-2 passed all correctness gates |
+| **D-3a** Silver physical layout | ⏸ **Deferred** — retain current layout baseline; tune bucket count/file sizing/compaction separately |
 | **D-4** Gold execution model | ✅ **Accepted** — exact full rebuild from persisted Silver |
 | **PREREQ-1** Bronze commit contract | ✅ **Accepted** (decision only — the severity claim is not ratified) |
 
-**This ADR remains `Proposed` solely because of D-3.** Everything else is settled.
+**This ADR is `Accepted`.** D-3a is an optimization decision and is deliberately outside the
+critical path for implementing the accepted execution model.
 
 ### The settled shape
 
@@ -575,12 +579,11 @@ graph TD
 
 ### What is still undetermined
 
-**Only the box labelled "business-key projection"** — specifically which engine executes it, and
-therefore how the conditional update is expressed. SPIKE-1 answers that.
-
-Everything else in the diagram is decided: the control state and its ownership, the versioned
-resolution rule, the one-row-per-`order_id` invariant, the persisted Silver→Gold edge, and Gold's
-exact full rebuild.
+Only the physical optimization inside the Silver box remains open: whether and when to replace the
+current layout with a tuned bucket layout, and which bucket count/file-sizing policy to use.
+Everything architectural is decided: the control state and its ownership, the versioned resolution
+rule, the one-row-per-`order_id` invariant, the PyIceberg execution boundary, the persisted
+Silver→Gold edge, and Gold's exact full rebuild.
 
 **What was lost, and it is worth naming.** The earlier target preserved a property this one does
 not: *the rebuild of a scope was a pure function of Bronze, so re-running it was a no-op.* Under a
@@ -755,7 +758,7 @@ meaningful window.
 
 ---
 
-## Open questions
+## Historical open questions (superseded by SPIKE-2)
 
 1. **D-3 — which engine executes the business-key projection?** SPIKE-1 answered its own
    sub-question — *can PyIceberg read a Silver table Trino wrote with position deletes?* — with
@@ -784,7 +787,7 @@ or Spark — is no longer unexamined-and-ignored; it is SPIKE-1.*
 
 ---
 
-## Next step
+## Historical next step (superseded by remediation plan)
 
 **Choose between B1 and B2** (after a quick availability check on B3), then D-3, then `Accepted`,
 then `plan-architecture-remediation`.
@@ -816,3 +819,22 @@ Decomposing work items before that would produce tasks for two different project
 | **PREREQ-3** | PR-blocking live-stack tier; without it none of the above actually gates anything |
 
 **Not ready:** anything touching the Silver write path.
+
+---
+
+## Decision amendment — post SPIKE-2
+
+The historical open-question text above predates D-1 and SPIKE-2. It is superseded by the
+accepted decisions in sections 3 and 5:
+
+- **D-3 is Accepted as B2.** Silver is a PyIceberg-owned current-state projection by business key,
+  with pre-collapse, FF-14 rejection, monotonic version resolution, targeted overwrite, and
+  progress advancement only after a successful Iceberg commit.
+- **D-3a is Deferred.** The current `day(event_date)` layout remains the implementation baseline.
+  `bucket(order_id,16)` is evidence for a future optimization track, not part of the execution-model
+  decision. SPIKE-2 measured lower percentage locality but higher absolute read bytes and more
+  generated files because the bucket fixture was 16x more fragmented.
+- **B1 is rejected/deferred as an alternative.** It would remove the interop failure only by moving
+  Silver and Gold ownership/read paths to Trino and adding a larger runtime migration surface.
+- **Next step:** execute the dependency-ordered remediation plan. Layout tuning is not on the
+  critical path for the first B2 implementation.
