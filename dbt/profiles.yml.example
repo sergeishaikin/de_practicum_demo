@@ -1,0 +1,12 @@
+lakehouse:
+  target: dev
+  outputs:
+    dev:
+      type: trino
+      method: none
+      user: "{{ env_var('DBT_TRINO_USER', 'admin') }}"
+      host: "{{ env_var('DBT_TRINO_HOST', 'localhost') }}"
+      port: "{{ env_var('DBT_TRINO_PORT', '18082') | int }}"
+      catalog: iceberg
+      schema: semantic
+      threads: 4

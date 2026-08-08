@@ -1,0 +1,58 @@
+version: 2
+
+models:
+  - name: current_orders
+    description: BI-facing naming layer over authoritative persisted Silver. It does not resolve versions.
+    columns:
+      - name: order_id
+        description: Current-state order business key.
+        tests:
+          - not_null
+          - unique
+      - name: business_version
+        description: Domain version selected by B2.
+        tests:
+          - not_null
+      - name: status
+        description: Published order status.
+        tests:
+          - accepted_values:
+              arguments:
+                values: [created, paid, shipped, delivered]
+                quote: true
+  - name: daily_order_metrics
+    description: BI-facing naming layer over existing D-4 Gold; it does not recompute aggregates.
+    columns:
+      - name: order_date
+        tests: [not_null]
+      - name: country
+        tests: [not_null]
+      - name: status
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [created, paid, shipped, delivered]
+                quote: true
+      - name: orders_count
+        tests: [not_null]
+      - name: total_amount
+        tests: [not_null]
+      - name: avg_amount
+        tests: [not_null]
+      - name: distinct_customers
+        tests: [not_null]
+
+exposures:
+  - name: superset_lakehouse_semantic_dashboard
+    label: Superset Lakehouse Semantic Dashboard
+    type: dashboard
+    maturity: medium
+    url: http://localhost:18088
+    description: Superset consumes the repository-managed semantic views through Trino.
+    owner:
+      name: Data Platform
+      email: data-platform@example.com
+    depends_on:
+      - ref('current_orders')
+      - ref('daily_order_metrics')

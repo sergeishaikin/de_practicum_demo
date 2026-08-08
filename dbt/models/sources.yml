@@ -1,0 +1,79 @@
+version: 2
+
+sources:
+  - name: bronze
+    description: Raw committed order events owned by the Bronze writer.
+    database: iceberg
+    schema: bronze
+    tables:
+      - name: orders
+        description: Committed Landing events copied into the Bronze Iceberg table.
+        columns:
+          - name: order_id
+            description: Mutable order business key.
+          - name: business_version
+            description: Domain version; transport offsets are not authoritative ordering.
+  - name: silver
+    description: Authoritative current-state order projection owned by the PyIceberg B2 medallion.
+    database: iceberg
+    schema: silver
+    tables:
+      - name: orders_clean
+        description: One current row per order_id after business_version resolution.
+        columns:
+          - name: order_id
+            description: Globally unique current-state business key.
+            tests:
+              - not_null
+              - unique
+          - name: business_version
+            description: Highest accepted domain version for the order.
+            tests:
+              - not_null
+          - name: status
+            description: Published order status.
+            tests:
+              - accepted_values:
+                  arguments:
+                    values: [created, paid, shipped, delivered]
+                    quote: true
+  - name: gold
+    description: Existing D-4 Gold aggregate owned and rebuilt by the medallion.
+    database: iceberg
+    schema: gold
+    tables:
+      - name: orders_daily_metrics
+        description: Existing daily aggregate; dbt reads it and does not rebuild it.
+        columns:
+          - name: event_date
+            description: Calendar grain of the aggregate.
+            tests:
+              - not_null
+          - name: country
+            description: Country dimension.
+            tests:
+              - not_null
+          - name: status
+            description: Order status dimension.
+            tests:
+              - not_null
+              - accepted_values:
+                  arguments:
+                    values: [created, paid, shipped, delivered]
+                    quote: true
+          - name: orders_count
+            description: Number of current orders in the grain.
+            tests:
+              - not_null
+          - name: total_amount
+            description: Total amount in the grain.
+            tests:
+              - not_null
+          - name: avg_amount
+            description: Average amount in the grain.
+            tests:
+              - not_null
+          - name: distinct_customers
+            description: Distinct customer count in the grain.
+            tests:
+              - not_null

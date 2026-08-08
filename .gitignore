@@ -44,6 +44,12 @@ temp/
 *.orig
 *.rej
 
+# dbt local profile and generated artifacts
+dbt/profiles.yml
+dbt/target/
+dbt/dbt_packages/
+dbt/.user.yml
+
 # Generated at container startup from trino/etc/catalog/iceberg.properties.template
 trino/etc/catalog/iceberg.properties
 

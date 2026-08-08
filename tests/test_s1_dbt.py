@@ -1,0 +1,74 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+DBT = ROOT / "dbt"
+
+
+def _read(relative: str) -> str:
+    return (ROOT / relative).read_text(encoding="utf-8")
+
+
+def test_s1_project_is_reproducible_and_uses_pinned_trino_adapter() -> None:
+    project = _read("dbt/dbt_project.yml")
+    profile = _read("dbt/profiles.yml.example")
+    requirements = _read("dbt/requirements.txt")
+
+    assert "profile: lakehouse" in project
+    assert "type: trino" in profile
+    assert "catalog: iceberg" in profile
+    assert requirements.splitlines() == ["dbt-trino==1.10.3", "dbt-core==1.12.0"]
+
+
+def test_s1_declares_the_three_existing_iceberg_sources() -> None:
+    sources = _read("dbt/models/sources.yml")
+
+    for source in ("name: bronze", "name: silver", "name: gold"):
+        assert source in sources
+    for table in ("name: orders", "name: orders_clean", "name: orders_daily_metrics"):
+        assert table in sources
+    assert "business_version" in sources
+
+
+def test_s1_semantic_models_are_thin_views_over_existing_sources() -> None:
+    current_orders = _read("dbt/models/semantic/current_orders.sql")
+    daily_metrics = _read("dbt/models/semantic/daily_order_metrics.sql")
+
+    assert "source('silver', 'orders_clean')" in current_orders
+    assert "source('gold', 'orders_daily_metrics')" in daily_metrics
+    for sql in (current_orders, daily_metrics):
+        assert "materialized='view'" in sql
+        assert "merge" not in sql.lower()
+        assert "overwrite" not in sql.lower()
+        assert "max(business_version)" not in sql.lower()
+
+
+def test_s1_contract_tests_and_superset_exposure_are_declared() -> None:
+    semantic = _read("dbt/models/semantic/semantic.yml")
+    sources = _read("dbt/models/sources.yml")
+
+    for test_name in ("not_null", "unique", "accepted_values"):
+        assert test_name in semantic
+        assert test_name in sources
+    assert "superset_lakehouse_semantic_dashboard" in semantic
+    assert "ref('current_orders')" in semantic
+    assert "ref('daily_order_metrics')" in semantic
+
+
+def test_s1_deterministic_custom_grain_test_is_versioned() -> None:
+    grain_test = _read("dbt/tests/gold_daily_metrics_grain_unique.sql")
+
+    assert "group by order_date, country, status" in grain_test.lower()
+    assert "having count(*) > 1" in grain_test.lower()
+
+
+def test_s1_ci_and_lineage_documentation_are_present() -> None:
+    workflow = _read(".github/workflows/ci-s1-dbt.yml")
+    documentation = _read("docs/semantic/S1-dbt-lineage.md")
+
+    for command in ("dbt parse", "dbt compile", "dbt test", "dbt docs generate"):
+        assert command in workflow
+    for marker in ("Bronze", "Silver", "Gold", "Superset", "D-3a", "lineage"):
+        assert marker in documentation

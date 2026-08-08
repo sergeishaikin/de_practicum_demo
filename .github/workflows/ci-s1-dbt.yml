@@ -1,0 +1,126 @@
+name: S1 dbt semantic lineage
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "dbt/**"
+      - "docs/semantic/**"
+      - ".github/workflows/ci-s1-dbt.yml"
+      - "tests/test_s1_dbt.py"
+  push:
+    branches: [main]
+    paths:
+      - "dbt/**"
+      - "docs/semantic/**"
+      - ".github/workflows/ci-s1-dbt.yml"
+      - "tests/test_s1_dbt.py"
+
+jobs:
+  dbt-contract:
+    name: dbt parse, compile, and documentation artifacts
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dbt
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: dbt/requirements.txt
+      - name: Install dbt-trino
+        run: python -m pip install -r requirements.txt
+      - name: Install repository test dependencies
+        working-directory: .
+        run: python -m pip install -r requirements-dev.txt
+      - name: Prepare deterministic profile
+        run: cp profiles.yml.example profiles.yml
+      - name: Parse project
+        run: dbt parse --profiles-dir .
+      - name: Compile project
+        run: dbt compile --profiles-dir .
+      - name: Verify deterministic repository contracts
+        working-directory: .
+        run: python -m pytest -q tests/test_s1_dbt.py
+      - name: Generate manifest and catalog artifacts
+        run: dbt docs generate --profiles-dir .
+      - name: Upload dbt artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: s1-dbt-artifacts
+          path: dbt/target/
+
+  dbt-live-contract:
+    name: dbt tests against ephemeral Trino/Iceberg contract fixture
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dbt
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: dbt/requirements.txt
+      - name: Install dbt-trino
+        run: python -m pip install -r requirements.txt
+      - name: Prepare runtime environment
+        working-directory: .
+        run: |
+          cp .env.example .env
+          sed -i 's/^MINIO_ROOT_PASSWORD=.*/MINIO_ROOT_PASSWORD=minio123/' .env
+          docker network create de_demo_net || true
+          docker compose --env-file .env up -d de-demo-postgres
+          docker compose --env-file .env -f docker-compose.extended.yml up -d minio iceberg-rest trino
+      - name: Ensure warehouse bucket
+        working-directory: .
+        run: |
+          for i in $(seq 1 24); do
+            if docker exec de-demo-minio mc alias set local http://localhost:9000 minio minio123 >/dev/null 2>&1; then break; fi
+            sleep 5
+          done
+          docker exec de-demo-minio mc mb --ignore-existing local/de-practicum
+      - name: Wait for Trino and create contract fixture
+        working-directory: .
+        run: |
+          for i in $(seq 1 72); do
+            if docker exec de-demo-trino trino --execute "SELECT 1" >/dev/null 2>&1; then break; fi
+            sleep 5
+          done
+          docker exec de-demo-trino trino --execute "
+            CREATE SCHEMA IF NOT EXISTS iceberg.bronze;
+            CREATE SCHEMA IF NOT EXISTS iceberg.silver;
+            CREATE SCHEMA IF NOT EXISTS iceberg.gold;
+            CREATE TABLE iceberg.bronze.orders (order_id varchar, business_version bigint);
+            CREATE TABLE iceberg.silver.orders_clean (
+              order_id varchar, customer varchar, amount double, country varchar,
+              status varchar, event_time timestamp(6), kafka_timestamp timestamp(6),
+              kafka_partition integer, kafka_offset bigint, event_date date,
+              business_version bigint
+            );
+            INSERT INTO iceberg.silver.orders_clean VALUES
+              ('s1-a', 'alice', 10.0, 'DE', 'paid', TIMESTAMP '2026-01-01 10:00:00', TIMESTAMP '2026-01-01 10:00:00', 0, 1, DATE '2026-01-01', 1),
+              ('s1-b', 'bob', 20.0, 'FR', 'shipped', TIMESTAMP '2026-01-01 11:00:00', TIMESTAMP '2026-01-01 11:00:00', 0, 2, DATE '2026-01-01', 2);
+            CREATE TABLE iceberg.gold.orders_daily_metrics (
+              event_date date, country varchar, status varchar, orders_count bigint,
+              total_amount double, avg_amount double, distinct_customers bigint
+            );
+            INSERT INTO iceberg.gold.orders_daily_metrics VALUES
+              (DATE '2026-01-01', 'DE', 'paid', 1, 10.0, 10.0, 1),
+              (DATE '2026-01-01', 'FR', 'shipped', 1, 20.0, 20.0, 1)
+          "
+      - name: Prepare deterministic profile
+        run: cp profiles.yml.example profiles.yml
+      - name: Build semantic views
+        run: dbt run --profiles-dir . --select semantic
+      - name: Run dbt contract tests
+        run: dbt test --profiles-dir .
+      - name: Cleanup
+        if: always()
+        working-directory: .
+        run: |
+          docker compose -f docker-compose.extended.yml down --remove-orphans || true
+          docker compose down --remove-orphans || true
