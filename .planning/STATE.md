@@ -1,6 +1,11 @@
 ---
-gsd_state_version: '1.0'
-status: planning
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: milestone
+status: executing
+stopped_at: GSD re-baseline after verified S1.2B cleanup.
+last_updated: "2026-08-09T14:04:38.560Z"
+last_activity: 2026-08-09 — S1.2B cleanup verified; GSD re-baselined at `89953fe`.
 progress:
   total_phases: 1
   completed_phases: 0
@@ -22,7 +27,7 @@ See: `.planning/PROJECT.md` (updated 2026-08-09)
 
 Phase: 1 of 1 (B2 Controlled Rollout)
 Plan: 0 of 7 in current phase
-Status: Ready to plan
+Status: Ready to execute
 Last activity: 2026-08-09 — S1.2B cleanup verified; GSD re-baselined at `89953fe`.
 
 Progress: ░░░░░░░░░░ 0% of current rollout phase
