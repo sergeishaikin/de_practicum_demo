@@ -1,0 +1,72 @@
+{
+  "plan": "01-02A",
+  "captured_at": "2026-08-09T16:40:00Z",
+  "runtime_tuple": {
+    "silver_mode": "legacy",
+    "gold_source": "legacy",
+    "shadow_compare": "0"
+  },
+  "writers_quiesced": true,
+  "sqlite_backup": {
+    "volume": "de_demo_iceberg_catalog_backup_02a",
+    "sha256": "3e43b7d222dd05cc191847c1991eb3972669c206d4f534ec3f4c95ca1d915a01",
+    "size_bytes": 20480
+  },
+  "namespaces": [
+    "bronze",
+    "gold",
+    "m3_b7b9a1d7",
+    "semantic",
+    "silver"
+  ],
+  "tables": [
+    {
+      "namespace": "bronze",
+      "identifier": "bronze.orders",
+      "metadata_location": "s3://de-practicum/warehouse/bronze/orders/metadata/05859-7683628f-6ef3-4d09-9cd9-40533611ed0b.metadata.json",
+      "table_uuid": "3e26610c-7151-402d-bf46-fd43cfc91364",
+      "current_snapshot_id": 4625914460884813422,
+      "schema_id": 1,
+      "schema": "order_id, customer, amount, country, status, event_time, kafka_timestamp, kafka_partition, kafka_offset, event_date, business_version",
+      "partition_spec": "event_date_day: day(10)",
+      "sort_order": "[]",
+      "snapshot_count": 984
+    },
+    {
+      "namespace": "gold",
+      "identifier": "gold.orders_daily_metrics",
+      "metadata_location": "s3://de-practicum/warehouse/gold/orders_daily_metrics/metadata/01192-e9dfcfaa-0541-4c59-9658-45ef89212743.metadata.json",
+      "table_uuid": "b3efd680-1c48-48f7-81c1-ce72ea575a88",
+      "current_snapshot_id": 1566726617346874896,
+      "schema_id": 0,
+      "schema": "event_date, country, status, orders_count, total_amount, avg_amount, distinct_customers",
+      "partition_spec": "[]",
+      "sort_order": "[]",
+      "snapshot_count": 682
+    },
+    {
+      "namespace": "m3_b7b9a1d7",
+      "identifier": "m3_b7b9a1d7.bronze",
+      "metadata_location": "s3://de-practicum/warehouse/m3_b7b9a1d7/bronze/metadata/00001-f469f131-11a0-48f0-8c48-b6c9916f31b6.metadata.json",
+      "table_uuid": "8af86270-38ee-47f2-ab7b-6d84a59ec3ed",
+      "current_snapshot_id": 5761100200777275319,
+      "schema_id": 0,
+      "schema": "order_id, customer, amount, country, status, event_time, kafka_timestamp, kafka_partition, kafka_offset, event_date, business_version",
+      "partition_spec": "event_date_day: day(10)",
+      "sort_order": "[]",
+      "snapshot_count": 1
+    },
+    {
+      "namespace": "silver",
+      "identifier": "silver.orders_clean",
+      "metadata_location": "s3://de-practicum/warehouse/silver/orders_clean/metadata/01192-d8fc9a79-deb2-4e19-9e57-9c2b7468019e.metadata.json",
+      "table_uuid": "f26c2a91-8dc0-453c-8e6a-5ed72b3daf5c",
+      "current_snapshot_id": 3118058909190041888,
+      "schema_id": 1,
+      "schema": "order_id, customer, amount, country, status, event_time, kafka_timestamp, kafka_partition, kafka_offset, event_date, business_version",
+      "partition_spec": "event_date_day: day(10)",
+      "sort_order": "[]",
+      "snapshot_count": 686
+    }
+  ]
+}

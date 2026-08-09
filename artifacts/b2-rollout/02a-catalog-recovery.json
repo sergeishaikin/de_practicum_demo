@@ -1,0 +1,32 @@
+{
+  "plan": "01-02A",
+  "passed": true,
+  "backend": "postgresql",
+  "catalog_uri": "jdbc:postgresql://de-demo-postgres:5432/dwh",
+  "catalog_name": "rest_backend",
+  "sqlite_busy_errors": 0,
+  "unchecked_sql_exception_errors": 0,
+  "database_locking_failures": 0,
+  "metadata_pointer_divergence": 0,
+  "lost_catalog_updates": 0,
+  "data_preserved": true,
+  "metadata_files_rewritten_during_migration": 0,
+  "data_files_rewritten_during_migration": 0,
+  "snapshots_advanced_during_migration": 0,
+  "normal_post_migration_medallion_snapshots": 2,
+  "namespace_already_exists_409": 2,
+  "namespace_409_interpretation": "idempotent startup initialization race; no lock failure and successful cycles followed",
+  "concurrency_clients": ["iceberg-writer", "iceberg-medallion", "trino", "dbt-trino"],
+  "medallion_successful_cycles": 2,
+  "work_in_flight_max": 0,
+  "shadow_mismatches": 0,
+  "ff14_conflicts": 0,
+  "dbt": {"pass": 26, "warn": 0, "error": 0},
+  "equivalence_receipt": "artifacts/b2-rollout/02a-catalog-equivalence.json",
+  "backup_checksum": "artifacts/b2-rollout/02a-sqlite-backup.sha256",
+  "rollback": {
+    "sqlite_backup_volume": "de_demo_iceberg_catalog_backup_02a",
+    "sqlite_source_volume": "de-practicum-demo_de_demo_iceberg_catalog",
+    "procedure": "stop writer/medallion/Trino; restore docker-compose.extended.yml CATALOG_URI and catalog volume rw; recreate iceberg-rest; verify frozen inventory; restart clients"
+  }
+}

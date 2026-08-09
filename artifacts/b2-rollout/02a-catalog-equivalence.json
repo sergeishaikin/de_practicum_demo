@@ -1,0 +1,42 @@
+{
+  "plan": "01-02A",
+  "passed": true,
+  "all_tables_equal": true,
+  "all_registrations_equal": true,
+  "metadata_files_rewritten": 0,
+  "data_files_rewritten": 0,
+  "snapshots_advanced": 0,
+  "sqlite_backup_sha256": "3e43b7d222dd05cc191847c1991eb3972669c206d4f534ec3f4c95ca1d915a01",
+  "catalogs": {
+    "before": "jdbc:sqlite:file:/catalog/iceberg_catalog.db",
+    "after": "jdbc:postgresql://de-demo-postgres:5432/dwh"
+  },
+  "table_checks": [
+    {"identifier":"bronze.orders","metadata_location_equal":true,"table_uuid_equal":true,"current_snapshot_id_equal":true,"schema_equal":true,"partition_spec_equal":true,"sort_order_equal":true,"snapshot_history_count_equal":true},
+    {"identifier":"silver.orders_clean","metadata_location_equal":true,"table_uuid_equal":true,"current_snapshot_id_equal":true,"schema_equal":true,"partition_spec_equal":true,"sort_order_equal":true,"snapshot_history_count_equal":true},
+    {"identifier":"gold.orders_daily_metrics","metadata_location_equal":true,"table_uuid_equal":true,"current_snapshot_id_equal":true,"schema_equal":true,"partition_spec_equal":true,"sort_order_equal":true,"snapshot_history_count_equal":true},
+    {"identifier":"m3_b7b9a1d7.bronze","metadata_location_equal":true,"table_uuid_equal":true,"current_snapshot_id_equal":true,"schema_equal":true,"partition_spec_equal":true,"sort_order_equal":true,"snapshot_history_count_equal":true}
+  ],
+  "view_registration_checks": [
+    {"identifier":"semantic.current_orders","metadata_location_equal":true,"previous_metadata_location_equal":true,"kind_equal":true},
+    {"identifier":"semantic.daily_order_metrics","metadata_location_equal":true,"previous_metadata_location_equal":true,"kind_equal":true}
+  ],
+  "logical_invariants": {
+    "bronze_rows": 218961,
+    "silver_rows": 218961,
+    "bronze_null_business_version": 0,
+    "silver_null_business_version": 0,
+    "silver_global_order_id_unique": true,
+    "silver_equals_accepted_b2_projection": true,
+    "dbt_pass": 26,
+    "dbt_warn": 0,
+    "dbt_error": 0
+  },
+  "evidence": [
+    "artifacts/b2-rollout/02a-sqlite-backup.sha256",
+    "artifacts/b2-rollout/02a-catalog-before.json",
+    "artifacts/b2-rollout/02a-catalog-after.json",
+    "production PyIceberg REST inventory comparison",
+    "dbt test: PASS=26 WARN=0 ERROR=0"
+  ]
+}

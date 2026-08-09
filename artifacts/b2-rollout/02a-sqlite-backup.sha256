@@ -1,0 +1,6 @@
+3e43b7d222dd05cc191847c1991eb3972669c206d4f534ec3f4c95ca1d915a01  iceberg_catalog.db
+backup_volume=de_demo_iceberg_catalog_backup_02a
+source_volume=de-practicum-demo_de_demo_iceberg_catalog
+source=/catalog/iceberg_catalog.db
+backup=/backup/iceberg_catalog.db
+size_bytes=20480

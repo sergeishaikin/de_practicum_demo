@@ -1,0 +1,30 @@
+01-02A read-only diagnosis — 2026-08-09
+
+Runtime tuple before diagnosis: SILVER_MODE=legacy, GOLD_SOURCE=legacy, SHADOW_COMPARE=0
+
+Iceberg REST container:
+  service: de-demo-iceberg-rest
+  CATALOG_URI: jdbc:sqlite:file:/catalog/iceberg_catalog.db
+  CATALOG_CATALOG__IMPL: org.apache.iceberg.jdbc.JdbcCatalog
+  mounted volume: de-practicum-demo_de_demo_iceberg_catalog
+  catalog file: /catalog/iceberg_catalog.db (20480 bytes)
+
+Independent catalog clients in the stack:
+  iceberg-writer
+  iceberg-medallion
+  trino
+  dbt-trino
+
+Observed client-side failure from the failed canary:
+  Medallion error: UncheckedSQLException: Unknown failure
+  occurrences in filtered medallion log: 23
+
+The REST log filter did not expose a literal SQLITE_BUSY line. This does not
+clear SQLite: the configured JDBC backend is SQLite and the shared catalog is
+being accessed by independent commit/query clients. No sleep, blind retry,
+exception suppression, volume reset, table recreation, or data deletion was
+performed.
+
+PostgreSQL candidate is reachable (PostgreSQL 15.18), but a
+metadata-preserving migration into it has not yet been proven. The rollout
+therefore remains fail-closed at 01-02A and stays on legacy/legacy/0.

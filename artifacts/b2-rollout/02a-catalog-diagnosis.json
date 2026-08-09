@@ -1,0 +1,58 @@
+{
+  "plan": "01-02A",
+  "status": "DIAGNOSED_BLOCKED_AT_SAFE_MIGRATION",
+  "captured_at": "2026-08-09T16:30:00Z",
+  "runtime_tuple": {
+    "silver_mode": "legacy",
+    "gold_source": "legacy",
+    "shadow_compare": "0"
+  },
+  "catalog": {
+    "service": "de-demo-iceberg-rest",
+    "image": "tabulario/iceberg-rest:latest",
+    "catalog_uri": "jdbc:sqlite:file:/catalog/iceberg_catalog.db",
+    "catalog_impl": "org.apache.iceberg.jdbc.JdbcCatalog",
+    "volume": "de-practicum-demo_de_demo_iceberg_catalog",
+    "metadata_file": "/catalog/iceberg_catalog.db",
+    "metadata_file_bytes": 20480,
+    "backend_is_sqlite": true,
+    "candidate_postgres_service": "de-demo-postgres",
+    "candidate_postgres_version": "15.18"
+  },
+  "concurrent_committers": [
+    "iceberg-writer",
+    "iceberg-medallion",
+    "trino",
+    "dbt-trino"
+  ],
+  "observed_failure": {
+    "client_error": "UncheckedSQLException: Unknown failure",
+    "occurrences_in_medallion_log_filter": 23,
+    "explicit_sqlite_busy_lines_in_filtered_rest_log": 0,
+    "interpretation": "The REST JDBC catalog is SQLite-backed and shared by independent commit/query clients; the client-side failure does not expose a stable SQLITE_BUSY string in the REST log."
+  },
+  "data_preservation_baseline": {
+    "bronze_rows": 218961,
+    "silver_rows": 218961,
+    "bronze_null_business_version": 0,
+    "silver_null_business_version": 0,
+    "silver_global_order_id_unique": true,
+    "silver_equals_accepted_b2_projection": true,
+    "data_preserved": true,
+    "destructive_actions": []
+  },
+  "migration": {
+    "safe_existing_metadata_migration_proven": false,
+    "empty_catalog_replacement_allowed": false,
+    "catalog_volume_reset_performed": false,
+    "next_required_action": "Prove and implement metadata-preserving PostgreSQL/JDBC catalog migration, or document an image/runtime blocker and stop."
+  },
+  "evidence": [
+    "docker inspect de-demo-iceberg-rest Config.Env",
+    "docker inspect de-demo-iceberg-rest Mounts",
+    "docker logs de-demo-iceberg-medallion filtered for UncheckedSQLException",
+    "docker exec de-demo-postgres PostgreSQL version and metrics baseline",
+    "artifacts/b2-rollout/02-canary-receipt.json",
+    "artifacts/b2-rollout/02-canary-rollback.txt"
+  ]
+}
