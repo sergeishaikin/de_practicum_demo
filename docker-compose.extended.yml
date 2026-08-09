@@ -211,7 +211,12 @@ services:
       - -jar
       - /usr/lib/iceberg-rest/iceberg-rest-image-all.jar
     environment:
-      CATALOG_URI: jdbc:sqlite:file:/catalog/iceberg_catalog.db
+      CATALOG_URI: jdbc:postgresql://de-demo-postgres:5432/${POSTGRES_DB}
+      CATALOG_CATALOG__IMPL: org.apache.iceberg.jdbc.JdbcCatalog
+      CATALOG_JDBC_USER: ${POSTGRES_USER}
+      CATALOG_JDBC_PASSWORD: ${POSTGRES_PASSWORD}
+      CATALOG_JDBC_INITIALIZE: "false"
+      CATALOG_JDBC_SCHEMA: ${ICEBERG_CATALOG_JDBC_SCHEMA:-public}
       CATALOG_WAREHOUSE: s3://de-practicum/warehouse
       CATALOG_IO__IMPL: org.apache.iceberg.aws.s3.S3FileIO
       CATALOG_S3_ENDPOINT: http://minio:9000
@@ -222,8 +227,12 @@ services:
     ports:
       - "${ICEBERG_REST_PORT}:8181"
     volumes:
-      - de_demo_iceberg_catalog:/catalog
+      # Retain the SQLite catalog volume for rollback evidence; PostgreSQL is
+      # the active catalog authority after the metadata-preserving migration.
+      - de_demo_iceberg_catalog:/catalog:ro
     depends_on:
+      de-demo-postgres:
+        condition: service_healthy
       minio:
         condition: service_started
     healthcheck:

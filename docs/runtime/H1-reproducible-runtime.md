@@ -70,11 +70,18 @@ The clean workflow destroys volumes before startup, builds the images, runs
 bootstrap, waits for canonical Bronze, then executes integration, E2E, dbt,
 and observability gates. It destroys the clean stack afterward.
 
-The demo REST catalog is SQLite-backed, so metadata commits are intentionally
-serialized during verification: the workflow quiesces the always-on Iceberg
-writer and medallion before deterministic E2E, and dbt semantic models run
-with one thread. This is deployment/test orchestration for the demo catalog;
-it does not change Bronze, Silver, Gold, or dbt model semantics.
+The clean-stack H1 workflow may still use a SQLite-backed demo REST catalog,
+so its metadata commits are intentionally serialized during that isolated
+verification. The persistent rollout catalog is now PostgreSQL-backed: the
+SQLite catalog was preserved with SHA-256 evidence, its registrations were
+imported without rewriting Iceberg data/metadata files or advancing snapshots,
+and before/after table inventories proved exact metadata-pointer, UUID,
+snapshot, schema, partition, and sort-order equality. The live PostgreSQL
+catalog was then exercised with overlapping writer, medallion, Trino, and dbt
+clients without SQLite locking or `UncheckedSQLException` failures. See
+`artifacts/b2-rollout/02a-catalog-equivalence.json` and
+`02a-catalog-recovery.json` for the migration receipt. This change does not
+alter Bronze, Silver, Gold, or dbt model semantics.
 
 ## Upgrade and rollback expectations
 
