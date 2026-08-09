@@ -438,6 +438,9 @@ def build_live_receipt(catalog, fs) -> dict:
     null_bronze_rows = sum(
         row.get("business_version") is None for row in bronze_rows
     )
+    null_silver_rows = sum(
+        row.get("business_version") is None for row in silver_rows
+    )
     result.update(
         {
             "migration": MIGRATION_NAME,
@@ -459,8 +462,13 @@ def build_live_receipt(catalog, fs) -> dict:
                 boundary.timestamp_ms if boundary else None
             ),
             "bronze_null_business_version_rows": null_bronze_rows,
+            "silver_null_business_version_rows": null_silver_rows,
             "authoritative_bronze_rows": len(bronze_rows),
             "authoritative_silver_rows": len(silver_rows),
+            "silver_unique_order_ids": len(
+                {row.get("order_id") for row in silver_rows}
+            )
+            == len(silver_rows),
             "silver_equals_b2_projection": _same_rows(
                 silver.scan().to_arrow(), expected_silver
             ),
