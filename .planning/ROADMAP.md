@@ -19,13 +19,13 @@ conditions, observe real B2 cost, and make an evidence-based D-3a/O2 decision.
 **Plans**: 7 plans
 
 Plans:
-- [ ] 01-01: Canary preflight and frozen state verification.
-- [ ] 01-02: Run B2 / legacy Gold / shadow canary.
-- [ ] 01-03: Drain and verify the 255 post-migration manifests.
-- [ ] 01-04: Collect and evaluate M5 cutover evidence.
-- [ ] 01-05: Switch Gold to persisted Silver only after a green M5 gate.
-- [ ] 01-06: Collect a representative O1 telemetry window.
-- [ ] 01-07: Decide D-3a, O2, or no-change and record the rollout result.
+- [ ] 01-01-PLAN.md — Canary preflight and frozen state verification.
+- [ ] 01-02-PLAN.md — Controlled B2 canary with SILVER_MODE=b2, GOLD_SOURCE=legacy, SHADOW_COMPARE=1.
+- [ ] 01-03-PLAN.md — Drain and verify the 255 legitimate post-migration manifests.
+- [ ] 01-04-PLAN.md — Collect and evaluate M5 cutover evidence.
+- [ ] 01-05-PLAN.md — Switch Gold to persisted Silver only after a green M5 gate.
+- [ ] 01-06-PLAN.md — Collect a representative O1 telemetry window.
+- [ ] 01-07-PLAN.md — Decide D-3a, O2, or no-change and record the rollout result.
 
 ## Conditional and Backlog Work
 
