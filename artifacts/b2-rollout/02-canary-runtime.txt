@@ -1,0 +1,53 @@
+B2 canary runtime receipt
+=========================
+Captured: 2026-08-09
+Preflight: artifacts/b2-rollout/01-preflight-gate.json passed=true
+
+Required runtime tuple: SILVER_MODE=b2, GOLD_SOURCE=legacy, SHADOW_COMPARE=1
+Observed rollout: shadow
+Gold source: legacy (business-facing Gold was not switched to persisted Silver)
+
+Command: $env:SILVER_MODE='b2'; $env:GOLD_SOURCE='legacy'; $env:SHADOW_COMPARE='1'
+Command: docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml config --quiet
+Result: PASS
+Command: docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml up -d --no-deps --force-recreate iceberg-medallion
+Result: de-demo-iceberg-medallion recreated and started
+
+docker inspect de-demo-iceberg-medallion --format '{{range .Config.Env}}{{println .}}{{end}}'
+MINIO_BUCKET=de-practicum
+PROMETHEUS_METRICS_PORT=9102
+GOLD_SOURCE=legacy
+METRICS_ENABLED=1
+AWS_SECRET_ACCESS_KEY=<redacted>
+BRONZE_TABLE=orders
+AWS_ACCESS_KEY_ID=minio
+POSTGRES_HOST=de-demo-postgres
+SILVER_TABLE=orders_clean
+ICEBERG_WAREHOUSE=s3://de-practicum/warehouse
+POSTGRES_PORT=5432
+SHADOW_COMPARE=1
+MAX_COMPLETED_PROGRESS=100
+BRONZE_NAMESPACE=bronze
+QUALITY_VALID_STATUSES=created,paid,shipped,delivered
+QUALITY_FAIL_ON_VIOLATIONS=0
+ICEBERG_CATALOG_URI=http://iceberg-rest:8181
+MEDALLION_PROGRESS_PATH=streaming/medallion/progress.json
+POSTGRES_USER=app
+SILVER_MODE=b2
+GOLD_TABLE=orders_daily_metrics
+GOLD_NAMESPACE=gold
+POSTGRES_DB=dwh
+S3_REGION=us-east-1
+BRONZE_OUTBOX_PREFIX=streaming/bronze_outbox
+MEDALLION_INTERVAL_SECONDS=60
+
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml ps
+de-demo-iceberg-medallion  de-practicum-demo-iceberg:0.11.1-h1  iceberg-medallion  Up
+The dependent persistent stack remained running; only the medallion service was recreated.
+
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml logs --no-color --since 5m iceberg-medallion
+No service log lines were emitted during the first five minutes after recreation.
+
+python validate_runtime_config check
+{'SILVER_MODE': 'b2', 'GOLD_SOURCE': 'legacy', 'SHADOW_COMPARE': '1', 'rollout': 'shadow'}
+canary config PASS
