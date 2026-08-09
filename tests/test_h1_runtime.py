@@ -1,0 +1,128 @@
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+from scripts.validate_runtime_config import validate
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def read(relative: str) -> str:
+    return (ROOT / relative).read_text(encoding="utf-8")
+
+
+def test_clean_environment_pins_external_images_and_has_no_latest_tags() -> None:
+    env = read(".env.example")
+    image_lines = [line for line in env.splitlines() if line.endswith("\n") is False and "_IMAGE=" in line]
+    assert image_lines
+    assert all(re.search(r"@sha256:[0-9a-f]{64}$", line.split("=", 1)[1]) for line in image_lines)
+    assert "latest" not in env
+
+
+def test_spark_runtime_has_baked_jars_and_no_runtime_package_resolution() -> None:
+    compose = read("docker-compose.extended.yml")
+    e2e = read("tests/e2e/test_lakehouse_e2e.py")
+    lock = read("spark/h1-runtime-jars.lock")
+
+    assert "spark-submit-h1" in compose
+    assert "--packages" not in compose
+    assert "spark.jars.ivy" not in compose
+    assert "spark-submit-h1" in e2e
+    assert "--packages" not in e2e
+    assert "spark-sql-kafka-0-10_2.13|4.2.0" in lock
+    assert "org.postgresql|postgresql|42.7.4" in lock
+
+
+def test_custom_build_services_have_explicit_versioned_image_tags() -> None:
+    compose = read("docker-compose.extended.yml")
+    for image in (
+        "de-practicum-demo-spark:4.2.0-h1",
+        "de-practicum-demo-jupyter:spark420-h1",
+        "de-practicum-demo-iceberg:0.11.1-h1",
+        "de-practicum-demo-observability:0.22.1-h1",
+        "de-practicum-demo-orders-producer:0.1.0",
+    ):
+        assert image in compose
+
+
+def test_e2e_ad_hoc_container_inherits_runtime_credentials() -> None:
+    e2e = read("tests/e2e/test_lakehouse_e2e.py")
+
+    assert 'f"POSTGRES_PASSWORD={PG[\'password\']}"' in e2e
+    assert 'f"AWS_SECRET_ACCESS_KEY={SECRET_KEY}"' in e2e
+    assert '"POSTGRES_PASSWORD=app"' not in e2e
+    assert '"AWS_SECRET_ACCESS_KEY=minio123"' not in e2e
+
+
+def test_clean_dbt_runtime_serializes_sqlite_catalog_commits() -> None:
+    profile = read("dbt/profiles.yml.example")
+    workflow = read(".github/workflows/ci-h1-clean.yml")
+
+    assert "threads: 1" in profile
+    assert "dbt run --profiles-dir . --select semantic --threads 1" in workflow
+
+
+def test_clean_workflow_exports_deploy_credentials_to_host_checks() -> None:
+    workflow = read(".github/workflows/ci-h1-clean.yml")
+
+    assert "source .env" in workflow
+    assert "AWS_SECRET_ACCESS_KEY=${MINIO_ROOT_PASSWORD}" in workflow
+    assert "DWH_PASSWORD=${POSTGRES_PASSWORD}" in workflow
+    assert "DBT_TRINO_PORT=${TRINO_HOST_PORT}" in workflow
+
+
+def test_runtime_dependency_pins_are_shared_at_the_python_arrow_boundary() -> None:
+    host = read("requirements-dev.txt")
+    iceberg = read("iceberg/requirements.txt")
+
+    assert "pyiceberg==0.11.1" in host
+    assert "pyarrow==21.0.0" in host
+    assert "pyiceberg[pyarrow]==0.11.1" in iceberg
+    assert "pyarrow==21.0.0" in iceberg
+
+
+def test_config_validator_rejects_placeholders_and_unpinned_images() -> None:
+    values = {
+        "POSTGRES_USER": "app",
+        "POSTGRES_PASSWORD": "change-me",
+        "POSTGRES_DB": "dwh",
+        "MINIO_ROOT_USER": "minio",
+        "MINIO_ROOT_PASSWORD": "secret",
+        "SUPERSET_SECRET_KEY": "secret",
+        "AIRFLOW_SECRET_KEY": "secret",
+        "AIRFLOW_ADMIN_PASSWORD": "secret",
+        **{key: "repo:latest" for key in (
+            "POSTGRES_IMAGE", "MINIO_IMAGE", "METABASE_IMAGE", "KAFKA_IMAGE",
+            "KAFKA_UI_IMAGE", "ICEBERG_REST_IMAGE", "TRINO_IMAGE",
+            "PROMETHEUS_IMAGE", "GRAFANA_IMAGE", "SUPERSET_IMAGE",
+        )},
+        **{key: "1234" for key in (
+            "POSTGRES_HOST_PORT", "AIRFLOW_HOST_PORT", "MINIO_API_PORT",
+            "MINIO_CONSOLE_PORT", "KAFKA_HOST_PORT", "ICEBERG_REST_PORT",
+            "TRINO_HOST_PORT", "PROMETHEUS_HOST_PORT", "GRAFANA_HOST_PORT",
+        )},
+    }
+
+    errors = validate(values, profile="clean")
+    assert any("placeholder secret" in error for error in errors)
+    assert any("pinned by digest" in error for error in errors)
+
+
+def test_h1_bootstrap_ci_and_docs_are_present() -> None:
+    workflow = read(".github/workflows/ci-h1-clean.yml")
+    docs = read("docs/runtime/H1-reproducible-runtime.md")
+
+    for marker in (
+        "--volumes",
+        "--pull always",
+        "integration",
+        "iceberg-writer iceberg-medallion",
+        "e2e",
+        "dbt test",
+        "Prometheus",
+    ):
+        assert marker in workflow
+    for marker in ("baked", "bootstrap", "rollback", "D-3a", "Ivy"):
+        assert marker in docs

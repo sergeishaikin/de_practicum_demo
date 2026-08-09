@@ -1,6 +1,6 @@
 services:
   minio:
-    image: ${MINIO_IMAGE}
+    image: ${MINIO_IMAGE:?MINIO_IMAGE is required}
     container_name: de-demo-minio
     command: server /data --console-address ":9001"
     environment:
@@ -18,6 +18,7 @@ services:
     build:
       context: ./spark
       dockerfile: Dockerfile
+    image: de-practicum-demo-spark:4.2.0-h1
     container_name: de-demo-spark-master
     hostname: spark-master
     command:
@@ -44,6 +45,7 @@ services:
     build:
       context: ./spark
       dockerfile: Dockerfile
+    image: de-practicum-demo-spark:4.2.0-h1
     container_name: de-demo-spark-worker
     hostname: spark-worker
     command:
@@ -73,6 +75,7 @@ services:
     build:
       context: ./spark
       dockerfile: Dockerfile
+    image: de-practicum-demo-spark:4.2.0-h1
     container_name: de-demo-spark-connect
     hostname: spark-connect
     command:
@@ -123,6 +126,7 @@ services:
     build:
       context: ./jupyter
       dockerfile: Dockerfile
+    image: de-practicum-demo-jupyter:spark420-h1
     container_name: de-demo-jupyter
     environment:
       SPARK_MASTER: spark://spark-master:7077
@@ -154,7 +158,7 @@ services:
       - de_demo_net
 
   kafka:
-    image: ${KAFKA_IMAGE}
+    image: ${KAFKA_IMAGE:?KAFKA_IMAGE is required}
     container_name: de-demo-kafka
     hostname: kafka
     ports:
@@ -184,7 +188,7 @@ services:
       - de_demo_net
 
   kafka-ui:
-    image: ${KAFKA_UI_IMAGE}
+    image: ${KAFKA_UI_IMAGE:?KAFKA_UI_IMAGE is required}
     container_name: de-demo-kafka-ui
     ports:
       - "${KAFKA_UI_HOST_PORT}:8080"
@@ -198,7 +202,7 @@ services:
       - de_demo_net
 
   iceberg-rest:
-    image: ${ICEBERG_REST_IMAGE}
+    image: ${ICEBERG_REST_IMAGE:?ICEBERG_REST_IMAGE is required}
     container_name: de-demo-iceberg-rest
     hostname: iceberg-rest
     user: "0:0"
@@ -237,6 +241,7 @@ services:
     build:
       context: ./iceberg
       dockerfile: Dockerfile
+    image: de-practicum-demo-iceberg:0.11.1-h1
     container_name: de-demo-iceberg-writer
     working_dir: /app
     command:
@@ -279,6 +284,7 @@ services:
     build:
       context: ./iceberg
       dockerfile: Dockerfile
+    image: de-practicum-demo-iceberg:0.11.1-h1
     container_name: de-demo-iceberg-medallion
     working_dir: /app
     command:
@@ -329,6 +335,7 @@ services:
     build:
       context: ./observability
       dockerfile: Dockerfile
+    image: de-practicum-demo-observability:0.22.1-h1
     container_name: de-demo-observability-exporter
     environment:
       POSTGRES_HOST: de-demo-postgres
@@ -354,7 +361,7 @@ services:
       - de_demo_net
 
   prometheus:
-    image: ${PROMETHEUS_IMAGE:-prom/prometheus:v3.5.0}
+    image: ${PROMETHEUS_IMAGE:?PROMETHEUS_IMAGE is required}
     container_name: de-demo-prometheus
     command:
       - --config.file=/etc/prometheus/prometheus.yml
@@ -385,13 +392,13 @@ services:
       - de_demo_net
 
   grafana:
-    image: ${GRAFANA_IMAGE:-grafana/grafana:11.2.0}
+    image: ${GRAFANA_IMAGE:?GRAFANA_IMAGE is required}
     container_name: de-demo-grafana
     ports:
       - "${GRAFANA_HOST_PORT:-13001}:3000"
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}
       GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
       - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
@@ -411,7 +418,7 @@ services:
       - de_demo_net
 
   trino:
-    image: ${TRINO_IMAGE}
+    image: ${TRINO_IMAGE:?TRINO_IMAGE is required}
     container_name: de-demo-trino
     hostname: trino
     user: "0:0"
@@ -435,7 +442,7 @@ services:
       - de_demo_net
 
   metabase:
-    image: ${METABASE_IMAGE}
+    image: ${METABASE_IMAGE:?METABASE_IMAGE is required}
     container_name: de-demo-metabase
     ports:
       - "${METABASE_HOST_PORT}:3000"
@@ -447,15 +454,12 @@ services:
       - de_demo_net
 
   orders-producer:
-    image: python:3.12-slim
+    build:
+      context: ./kafka/producer
+      dockerfile: Dockerfile
+    image: de-practicum-demo-orders-producer:0.1.0
     container_name: de-demo-orders-producer
     working_dir: /app
-    command:
-      - sh
-      - -lc
-      - >
-        pip install --no-cache-dir confluent-kafka==2.15.0 &&
-        python orders_producer.py
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       KAFKA_TOPIC: orders
@@ -473,6 +477,7 @@ services:
     build:
       context: ./spark
       dockerfile: Dockerfile
+    image: de-practicum-demo-spark:4.2.0-h1
     container_name: de-demo-orders-streaming
     hostname: orders-streaming
 
@@ -480,11 +485,8 @@ services:
       - bash
       - -lc
       - |
-        mkdir -p /tmp/spark-ivy/cache /tmp/spark-ivy/jars
-        exec /opt/spark/bin/spark-submit \
+        exec /usr/local/bin/spark-submit-h1 \
           --master spark://spark-master:7077 \
-          --conf spark.jars.ivy=/tmp/spark-ivy \
-          --packages org.apache.spark:spark-sql-kafka-0-10_2.13:4.2.0,org.apache.hadoop:hadoop-aws:3.4.2,org.postgresql:postgresql:42.7.4 \
           --conf spark.driver.host=orders-streaming \
           --conf spark.driver.bindAddress=0.0.0.0 \
           --conf spark.driver.port=17080 \
@@ -522,9 +524,6 @@ services:
 
     volumes:
       - ./spark/jobs:/opt/spark/jobs:ro
-      # Warms the Ivy cache at stack-up; the nightly E2E mounts the same volume
-      # so its ad-hoc spark-submit does not re-download the --packages set.
-      - de_demo_spark_ivy_cache:/tmp/spark-ivy
 
     depends_on:
       kafka:
@@ -544,7 +543,7 @@ services:
       - de_demo_net
 
   superset:
-    image: apache/superset:latest-dev
+    image: ${SUPERSET_IMAGE:?SUPERSET_IMAGE is required}
     container_name: de-demo-superset
     ports:
       - "18088:8088"
@@ -562,7 +561,7 @@ services:
       - de_demo_superset_home:/app/superset_home
 
   superset-mcp:
-    image: apache/superset:latest-dev
+    image: ${SUPERSET_IMAGE:?SUPERSET_IMAGE is required}
     container_name: de-demo-superset-mcp
 
     command:
@@ -605,8 +604,6 @@ volumes:
   de_demo_iceberg_writer_state:
   # Explicit name: the E2E test mounts this by name from a plain `docker run`,
   # so it must not carry the Compose project-name prefix.
-  de_demo_spark_ivy_cache:
-    name: de_demo_spark_ivy_cache
   de_demo_prometheus_data:
   de_demo_grafana_data:
 

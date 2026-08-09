@@ -1,4 +1,4 @@
-FROM apache/superset:latest
+FROM apache/superset@sha256:fb3464528ec7076f91195f0ff7835755aa023e281f1bb78a84782ce7a36b3705
 
 USER root
 

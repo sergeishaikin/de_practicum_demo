@@ -1,0 +1,18 @@
+# group|artifact|version — resolved at image build, never at container start
+org.apache.spark|spark-sql-kafka-0-10_2.13|4.2.0
+org.apache.spark|spark-token-provider-kafka-0-10_2.13|4.2.0
+org.apache.hadoop|hadoop-aws|3.4.2
+org.apache.hadoop|hadoop-client-api|3.5.0
+org.apache.hadoop|hadoop-client-runtime|3.5.0
+org.apache.kafka|kafka-clients|3.9.2
+org.apache.commons|commons-pool2|2.13.1
+# lz4-java:1.11.0 is supplied by the pinned apache/spark base image.
+org.xerial.snappy|snappy-java|1.1.10.8
+org.scala-lang.modules|scala-parallel-collections_2.13|1.2.0
+org.slf4j|slf4j-api|2.0.17
+org.wildfly.openssl|wildfly-openssl|2.1.4.Final
+software.amazon.awssdk|bundle|2.29.52
+software.amazon.s3.analyticsaccelerator|analyticsaccelerator-s3|1.2.1
+com.google.code.findbugs|jsr305|3.0.0
+org.checkerframework|checker-qual|3.42.0
+org.postgresql|postgresql|42.7.4

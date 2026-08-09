@@ -1,4 +1,4 @@
-FROM quay.io/jupyter/base-notebook:latest
+FROM quay.io/jupyter/base-notebook@sha256:8201703b74c5f05068a9d1d4a2e542dd67833d749502f197ec8346547cc2d9e6
 
 USER root
 
@@ -21,8 +21,8 @@ RUN mamba create -y -n spark420 \
 
 RUN /opt/conda/envs/spark420/bin/python -m pip install --no-cache-dir \
         "pyspark[connect]==4.2.0" \
-        "pandas>=2.2.0" \
-        "pyarrow>=15.0.0" \
+        "pandas==2.2.3" \
+        "pyarrow==21.0.0" \
         psycopg2-binary==2.9.10 \
         boto3==1.35.99
 

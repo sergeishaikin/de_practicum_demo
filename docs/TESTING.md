@@ -80,7 +80,11 @@ The canonical `dwh` database is asserted to gain neither fixture orders nor fixt
 
 On failure the run's temp directory is preserved as a self-contained bundle under `artifacts/e2e-logs/<run_id>/` (traceback, helper logs, streaming container log, writer state, `docker ps`, Trino schemas); the nightly workflow uploads it. Successful runs clean up.
 
-The ad-hoc Spark container shares the `de_demo_spark_ivy_cache` volume with `orders-streaming`, which warms it at stack-up, so the `--packages` set is not re-resolved from Maven Central inside the landing timeout. The volume is declared with an explicit `name:` so a plain `docker run` can mount it without the Compose project prefix, and `spark/Dockerfile` pre-creates `/tmp/spark-ivy` owned by `spark` (uid 185) so the volume is not seeded as root.
+The Spark image now contains the pinned Kafka, Hadoop AWS, PostgreSQL and
+transitive runtime JARs under `/opt/spark/h1-jars`. Both the long-running
+stream and the ad-hoc E2E stream use `/usr/local/bin/spark-submit-h1`; clean
+startup does not resolve `--packages` through Maven Central and there is no
+runtime Ivy cache dependency.
 
 ## Lakehouse verification
 

@@ -34,10 +34,18 @@ event DLQ/reconciliation/replay and offset-loss evidence.
 
 ## Evidence artifacts
 
-- [verification report](../../.architecture-audit/14-verification/verification-report.md)
-- [verification JSON](../../.architecture-audit/14-verification/verification-report.json)
-- [verification receipts](../../.architecture-audit/14-verification/evidence/verification-receipts.md)
+- [verification report](../../.architecture-audit/baselines/2026-08-08-0fe37f79/14-verification/verification-report.md)
+- [verification JSON](../../.architecture-audit/baselines/2026-08-08-0fe37f79/14-verification/verification-report.json)
+- [verification receipts](../../.architecture-audit/baselines/2026-08-08-0fe37f79/14-verification/evidence/verification-receipts.md)
 - [R2 safety evidence](R2-safety-and-simplification.md)
+
+The audit artifacts of this closure were frozen as baseline
+`2026-08-08-0fe37f79` after incident `2026-08-09-overwrite-01`. Three phase-01
+artifacts were lost in that incident; see
+[BASELINE-INTEGRITY.json](../../.architecture-audit/baselines/2026-08-08-0fe37f79/BASELINE-INTEGRITY.json).
+Findings, intent profile, synthesis, remediation and verification survived. The
+paths cited inside the frozen evidence files themselves were deliberately not
+rewritten.
 
 Next phase: `O1 — Lakehouse Runtime Observability` (Prometheus/Grafana), kept
 separate from this remediation closure.

@@ -9,4 +9,5 @@ lakehouse:
       port: "{{ env_var('DBT_TRINO_PORT', '18082') | int }}"
       catalog: iceberg
       schema: semantic
-      threads: 4
+      # The demo REST catalog uses SQLite; serialize metadata commits.
+      threads: 1

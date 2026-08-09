@@ -83,7 +83,6 @@ KAFKA_CONTAINER = "de-demo-kafka"
 KAFKA_BOOTSTRAP = "localhost:9092"
 E2E_DB = "e2e"
 E2E_PG = {**PG, "dbname": E2E_DB}
-IVY_CACHE_VOLUME = "de_demo_spark_ivy_cache"
 REQUIRED_CONTAINERS = (
     "de-demo-kafka",
     "de-demo-minio",
@@ -385,11 +384,8 @@ def start_streaming(
     ).strip()
     name = f"e2e-streaming-{run_id}"
     spark_cmd = (
-        "mkdir -p /tmp/spark-ivy/cache /tmp/spark-ivy/jars\n"
-        "exec /opt/spark/bin/spark-submit "
+        "exec /usr/local/bin/spark-submit-h1 "
         "--master local[2] "
-        "--conf spark.jars.ivy=/tmp/spark-ivy "
-        "--packages org.apache.spark:spark-sql-kafka-0-10_2.13:4.2.0,org.apache.hadoop:hadoop-aws:3.4.2,org.postgresql:postgresql:42.7.4 "
         "--conf spark.hadoop.fs.s3a.endpoint=http://minio:9000 "
         "--conf spark.hadoop.fs.s3a.path.style.access=true "
         "--conf spark.hadoop.fs.s3a.connection.ssl.enabled=false "
@@ -446,22 +442,17 @@ def start_streaming(
         "-e",
         f"POSTGRES_DB={E2E_DB}",
         "-e",
-        "POSTGRES_USER=app",
+        f"POSTGRES_USER={PG['user']}",
         "-e",
-        "POSTGRES_PASSWORD=app",
+        f"POSTGRES_PASSWORD={PG['password']}",
         "-e",
-        "AWS_ACCESS_KEY_ID=minio",
+        f"AWS_ACCESS_KEY_ID={ACCESS_KEY}",
         "-e",
-        "AWS_SECRET_ACCESS_KEY=minio123",
+        f"AWS_SECRET_ACCESS_KEY={SECRET_KEY}",
         "-e",
         "MINIO_BUCKET=de-practicum",
         "-v",
         f"{REPO_ROOT / 'spark' / 'jobs'}:/opt/spark/jobs:ro",
-        # Shared with the always-on orders-streaming service, which warms the
-        # cache at stack-up; without it every run re-resolves ~17 artifacts
-        # (incl. the awssdk bundle) from Maven Central inside the landing budget.
-        "-v",
-        f"{IVY_CACHE_VOLUME}:/tmp/spark-ivy",
         image,
         "bash",
         "-lc",
