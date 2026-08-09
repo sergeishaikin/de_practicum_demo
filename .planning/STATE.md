@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-01-PLAN.md
-last_updated: "2026-08-09T15:32:16.754Z"
+stopped_at: Completed 01-02-PLAN.md; later plans intentionally not executed
+last_updated: "2026-08-09T15:54:22.961Z"
 last_activity: 2026-08-09 -- Phase 01 execution started
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 7
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -26,7 +26,7 @@ See: `.planning/PROJECT.md` (updated 2026-08-09)
 ## Current Position
 
 Phase: 01 (b2-controlled-rollout) — EXECUTING
-Plan: 2 of 7
+Plan: 3 of 7
 Status: Ready to execute
 Last activity: 2026-08-09 -- Phase 01 execution started
 
@@ -40,6 +40,7 @@ Progress: ░░░░░░░░░░ 0% of current rollout phase
 |-------|-------|-------|----------|
 | 1. B2 Controlled Rollout | 0 | 7 | - |
 | Phase 01 P01 | 25min | 2 tasks | 5 files |
+| Phase 01 P02 | 10min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -51,6 +52,8 @@ Progress: ░░░░░░░░░░ 0% of current rollout phase
 - [Phase 01]: Keep the runtime contract at legacy/legacy/0 until Plan 02.
 - [Phase 01]: Use the installed dbt CLI because python -m dbt is unavailable; preserve documented arguments and record the launcher deviation.
 - [Phase 01]: Treat all 255 remaining manifests as legitimate LIVE_POST_MIGRATION work and make no data, progress, or outbox change during preflight.
+- [Phase 01]: Canary failed closed after UncheckedSQLException and zero successful shadow cycles; restore legacy/legacy/0 before any later plan.
+- [Phase 01]: Do not mark CAN-01 complete; rerun Plan 01-02 only after the live recovery anomaly is understood.
 
 ### Pending Todos
 
@@ -62,6 +65,7 @@ The 255 remaining outbox manifests are legitimate post-migration work,
 not historical cleanup debt.
 
 - Plan 01-01 Task 2 blocked: dbt semantic run repeatedly fails with Trino/Iceberg REST 500 commit-uncertainty; parse/compile, dbt test 26/26, handoff assertions, and 17 pytest checks pass, but the preflight gate cannot be marked passed until semantic dbt run succeeds.
+- Plan 01-02 canary failed closed: UncheckedSQLException recovery anomaly and zero successful shadow cycles; investigate and rerun 01-02 before 01-03.
 
 ## Deferred Items
 
@@ -73,6 +77,6 @@ not historical cleanup debt.
 
 ## Session Continuity
 
-Last session: 2026-08-09T15:32:16.748Z
-Stopped at: Completed 01-01-PLAN.md
+Last session: 2026-08-09T15:54:22.948Z
+Stopped at: Completed 01-02-PLAN.md; later plans intentionally not executed
 Resume file: None

@@ -25,7 +25,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 01-02-PLAN.md — Controlled B2 canary with SILVER_MODE=b2, GOLD_SOURCE=legacy, SHADOW_COMPARE=1.
+- [x] 01-02-PLAN.md — Controlled B2 canary with SILVER_MODE=b2, GOLD_SOURCE=legacy, SHADOW_COMPARE=1.
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -63,7 +63,7 @@ Plans:
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 1. B2 Controlled Rollout | Current | 1/7 | In Progress|  |
+| 1. B2 Controlled Rollout | Current | 2/7 | In Progress|  |
 
 Historical milestones are intentionally summarized above rather than
 replayed as unfinished GSD phases.
