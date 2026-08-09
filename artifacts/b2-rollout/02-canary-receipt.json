@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "phase": "01-b2-controlled-rollout",
+  "plan": "02",
+  "generated_at": "2026-08-09",
+  "canary": {
+    "requested_runtime": {
+      "SILVER_MODE": "b2",
+      "GOLD_SOURCE": "legacy",
+      "SHADOW_COMPARE": "1"
+    },
+    "gold_source": "legacy",
+    "rollout": "shadow",
+    "shadow_comparisons": 0,
+    "shadow_mismatches": 0,
+    "ff14_conflicts": 0,
+    "unresolved_progress": 0,
+    "successful_shadow_cycle": false,
+    "passed": false
+  },
+  "focused_tests": {
+    "command": "python -m pytest -q --basetemp .pytest-b2-canary tests/test_m5_fitness_functions.py tests/test_b2_medallion.py tests/test_m4_gold.py tests/test_medallion.py tests/test_order_contract.py",
+    "passed": 53,
+    "failed": 0,
+    "exit_code": 0,
+    "warning": "PytestCacheWarning: access denied creating .pytest_cache cache path"
+  },
+  "latest_medallion_metrics": [
+    {
+      "metric_ts": "2026-08-09 18:44:42.534663+03",
+      "source": "medallion",
+      "status": "success",
+      "work_available": 155,
+      "work_in_flight": 0,
+      "work_completed": 100,
+      "keys_processed": 10415,
+      "lower_versions_ignored": 0,
+      "ff14_conflicts": 0,
+      "shadow_comparisons": 0,
+      "shadow_mismatches": 0,
+      "silver_duration_ms": 101042,
+      "gold_duration_ms": 0
+    },
+    {
+      "metric_ts": "2026-08-09 18:10:05.01463+03",
+      "source": "medallion",
+      "status": "success",
+      "work_available": 0,
+      "work_in_flight": 0,
+      "work_completed": 0,
+      "keys_processed": 0,
+      "lower_versions_ignored": 0,
+      "ff14_conflicts": 0,
+      "shadow_comparisons": 0,
+      "shadow_mismatches": 0,
+      "silver_duration_ms": 26862,
+      "gold_duration_ms": 4465
+    }
+  ],
+  "failure": {
+    "type": "recovery_anomaly",
+    "log": "Medallion error: UncheckedSQLException: Unknown failure",
+    "reason": "No successful shadow cycle was evidenced; canary was stopped fail-closed."
+  },
+  "rollback": {
+    "performed": true,
+    "configuration": {
+      "SILVER_MODE": "legacy",
+      "GOLD_SOURCE": "legacy",
+      "SHADOW_COMPARE": "0"
+    },
+    "receipt": "artifacts/b2-rollout/02-canary-rollback.txt",
+    "data_or_progress_reset": false
+  },
+  "assertion_summary": "gold_source=legacy and shadow_mismatches=0"
+}

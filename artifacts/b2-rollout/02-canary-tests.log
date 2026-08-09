@@ -1,0 +1,15 @@
+B2 canary focused test receipt
+==============================
+Command: python -m pytest -q --basetemp .pytest-b2-canary tests/test_m5_fitness_functions.py tests/test_b2_medallion.py tests/test_m4_gold.py tests/test_medallion.py tests/test_order_contract.py
+
+.....................................................                    [100%]
+============================== warnings summary ===============================
+..\\..\\..\\Users\\serge\\anaconda3\\Lib\\site-packages\\_pytest\\cacheprovider.py:475
+  PytestCacheWarning: could not create .pytest_cache cache path (access denied)
+
+53 passed, 1 warning in 5.50s
+PYTEST_EXIT=0
+
+Live canary diagnostics captured separately in 02-canary-receipt.json:
+- service emitted: Medallion error: UncheckedSQLException: Unknown failure
+- no successful shadow cycle was observed before fail-closed rollback

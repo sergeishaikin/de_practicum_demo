@@ -1,0 +1,55 @@
+B2 canary fail-closed rollback receipt
+========================================
+Trigger: recovery anomaly and missing successful shadow cycle
+Observed error: Medallion error: UncheckedSQLException: Unknown failure
+
+The B2 service was not allowed to continue exposing a failing result to Gold.
+No data, Iceberg table, progress state, or completed outbox manifest was deleted,
+recreated, reset, or otherwise modified by rollback.
+
+Restore command:
+$env:SILVER_MODE='legacy'
+$env:GOLD_SOURCE='legacy'
+$env:SHADOW_COMPARE='0'
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml config --quiet
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml up -d --no-deps --force-recreate iceberg-medallion
+
+Compose validation: PASS
+Container restore: de-demo-iceberg-medallion recreated and started
+
+Post-restore docker inspect configuration (secret values redacted):
+ICEBERG_CATALOG_URI=http://iceberg-rest:8181
+POSTGRES_PORT=5432
+ICEBERG_WAREHOUSE=s3://de-practicum/warehouse
+POSTGRES_PASSWORD=<redacted>
+MEDALLION_PROGRESS_PATH=streaming/medallion/progress.json
+MAX_COMPLETED_PROGRESS=100
+AWS_ACCESS_KEY_ID=minio
+GOLD_NAMESPACE=gold
+MEDALLION_INTERVAL_SECONDS=60
+S3_REGION=us-east-1
+BRONZE_OUTBOX_PREFIX=streaming/bronze_outbox
+POSTGRES_HOST=de-demo-postgres
+BRONZE_TABLE=orders
+MINIO_BUCKET=de-practicum
+BRONZE_NAMESPACE=bronze
+METRICS_ENABLED=1
+GOLD_TABLE=orders_daily_metrics
+SHADOW_COMPARE=0
+SILVER_MODE=legacy
+QUALITY_VALID_STATUSES=created,paid,shipped,delivered
+S3_ENDPOINT=http://minio:9000
+POSTGRES_DB=dwh
+QUALITY_FAIL_ON_VIOLATIONS=0
+SILVER_TABLE=orders_clean
+SILVER_NAMESPACE=silver
+AWS_SECRET_ACCESS_KEY=<redacted>
+POSTGRES_USER=app
+GOLD_SOURCE=legacy
+PROMETHEUS_METRICS_PORT=9102
+
+Post-restore service status:
+de-demo-iceberg-medallion  de-practicum-demo-iceberg:0.11.1-h1  iceberg-medallion  Up
+
+Restored tuple: SILVER_MODE=legacy, GOLD_SOURCE=legacy, SHADOW_COMPARE=0
+Rollback outcome: PASS; legacy service is running and the persistent data/progress state was preserved.
