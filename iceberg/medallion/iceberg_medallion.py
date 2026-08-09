@@ -240,6 +240,8 @@ def _mark_b2_completed(
     record: dict,
     snapshot_id: int | None,
     changed_keys: list[str],
+    *,
+    delete_outbox: bool = True,
 ) -> None:
     load_id = record["load_id"]
     progress["next_sequence"] += 1
@@ -250,10 +252,12 @@ def _mark_b2_completed(
     }
     progress["work"].pop(load_id, None)
     _prune_completed(progress)
-    # This is the durable progress commit.  Outbox cleanup follows it, so a
-    # crash cannot turn a completed Silver commit back into new work.
+    # This is the durable progress commit.  Normal processing cleans the
+    # outbox only after this commit.  Recovery reconciliation may deliberately
+    # leave the manifest in place for a separately approved handoff cleanup.
     save_progress(fs, progress)
-    delete_bronze_work(fs, record)
+    if delete_outbox:
+        delete_bronze_work(fs, record)
 
 
 def _reserve_b2_work(fs: S3FileSystem, progress: dict, record: dict) -> None:

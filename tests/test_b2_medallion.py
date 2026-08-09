@@ -266,6 +266,34 @@ def test_b2_crash_before_commit_retries(monkeypatch) -> None:
     assert not json.loads(fs.objects["de-practicum/test-progress/progress.json"])["work"]
 
 
+def test_recovery_acknowledgement_can_leave_manifest_for_separate_cleanup(
+    monkeypatch,
+) -> None:
+    fs, catalog, silver, metrics, load_id = setup_run(
+        monkeypatch, [row("a", 1, amount=10)]
+    )
+    monkeypatch.setattr(m, "SIMULATE_B2_CRASH_BEFORE_COMMIT", True)
+    with pytest.raises(SystemExit):
+        m.run_b2(catalog, metrics, fs)
+
+    progress = json.loads(fs.objects["de-practicum/test-progress/progress.json"])
+    record = m.list_bronze_work(fs)[0]
+    m._mark_b2_completed(
+        fs,
+        progress,
+        record,
+        snapshot_id=None,
+        changed_keys=[],
+        delete_outbox=False,
+    )
+
+    state = json.loads(fs.objects["de-practicum/test-progress/progress.json"])
+    assert state["work"] == {}
+    assert load_id in state["completed"]
+    assert record["_object_path"] in fs.objects
+    assert silver.rows == []
+
+
 def test_b2_crash_after_commit_reconciles_without_second_snapshot(monkeypatch) -> None:
     fs, catalog, silver, metrics, _ = setup_run(monkeypatch, [row("a", 1, amount=10)])
     monkeypatch.setattr(m, "SIMULATE_B2_CRASH_AFTER_COMMIT", True)

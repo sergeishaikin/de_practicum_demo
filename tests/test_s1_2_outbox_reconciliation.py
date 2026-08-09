@@ -75,7 +75,8 @@ def test_active_progress_blocks_even_when_rows_are_migrated() -> None:
     )
 
     assert result["safe_stale"] == 0
-    assert result["blocked"] == 1
+    assert result["in_flight_blocked"] == 1
+    assert result["blocked"] == 0
     assert result["blocked_reasons"] == {"active_or_inflight_progress": 1}
 
 
@@ -117,5 +118,6 @@ def test_post_migration_snapshot_is_blocked() -> None:
         ts=300,
     )
 
-    assert result["blocked"] == 1
-    assert result["blocked_reasons"] == {"manifest_is_post_migration_work": 1}
+    assert result["live_post_migration"] == 1
+    assert result["blocked"] == 0
+    assert result["blocked_reasons"] == {}

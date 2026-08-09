@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Iterable
 
 import pyarrow as pa
+from pyiceberg.expressions import In
 
 REPO_ICEBERG_DIR = Path(__file__).resolve().parents[1]
 if str(REPO_ICEBERG_DIR) not in sys.path:
@@ -41,6 +42,7 @@ from medallion.iceberg_medallion import (  # noqa: E402
     list_bronze_work,
     load_progress,
     read_bronze_work,
+    _mark_b2_completed,
 )
 from medallion.legacy_business_version_migration import (  # noqa: E402
     LEGACY_VERSION,
@@ -48,6 +50,7 @@ from medallion.legacy_business_version_migration import (  # noqa: E402
     _same_rows,
     b2_projection,
 )
+from b2_spike import resolve_against_current  # noqa: E402
 
 MIGRATION_NAME = "S1.2"
 SCHEMA_VERSION = 1
@@ -247,6 +250,22 @@ def classify_manifests(
             elif silver.get("business_version") != authoritative.get("business_version"):
                 reasons.append("silver_not_at_authoritative_b2_version")
 
+        post_migration = "manifest_is_post_migration_work" in reasons
+        active = bool(active_refs)
+        if active:
+            status = "IN_FLIGHT_BLOCKED"
+        elif post_migration and set(reasons) == {"manifest_is_post_migration_work"}:
+            status = "LIVE_POST_MIGRATION"
+        elif not reasons:
+            status = "SAFE_STALE"
+        else:
+            status = "BLOCKED"
+        blocking_reasons = (
+            sorted(set(reasons))
+            if status in {"IN_FLIGHT_BLOCKED", "BLOCKED"}
+            else []
+        )
+
         dispositions.append(
             {
                 "load_id": load_id,
@@ -257,8 +276,9 @@ def classify_manifests(
                 "legacy_null_physical_rows": null_rows,
                 "versioned_physical_rows": versioned_rows,
                 "active_progress_refs": active_refs,
-                "blocked_reasons": sorted(set(reasons)),
-                "status": "BLOCKED" if reasons else "SAFE_STALE",
+                "disposition_reasons": sorted(set(reasons)),
+                "blocked_reasons": blocking_reasons,
+                "status": status,
             }
         )
 
@@ -267,10 +287,18 @@ def classify_manifests(
         for item in dispositions
         if item["status"] == "SAFE_STALE"
     ]
+    live = [
+        item for item in dispositions if item["status"] == "LIVE_POST_MIGRATION"
+    ]
+    inflight = [
+        item for item in dispositions if item["status"] == "IN_FLIGHT_BLOCKED"
+    ]
     blocked = [item for item in dispositions if item["status"] == "BLOCKED"]
     return {
         "classified_manifests": len(dispositions),
         "safe_stale": len(safe),
+        "live_post_migration": len(live),
+        "in_flight_blocked": len(inflight),
         "blocked": len(blocked),
         "logical_rows": sum(item["logical_rows"] for item in dispositions),
         "legacy_null_physical_rows": sum(
@@ -288,6 +316,91 @@ def classify_manifests(
 
 def _table_rows(table) -> list[dict]:
     return table.scan().to_arrow().to_pylist()
+
+
+def reconcile_inflight_noop(catalog, fs, load_id: str) -> dict:
+    """Acknowledge an already-materialized no-op without deleting its manifest.
+
+    This is the S1.2A.1 recovery seam.  It uses the same M3 durable progress
+    commit helper as normal B2 processing, but intentionally leaves the
+    outbox object for the separately approved S1.2B cleanup.  It fails closed
+    unless the raw legacy rows normalize to the authoritative Bronze image
+    and ``resolve_against_current`` proves that Silver needs no mutation.
+    """
+
+    bronze = catalog.load_table(f"{BRONZE_NAMESPACE}.{BRONZE_TABLE}")
+    silver = catalog.load_table(f"{SILVER_NAMESPACE}.{SILVER_TABLE}")
+    progress = load_progress(fs)
+    manifests = list_bronze_work(fs)
+    record = next((item for item in manifests if item["load_id"] == load_id), None)
+    if record is None:
+        raise RuntimeError(f"S1.2A.1 manifest not found: {load_id}")
+    work = progress.get("work", {}).get(load_id)
+    if work is None:
+        raise RuntimeError(f"S1.2A.1 work is not in-flight: {load_id}")
+    if load_id in progress.get("completed", {}):
+        raise RuntimeError(f"S1.2A.1 work is already completed: {load_id}")
+
+    work_snapshots = []
+    for snapshot in silver.metadata.snapshots:
+        summary = snapshot.summary.additional_properties if snapshot.summary else {}
+        if summary.get("silver-work-id") == load_id:
+            work_snapshots.append(snapshot.snapshot_id)
+    if work_snapshots:
+        raise RuntimeError(
+            "S1.2A.1 requires the normal committed-snapshot recovery path; "
+            f"found Silver work snapshots {work_snapshots} for {load_id}"
+        )
+
+    raw_rows = read_bronze_work(fs, bronze, record).to_pylist()
+    authoritative_rows = _table_rows(bronze)
+    authoritative_keys = Counter(
+        _canonical_row(row) for row in authoritative_rows
+    )
+    normalized_rows = []
+    for row in raw_rows:
+        normalized = dict(row)
+        if normalized.get("business_version") is None:
+            normalized["business_version"] = LEGACY_VERSION
+        key = _canonical_row(normalized)
+        if authoritative_keys[key] <= 0:
+            raise RuntimeError(
+                "S1.2A.1 raw work row is not represented in authoritative Bronze"
+            )
+        authoritative_keys[key] -= 1
+        normalized_rows.append(normalized)
+
+    current_ids = sorted({str(row["order_id"]) for row in normalized_rows})
+    current = silver.scan(row_filter=In("order_id", current_ids)).to_arrow().to_pylist()
+    resolved = resolve_against_current(current, normalized_rows)
+    if resolved:
+        raise RuntimeError(
+            "S1.2A.1 is not a no-op; normal B2 retry is required for advancing keys"
+        )
+
+    _mark_b2_completed(
+        fs,
+        progress,
+        record,
+        snapshot_id=None,
+        changed_keys=[],
+        delete_outbox=False,
+    )
+    return {
+        "load_id": load_id,
+        "raw_rows": len(raw_rows),
+        "normalized_legacy_rows": sum(
+            row.get("business_version") == LEGACY_VERSION
+            and raw.get("business_version") is None
+            for raw, row in zip(raw_rows, normalized_rows, strict=True)
+        ),
+        "resolved_rows": len(resolved),
+        "silver_snapshot_id": silver.current_snapshot().snapshot_id
+        if silver.current_snapshot()
+        else None,
+        "progress_completed": True,
+        "manifest_deleted": False,
+    }
 
 
 def build_live_receipt(catalog, fs) -> dict:
