@@ -61,7 +61,8 @@ Progress: ░░░░░░░░░░ 0% of current rollout phase
 
 ### Pending Todos
 
-None blocking the current phase. See `.planning/todos/` for historical backlog.
+01-02B remains the active plan and is stopped on an unresolved checkpoint/output epoch conflict.
+See `.planning/todos/` for historical backlog.
 
 ### Blockers/Concerns
 
@@ -69,7 +70,7 @@ The 255 remaining outbox manifests are legitimate post-migration work, not histo
 
 - 01-02 failed closed: Iceberg REST uses `jdbc:sqlite:file:/catalog/iceberg_catalog.db`, and live concurrent access produced `UncheckedSQLException`/unknown failure with zero successful shadow cycles. 01-02A read-only diagnosis is captured, but metadata-preserving migration to a concurrent backend is not yet proven.
 - Orders streaming failed closed on unavailable Kafka history: checkpoint offset `218961` versus available offset `157`. The old checkpoint must be preserved; a new epoch requires business-state continuity proof.
-- 01-02A is complete. 01-02B is next and must reconcile Kafka checkpoint offset loss; 01-03 remains explicitly blocked until 01-02B and 01-02C pass.
+- 01-02A is complete. 01-02B was resumed after manual host quiesce and stopped fail-closed: the stable Kafka range is 0..40208 (40209 messages), all are absent from Bronze, landing output ends at 218960, and the current checkpoint objects end at 157. No epoch continuity is proven; do not reset the checkpoint or use startingOffsets=latest. Run only the normal durable recovery path after resolving this checkpoint/output conflict; 01-03 remains explicitly blocked until 01-02B and 01-02C pass.
 
 ## Deferred Items
 
@@ -81,6 +82,6 @@ The 255 remaining outbox manifests are legitimate post-migration work, not histo
 
 ## Session Continuity
 
-Last session: 2026-08-09T17:30:00.000Z
-Stopped at: Completed 01-02A; Kafka checkpoint recovery not started
+Last session: 2026-08-09T20:00:00.000Z
+Stopped at: 01-02B STOP after stable payload reconciliation; checkpoint/output epoch conflict remains unresolved
 Resume file: None
