@@ -1,0 +1,72 @@
+﻿B2 preflight runtime receipt
+Captured UTC: 2026-08-09T14:34:02.5137938Z
+Read-only preflight: no reset, delete, drop, rebuild, or source mutation command used.
+Compose interpolation note: .env is unchanged; missing PROMETHEUS_IMAGE, GRAFANA_IMAGE, and SUPERSET_IMAGE were supplied ephemerally from .env.example so the prescribed Compose files could be validated.
+Docker config note: DOCKER_CONFIG was pointed at an empty temporary directory to avoid an unreadable user config; no persistent Docker configuration changed.
+
+COMMAND: python scripts/validate_runtime_config.py --env-file .env --profile local
+EXIT_CODE: 0
+OUTPUT:
+[OK] H1 local runtime configuration is valid
+
+COMMAND: docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml config --quiet
+EXIT_CODE: 0
+OUTPUT: <empty>
+
+COMMAND: docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml ps -a
+EXIT_CODE: 0
+OUTPUT:
+NAME                             IMAGE                                                                                            COMMAND                  SERVICE                  CREATED       STATUS                   PORTS
+
+de-demo-airflow                  de-practicum-demo-airflow:0.1.0                                                                  "/usr/bin/dumb-init …"   de-demo-airflow          3 hours ago   Up 3 hours               0.0.0.0:18085->8080/tcp, [::]:18085->8080/tcp
+
+de-demo-grafana                  grafana/grafana@sha256:408afb9726de5122b00a2576763a8a57a3c86d5b0eff5305bc994ceb3eb96c3f          "/run.sh"                grafana                  3 hours ago   Up 3 hours (healthy)     0.0.0.0:13001->3000/tcp, [::]:13001->3000/tcp
+
+de-demo-iceberg-medallion        de-practicum-demo-iceberg:0.11.1-h1                                                              "python medallion/ic…"   iceberg-medallion        3 hours ago   Up About an hour         
+
+de-demo-iceberg-rest             tabulario/iceberg-rest@sha256:3b7d31bdfec626b68e97531c9778a1b9119659e456fe28545a49f6aa6a9ce472   "java -jar /usr/lib/…"   iceberg-rest             3 hours ago   Up 3 hours (healthy)     0.0.0.0:18181->8181/tcp, [::]:18181->8181/tcp
+
+de-demo-iceberg-writer           de-practicum-demo-iceberg:0.11.1-h1                                                              "python writer/icebe…"   iceberg-writer           3 hours ago   Up About an hour         
+
+de-demo-jupyter                  de-practicum-demo-jupyter:spark420-h1                                                            "tini -g -- start.sh…"   jupyter                  3 hours ago   Up 3 hours (healthy)     0.0.0.0:18888->8888/tcp, [::]:18888->8888/tcp
+
+de-demo-kafka                    apache/kafka@sha256:3f7b939115cd4872e9cee9369d80bd69712fde55f9902f46d793f64848dedc75             "/__cacert_entrypoin…"   kafka                    3 hours ago   Up 3 hours (healthy)     0.0.0.0:19092->9092/tcp, [::]:19092->9092/tcp
+
+de-demo-kafka-ui                 provectuslabs/kafka-ui@sha256:8f2ff02d64b0a7a2b71b6b3b3148b85f66d00ec20ad40c30bdcd415d46d31818   "/bin/sh -c 'java --…"   kafka-ui                 3 hours ago   Up 3 hours               0.0.0.0:18090->8080/tcp, [::]:18090->8080/tcp
+
+de-demo-metabase                 metabase/metabase@sha256:2d743bb93c48daf2f2124f6d535ef22bd71063f64affc567e5f4ffab74da8b9c        "/app/run_metabase.sh"   metabase                 3 hours ago   Up 3 hours               0.0.0.0:13000->3000/tcp, [::]:13000->3000/tcp
+
+de-demo-minio                    minio/minio@sha256:a1ea29fa28355559ef137d71fc570e508a214ec84ff8083e39bc5428980b015e              "/usr/bin/docker-ent…"   minio                    3 hours ago   Up 3 hours               0.0.0.0:19000->9000/tcp, [::]:19000->9000/tcp, 0.0.0.0:19001->9001/tcp, [::]:19001->9001/tcp
+
+de-demo-observability-exporter   de-practicum-demo-observability:0.22.1-h1                                                        "python /app/postgre…"   observability-exporter   3 hours ago   Up 3 hours (healthy)     0.0.0.0:19104->9104/tcp, [::]:19104->9104/tcp
+
+de-demo-orders-producer          de-practicum-demo-orders-producer:0.1.0                                                          "python /app/orders_…"   orders-producer          3 hours ago   Up 3 hours               
+
+de-demo-orders-streaming         de-practicum-demo-spark:4.2.0-h1                                                                 "/opt/entrypoint.sh …"   orders-streaming         3 hours ago   Up 10 seconds            
+
+de-demo-postgres                 postgres@sha256:6eb0add3b77c081df18aa518ce43df58fdcc40f2e6d868a6fd08038dc7acd425                 "docker-entrypoint.s…"   de-demo-postgres         3 hours ago   Up 3 hours (healthy)     0.0.0.0:15432->5432/tcp, [::]:15432->5432/tcp
+
+de-demo-prometheus               prom/prometheus@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996          "/bin/prometheus --c…"   prometheus               3 hours ago   Up 3 hours (healthy)     0.0.0.0:19090->9090/tcp, [::]:19090->9090/tcp
+
+de-demo-spark-connect            de-practicum-demo-spark:4.2.0-h1                                                                 "/opt/entrypoint.sh …"   spark-connect            3 hours ago   Up 3 hours (healthy)     0.0.0.0:15002->15002/tcp, [::]:15002->15002/tcp, 0.0.0.0:14040->4040/tcp, [::]:14040->4040/tcp
+
+de-demo-spark-master             de-practicum-demo-spark:4.2.0-h1                                                                 "/opt/entrypoint.sh …"   spark-master             3 hours ago   Up 3 hours               0.0.0.0:17077->7077/tcp, [::]:17077->7077/tcp, 0.0.0.0:18080->8080/tcp, [::]:18080->8080/tcp
+
+de-demo-spark-worker             de-practicum-demo-spark:4.2.0-h1                                                                 "/opt/entrypoint.sh …"   spark-worker             3 hours ago   Up 3 hours               0.0.0.0:18081->8081/tcp, [::]:18081->8081/tcp
+
+de-demo-superset                 apache/superset@sha256:5822dff49c41fd745ce33e38af502f9c64df30d133aeba148c5d89b35a1004ef          "/app/docker/entrypo…"   superset                 3 hours ago   Up 3 hours (healthy)     0.0.0.0:18088->8088/tcp, [::]:18088->8088/tcp
+
+de-demo-superset-mcp             apache/superset@sha256:5822dff49c41fd745ce33e38af502f9c64df30d133aeba148c5d89b35a1004ef          "superset mcp run --…"   superset-mcp             3 hours ago   Up 3 hours (unhealthy)   0.0.0.0:15008->5008/tcp, [::]:15008->5008/tcp
+
+de-demo-trino                    trinodb/trino@sha256:db58cc93e593a2706553745f276bb119c9810e69918be56ecde088ba7ccb0534            "bash /etc/trino/sta…"   trino                    3 hours ago   Up 3 hours (healthy)     0.0.0.0:18082->8080/tcp, [::]:18082->8080/tcp
+
+COMMAND: docker inspect de-demo-iceberg-medallion --format '{{range .Config.Env}}{{println .}}{{end}}'
+EXIT_CODE: 0
+OUTPUT:
+SHADOW_COMPARE=0
+GOLD_SOURCE=legacy
+SILVER_MODE=legacy
+Sensitive environment values omitted from committed receipt.
+
+OBSERVED_CONTRACT: SILVER_MODE=legacy; GOLD_SOURCE=legacy; SHADOW_COMPARE=0
+PREFLIGHT_COMMANDS_PASS: True
