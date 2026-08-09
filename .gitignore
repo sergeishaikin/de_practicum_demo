@@ -8,6 +8,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
+.pytest-*/
 .ruff_cache/
 .mypy_cache/
 .coverage
@@ -71,3 +72,6 @@ db/work/
 # Only .planning/todos/ is versioned.
 .planning/intel/
 .planning/INGEST-CONFLICTS.md
+
+# Local Codex project backups; active project-scoped config remains tracked.
+.codex/**/*.disabled
