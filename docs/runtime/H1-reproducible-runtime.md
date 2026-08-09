@@ -1,7 +1,7 @@
 # H1 — reproducible runtime and deployment hardening
 
-Status: implementation complete; clean-state verification is defined by
-`.github/workflows/ci-h1-clean.yml`.
+Status: VERIFIED locally on a fresh-volume stack; the repeatable CI gate is
+defined by `.github/workflows/ci-h1-clean.yml`.
 
 ## Contract
 
@@ -104,8 +104,8 @@ existing persistent demo volumes:
 - `de-practicum-demo-spark:4.2.0-h1` contains 16 baked runtime JARs and
   `spark-submit-h1 --version` reports Spark 4.2.0 on Java 21;
 - Compose configuration validation completed with `.env.example`;
-- H1 tests: 8 passed;
-- fast suite: 125 passed, 30 deselected, using a workspace-local pytest
+- H1 tests: `9 passed`;
+- fast suite: `126 passed, 30 deselected`, using a workspace-local pytest
   temporary directory;
 - Ruff and `git diff --check` passed.
 
@@ -118,10 +118,21 @@ Additional live warm-stack evidence after the H1 image recreation:
 - Prometheus readiness and Grafana health: HTTP 200, with a healthy
   Prometheus target.
 
-The clean-volume workflow was not run against the local persistent demo stack,
-because its required `down --volumes` step would delete the verified S1.1
-historical migration state. The workflow is the remaining clean-machine gate
-and records logs, dbt artifacts, image/version evidence, and final teardown.
-An isolated Docker-in-Docker attempt did build the pinned images and create
-fresh volumes/network, but the nested daemon became unresponsive during
-bootstrap under local resource pressure; it is not counted as a clean pass.
+Fresh-state evidence was executed locally on 2026-08-09 without deleting the
+verified persistent demo volumes. The running services were stopped, their
+ephemeral containers and network were recreated, and a temporary Compose
+overlay isolated all stateful data in `h1_clean_*` volumes. The pinned stack
+was built with `--pull always` and passed:
+
+- fresh network, volumes, MinIO bucket, catalog schemas, and readiness;
+- integration: `18 passed, 1 xfailed`;
+- deterministic E2E: `3 passed`;
+- dbt parse/compile, 2 semantic views, and `PASS=26 WARN=0 ERROR=0 SKIP=0 NO-OP=0 REUSED=0 TOTAL=26`;
+- Prometheus readiness HTTP 200, Grafana health HTTP 200/database ok, and a healthy Prometheus target;
+- Spark 4.2.0 / Scala 2.13.18 / Java 21.0.11 and Trino CLI 483 runtime evidence.
+
+Only the temporary `h1_clean_*` volumes were removed afterward. The original
+persistent volumes were preserved and the demo stack was restored and passed
+the idempotent bootstrap/readiness check. The GitHub Actions workflow remains
+the authoritative clean-machine gate and records logs, dbt artifacts, image
+and version evidence, and final teardown.
