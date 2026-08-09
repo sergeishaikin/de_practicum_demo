@@ -21,7 +21,7 @@ conditions, observe real B2 cost, and make an evidence-based D-3a/O2 decision.
 Plans:
 **Wave 1**
 
-- [ ] 01-01-PLAN.md — Canary preflight and frozen state verification.
+- [x] 01-01-PLAN.md — Canary preflight and frozen state verification.
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -63,7 +63,7 @@ Plans:
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 1. B2 Controlled Rollout | Current | 0/7 | Ready to plan | - |
+| 1. B2 Controlled Rollout | Current | 1/7 | In Progress|  |
 
 Historical milestones are intentionally summarized above rather than
 replayed as unfinished GSD phases.

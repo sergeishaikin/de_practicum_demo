@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: GSD re-baseline after verified S1.2B cleanup.
-last_updated: "2026-08-09T14:04:38.560Z"
-last_activity: 2026-08-09 — S1.2B cleanup verified; GSD re-baselined at `89953fe`.
+stopped_at: Completed 01-01-PLAN.md
+last_updated: "2026-08-09T15:32:16.754Z"
+last_activity: 2026-08-09 -- Phase 01 execution started
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 7
-  completed_plans: 0
+  completed_plans: 1
   percent: 0
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-08-09)
 
 **Core value:** Business-key current state must remain correct and recoverable while the pipeline processes only committed incremental work.
-**Current focus:** Phase 1 — B2 Controlled Rollout
+**Current focus:** Phase 01 — b2-controlled-rollout
 
 ## Current Position
 
-Phase: 1 of 1 (B2 Controlled Rollout)
-Plan: 0 of 7 in current phase
+Phase: 01 (b2-controlled-rollout) — EXECUTING
+Plan: 2 of 7
 Status: Ready to execute
-Last activity: 2026-08-09 — S1.2B cleanup verified; GSD re-baselined at `89953fe`.
+Last activity: 2026-08-09 -- Phase 01 execution started
 
 Progress: ░░░░░░░░░░ 0% of current rollout phase
 
@@ -39,6 +39,7 @@ Progress: ░░░░░░░░░░ 0% of current rollout phase
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 1. B2 Controlled Rollout | 0 | 7 | - |
+| Phase 01 P01 | 25min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -47,6 +48,9 @@ Progress: ░░░░░░░░░░ 0% of current rollout phase
 - B2 canary keeps Gold on legacy until M5 is green.
 - Persisted-Silver Gold cutover must keep shadow comparison enabled.
 - D-3a and O2 remain conditional, not active work.
+- [Phase 01]: Keep the runtime contract at legacy/legacy/0 until Plan 02.
+- [Phase 01]: Use the installed dbt CLI because python -m dbt is unavailable; preserve documented arguments and record the launcher deviation.
+- [Phase 01]: Treat all 255 remaining manifests as legitimate LIVE_POST_MIGRATION work and make no data, progress, or outbox change during preflight.
 
 ### Pending Todos
 
@@ -54,8 +58,10 @@ None blocking the current phase. See `.planning/todos/` for historical backlog.
 
 ### Blockers/Concerns
 
-None. The 255 remaining outbox manifests are legitimate post-migration work,
+The 255 remaining outbox manifests are legitimate post-migration work,
 not historical cleanup debt.
+
+- Plan 01-01 Task 2 blocked: dbt semantic run repeatedly fails with Trino/Iceberg REST 500 commit-uncertainty; parse/compile, dbt test 26/26, handoff assertions, and 17 pytest checks pass, but the preflight gate cannot be marked passed until semantic dbt run succeeds.
 
 ## Deferred Items
 
@@ -67,6 +73,6 @@ not historical cleanup debt.
 
 ## Session Continuity
 
-Last session: 2026-08-09
-Stopped at: GSD re-baseline after verified S1.2B cleanup.
+Last session: 2026-08-09T15:32:16.748Z
+Stopped at: Completed 01-01-PLAN.md
 Resume file: None
