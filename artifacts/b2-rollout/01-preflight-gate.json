@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "phase": "01-b2-controlled-rollout",
+  "plan": "01",
+  "generated_at": "2026-08-09T15:28:41Z",
+  "passed": true,
+  "decision": "PASS",
+  "runtime_contract": {
+    "SILVER_MODE": "legacy",
+    "GOLD_SOURCE": "legacy",
+    "SHADOW_COMPARE": "0"
+  },
+  "handoff": {
+    "SAFE_STALE": 0,
+    "LIVE_POST_MIGRATION": 255,
+    "IN_FLIGHT_BLOCKED": 0,
+    "BLOCKED": 0,
+    "authoritative_bronze_rows": 218961,
+    "authoritative_silver_rows": 218961,
+    "bronze_null_business_version_rows": 0,
+    "silver_null_business_version_rows": 0,
+    "silver_unique_order_ids": true,
+    "silver_equals_b2_projection": true
+  },
+  "dbt": {
+    "pass": 26,
+    "warn": 0,
+    "error": 0,
+    "total": 26,
+    "commands_passed": true,
+    "summary": "PASS=26 WARN=0 ERROR=0 SKIP=0 NO-OP=0 REUSED=0 TOTAL=26"
+  },
+  "assertions": {
+    "SAFE_STALE": true,
+    "LIVE_POST_MIGRATION": true,
+    "IN_FLIGHT_BLOCKED": true,
+    "BLOCKED": true,
+    "authoritative_bronze_rows": true,
+    "authoritative_silver_rows": true,
+    "bronze_null_business_version_rows": true,
+    "silver_null_business_version_rows": true,
+    "silver_unique_order_ids": true,
+    "silver_equals_b2_projection": true,
+    "dbt_summary_26_pass": true,
+    "dbt_commands_pass": true
+  },
+  "evidence": {
+    "handoff": "artifacts\\b2-rollout\\01-preflight-handoff.json",
+    "dbt": "artifacts\\b2-rollout\\01-preflight-dbt.log"
+  },
+  "mutation_policy": "preflight read-only; no B2 configuration change authorized"
+}

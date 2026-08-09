@@ -1,0 +1,113 @@
+﻿# 2026-08-09 Task 2 dbt preflight receipt
+# Environment launcher deviation: python -m dbt unavailable (no dbt.__main__); installed dbt CLI used: dbt.exe
+
+
+=== COMMAND: dbt parse --project-dir dbt --profiles-dir dbt ===
+15:27:23  Running with dbt=1.12.0
+15:27:25  Registered adapter: trino=1.10.3
+15:27:26  Performance info: dbt\target\perf_info.json
+EXIT_CODE=0
+
+=== COMMAND: dbt compile --project-dir dbt --profiles-dir dbt ===
+15:27:32  Running with dbt=1.12.0
+15:27:33  Registered adapter: trino=1.10.3
+15:27:34  Found 2 models, 26 data tests, 3 sources, 1 exposure, 498 macros
+15:27:34  
+15:27:34  Concurrency: 1 threads (target='dev')
+15:27:34  
+15:27:35  [WARNING]: SSL certificate validation is disabled by default. It is legacy behavior which will be changed in future releases. It is strongly advised to enable `require_certificate_validation` flag or explicitly set `cert` configuration to `True` for security reasons. You may receive an error after that if your SSL setup is incorrect.
+You may opt into the new behavior sooner by setting `flags.require_certificate_validation` to `True` in `dbt_project.yml`.
+Visit https://docs.getdbt.com/reference/global-configs/behavior-changes for more information.
+EXIT_CODE=0
+
+=== COMMAND: dbt run --project-dir dbt --profiles-dir dbt --select semantic ===
+15:27:42  Running with dbt=1.12.0
+15:27:43  Registered adapter: trino=1.10.3
+15:27:44  Found 2 models, 26 data tests, 3 sources, 1 exposure, 498 macros
+15:27:44  
+15:27:44  Concurrency: 1 threads (target='dev')
+15:27:44  
+15:27:45  [WARNING]: SSL certificate validation is disabled by default. It is legacy behavior which will be changed in future releases. It is strongly advised to enable `require_certificate_validation` flag or explicitly set `cert` configuration to `True` for security reasons. You may receive an error after that if your SSL setup is incorrect.
+You may opt into the new behavior sooner by setting `flags.require_certificate_validation` to `True` in `dbt_project.yml`.
+Visit https://docs.getdbt.com/reference/global-configs/behavior-changes for more information.
+15:27:45  1 of 2 START sql view model semantic.current_orders ............................ [RUN]
+15:27:45  1 of 2 OK created sql view model semantic.current_orders ....................... [CREATE VIEW in 0.36s]
+15:27:45  2 of 2 START sql view model semantic.daily_order_metrics ....................... [RUN]
+15:27:46  2 of 2 OK created sql view model semantic.daily_order_metrics .................. [CREATE VIEW in 0.24s]
+15:27:46  
+15:27:46  Finished running 2 view models in 0 hours 0 minutes and 1.71 seconds (1.71s).
+15:27:46  
+15:27:46  Completed successfully
+15:27:46  
+15:27:46  Done. PASS=2 WARN=0 ERROR=0 SKIP=0 NO-OP=0 REUSED=0 TOTAL=2
+EXIT_CODE=0
+
+=== COMMAND: dbt test --project-dir dbt --profiles-dir dbt ===
+15:27:52  Running with dbt=1.12.0
+15:27:53  Registered adapter: trino=1.10.3
+15:27:54  Found 2 models, 26 data tests, 3 sources, 1 exposure, 498 macros
+15:27:54  
+15:27:54  Concurrency: 1 threads (target='dev')
+15:27:54  
+15:27:54  [WARNING]: SSL certificate validation is disabled by default. It is legacy behavior which will be changed in future releases. It is strongly advised to enable `require_certificate_validation` flag or explicitly set `cert` configuration to `True` for security reasons. You may receive an error after that if your SSL setup is incorrect.
+You may opt into the new behavior sooner by setting `flags.require_certificate_validation` to `True` in `dbt_project.yml`.
+Visit https://docs.getdbt.com/reference/global-configs/behavior-changes for more information.
+15:27:54  1 of 26 START test accepted_values_current_orders_status__True__created__paid__shipped__delivered  [RUN]
+15:27:55  1 of 26 PASS accepted_values_current_orders_status__True__created__paid__shipped__delivered  [PASS in 0.33s]
+15:27:55  2 of 26 START test accepted_values_daily_order_metrics_status__True__created__paid__shipped__delivered  [RUN]
+15:27:55  2 of 26 PASS accepted_values_daily_order_metrics_status__True__created__paid__shipped__delivered  [PASS in 0.22s]
+15:27:55  3 of 26 START test gold_daily_metrics_grain_unique ............................. [RUN]
+15:27:55  3 of 26 PASS gold_daily_metrics_grain_unique ................................... [PASS in 0.19s]
+15:27:55  4 of 26 START test not_null_current_orders_business_version .................... [RUN]
+15:27:55  4 of 26 PASS not_null_current_orders_business_version .......................... [PASS in 0.21s]
+15:27:55  5 of 26 START test not_null_current_orders_order_id ............................ [RUN]
+15:27:55  5 of 26 PASS not_null_current_orders_order_id .................................. [PASS in 0.22s]
+15:27:55  6 of 26 START test not_null_daily_order_metrics_avg_amount ..................... [RUN]
+15:27:56  6 of 26 PASS not_null_daily_order_metrics_avg_amount ........................... [PASS in 0.18s]
+15:27:56  7 of 26 START test not_null_daily_order_metrics_country ........................ [RUN]
+15:27:56  7 of 26 PASS not_null_daily_order_metrics_country .............................. [PASS in 0.19s]
+15:27:56  8 of 26 START test not_null_daily_order_metrics_distinct_customers ............. [RUN]
+15:27:56  8 of 26 PASS not_null_daily_order_metrics_distinct_customers ................... [PASS in 0.19s]
+15:27:56  9 of 26 START test not_null_daily_order_metrics_order_date ..................... [RUN]
+15:27:56  9 of 26 PASS not_null_daily_order_metrics_order_date ........................... [PASS in 0.18s]
+15:27:56  10 of 26 START test not_null_daily_order_metrics_orders_count .................. [RUN]
+15:27:56  10 of 26 PASS not_null_daily_order_metrics_orders_count ........................ [PASS in 0.17s]
+15:27:56  11 of 26 START test not_null_daily_order_metrics_status ........................ [RUN]
+15:27:57  11 of 26 PASS not_null_daily_order_metrics_status .............................. [PASS in 0.17s]
+15:27:57  12 of 26 START test not_null_daily_order_metrics_total_amount .................. [RUN]
+15:27:57  12 of 26 PASS not_null_daily_order_metrics_total_amount ........................ [PASS in 0.18s]
+15:27:57  13 of 26 START test silver_order_id_unique ..................................... [RUN]
+15:27:57  13 of 26 PASS silver_order_id_unique ........................................... [PASS in 0.29s]
+15:27:57  14 of 26 START test source_accepted_values_gold_orders_daily_metrics_status__True__created__paid__shipped__delivered  [RUN]
+15:27:57  14 of 26 PASS source_accepted_values_gold_orders_daily_metrics_status__True__created__paid__shipped__delivered  [PASS in 0.20s]
+15:27:57  15 of 26 START test source_accepted_values_silver_orders_clean_status__True__created__paid__shipped__delivered  [RUN]
+15:27:57  15 of 26 PASS source_accepted_values_silver_orders_clean_status__True__created__paid__shipped__delivered  [PASS in 0.26s]
+15:27:57  16 of 26 START test source_not_null_gold_orders_daily_metrics_avg_amount ....... [RUN]
+15:27:58  16 of 26 PASS source_not_null_gold_orders_daily_metrics_avg_amount ............. [PASS in 0.19s]
+15:27:58  17 of 26 START test source_not_null_gold_orders_daily_metrics_country .......... [RUN]
+15:27:58  17 of 26 PASS source_not_null_gold_orders_daily_metrics_country ................ [PASS in 0.17s]
+15:27:58  18 of 26 START test source_not_null_gold_orders_daily_metrics_distinct_customers  [RUN]
+15:27:58  18 of 26 PASS source_not_null_gold_orders_daily_metrics_distinct_customers ..... [PASS in 0.20s]
+15:27:58  19 of 26 START test source_not_null_gold_orders_daily_metrics_event_date ....... [RUN]
+15:27:58  19 of 26 PASS source_not_null_gold_orders_daily_metrics_event_date ............. [PASS in 0.19s]
+15:27:58  20 of 26 START test source_not_null_gold_orders_daily_metrics_orders_count ..... [RUN]
+15:27:58  20 of 26 PASS source_not_null_gold_orders_daily_metrics_orders_count ........... [PASS in 0.20s]
+15:27:58  21 of 26 START test source_not_null_gold_orders_daily_metrics_status ........... [RUN]
+15:27:59  21 of 26 PASS source_not_null_gold_orders_daily_metrics_status ................. [PASS in 0.17s]
+15:27:59  22 of 26 START test source_not_null_gold_orders_daily_metrics_total_amount ..... [RUN]
+15:27:59  22 of 26 PASS source_not_null_gold_orders_daily_metrics_total_amount ........... [PASS in 0.19s]
+15:27:59  23 of 26 START test source_not_null_silver_orders_clean_business_version ....... [RUN]
+15:27:59  23 of 26 PASS source_not_null_silver_orders_clean_business_version ............. [PASS in 0.26s]
+15:27:59  24 of 26 START test source_not_null_silver_orders_clean_order_id ............... [RUN]
+15:27:59  24 of 26 PASS source_not_null_silver_orders_clean_order_id ..................... [PASS in 0.32s]
+15:27:59  25 of 26 START test source_unique_silver_orders_clean_order_id ................. [RUN]
+15:28:00  25 of 26 PASS source_unique_silver_orders_clean_order_id ....................... [PASS in 0.59s]
+15:28:00  26 of 26 START test unique_current_orders_order_id ............................. [RUN]
+15:28:01  26 of 26 PASS unique_current_orders_order_id ................................... [PASS in 0.75s]
+15:28:01  
+15:28:01  Finished running 26 data tests in 0 hours 0 minutes and 7.11 seconds (7.11s).
+15:28:01  
+15:28:01  Completed successfully
+15:28:01  
+15:28:01  Done. PASS=26 WARN=0 ERROR=0 SKIP=0 NO-OP=0 REUSED=0 TOTAL=26
+EXIT_CODE=0
