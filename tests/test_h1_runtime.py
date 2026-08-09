@@ -73,6 +73,12 @@ def test_clean_workflow_exports_deploy_credentials_to_host_checks() -> None:
     assert "DBT_TRINO_PORT=${TRINO_HOST_PORT}" in workflow
 
 
+def test_pytest_entrypoint_has_an_explicit_repository_import_root() -> None:
+    pytest_config = read("pytest.ini")
+
+    assert "pythonpath = ." in pytest_config
+
+
 def test_runtime_dependency_pins_are_shared_at_the_python_arrow_boundary() -> None:
     host = read("requirements-dev.txt")
     iceberg = read("iceberg/requirements.txt")
