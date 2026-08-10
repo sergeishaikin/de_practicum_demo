@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "phase": "01-b2-controlled-rollout",
+  "plan": "02B-NB",
+  "source_epoch_id": "b2-nb-20260810-01",
+  "first_offsets": {
+    "0": 0
+  },
+  "last_offsets": {
+    "0": 3
+  },
+  "event_count": 4,
+  "unique_event_id_count": 4,
+  "duplicate_event_id_count": 0,
+  "canonical_digest": "94b574f2279b6742f62a0aa93156b8774ab33264609b49ea695047a81895e6c8",
+  "events": [
+    {
+      "order_id": "nb-order-001",
+      "customer": "Alice",
+      "amount": 101.25,
+      "country": "UK",
+      "status": "created",
+      "business_version": 1,
+      "event_time": "2026-08-10T12:10:00+00:00",
+      "source_epoch_id": "b2-nb-20260810-01",
+      "event_id": "b2-nb-20260810-01-event-001",
+      "canonical_payload": "{\"amount\":101.25,\"business_version\":1,\"country\":\"UK\",\"customer\":\"Alice\",\"event_time\":\"2026-08-10T12:10:00+00:00\",\"order_id\":\"nb-order-001\",\"status\":\"created\"}",
+      "canonical_payload_hash": "f096d2d6b0cc44b69d9803851adda162147d5dd85d8840d4f4d0d5d18edcfde0"
+    },
+    {
+      "order_id": "nb-order-001",
+      "customer": "Alice",
+      "amount": 101.25,
+      "country": "UK",
+      "status": "paid",
+      "business_version": 2,
+      "event_time": "2026-08-10T12:10:01+00:00",
+      "source_epoch_id": "b2-nb-20260810-01",
+      "event_id": "b2-nb-20260810-01-event-002",
+      "canonical_payload": "{\"amount\":101.25,\"business_version\":2,\"country\":\"UK\",\"customer\":\"Alice\",\"event_time\":\"2026-08-10T12:10:01+00:00\",\"order_id\":\"nb-order-001\",\"status\":\"paid\"}",
+      "canonical_payload_hash": "a66237e2daa9fd743bbbb70602b4549e794d17be9f845252f5112c6e63c63e04"
+    },
+    {
+      "order_id": "nb-order-002",
+      "customer": "Bob",
+      "amount": 55.5,
+      "country": "US",
+      "status": "created",
+      "business_version": 1,
+      "event_time": "2026-08-10T12:10:02+00:00",
+      "source_epoch_id": "b2-nb-20260810-01",
+      "event_id": "b2-nb-20260810-01-event-003",
+      "canonical_payload": "{\"amount\":55.5,\"business_version\":1,\"country\":\"US\",\"customer\":\"Bob\",\"event_time\":\"2026-08-10T12:10:02+00:00\",\"order_id\":\"nb-order-002\",\"status\":\"created\"}",
+      "canonical_payload_hash": "763cae018b5ebd006141997d736a934c30459f2ae04dfd14c86a1d0484897fa2"
+    },
+    {
+      "order_id": "nb-order-003",
+      "customer": "Charlie",
+      "amount": 240.0,
+      "country": "DE",
+      "status": "shipped",
+      "business_version": 1,
+      "event_time": "2026-08-10T12:10:03+00:00",
+      "source_epoch_id": "b2-nb-20260810-01",
+      "event_id": "b2-nb-20260810-01-event-004",
+      "canonical_payload": "{\"amount\":240.0,\"business_version\":1,\"country\":\"DE\",\"customer\":\"Charlie\",\"event_time\":\"2026-08-10T12:10:03+00:00\",\"order_id\":\"nb-order-003\",\"status\":\"shipped\"}",
+      "canonical_payload_hash": "cbd044bbf10f295a828bdf50360d5c99ffaf5da85f67e966696ded496991b01e"
+    }
+  ],
+  "historical_continuity_claimed": false
+}

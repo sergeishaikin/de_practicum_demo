@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "phase": "01-b2-controlled-rollout",
+  "plan": "02B-NB",
+  "investigation": "kafka-volume-preflight-chicken-and-egg",
+  "read_only": true,
+  "timestamp": "2026-08-10T12:00:00Z",
+  "resolved_compose": {
+    "project": "de-practicum-demo",
+    "service": "kafka",
+    "container_name": "de-demo-kafka",
+    "image": "apache/kafka:4.0.0",
+    "source": "de_demo_kafka_data",
+    "target": "/var/lib/kafka/data",
+    "declared_kafka_log_dirs": "/var/lib/kafka/data",
+    "top_level_volume_name": "de_demo_kafka_data"
+  },
+  "current_runtime": {
+    "container_status": "Up 24 hours (healthy)",
+    "container_created_before_named_volume_change": true,
+    "mount_source": "e4534efdad02ff47592f05ed7db69c1f0f961f5f8d20d66686fbdd5309696457",
+    "mount_source_kind": "anonymous_image_declared_volume",
+    "mount_target": "/var/lib/kafka/data",
+    "container_kafka_log_dirs_env": null,
+    "effective_log_dir_from_broker_log": "/tmp/kafka-logs",
+    "cluster_id": "5L6g3nShT-eMCtK--X86sw",
+    "topic": "orders",
+    "partition_0_latest_exclusive": 40209
+  },
+  "image_contract": {
+    "declared_volumes": [
+      "/etc/kafka/secrets",
+      "/mnt/shared/config",
+      "/var/lib/kafka/data"
+    ],
+    "default_runtime_log_dir": "/tmp/kafka-logs"
+  },
+  "volume_inventory": {
+    "expected_named_volume_present_before_recreation": false,
+    "expected_named_volume_physical_name": "de_demo_kafka_data",
+    "project_scoped_volume_present": false,
+    "anonymous_volume_preserved": true
+  },
+  "previous_stop": {
+    "preflight_decision": "STOP",
+    "reason": "required named volume was required to pre-exist before controlled recreation",
+    "classification": "overly_strict_preflight_assumption"
+  },
+  "corrected_preflight_decision": "EXPECTED_MIGRATION_STATE_ALLOW_CONTROLLED_RECREATE",
+  "controlled_recreation_required": true,
+  "post_recreation_requirements": {
+    "source": "de_demo_kafka_data",
+    "target": "/var/lib/kafka/data",
+    "container_kafka_log_dirs": "/var/lib/kafka/data",
+    "broker_effective_log_dir": "/var/lib/kafka/data"
+  },
+  "stateful_retry": {
+    "safe_to_retry_existing_01_02B_NB_task_3_after_explicit_approval": true,
+    "retry_executed": true,
+    "fixture_published": true,
+    "spark_started": true,
+    "old_checkpoints_mutated": false,
+    "execute_01_02C": false
+  },
+  "post_recreation_verification": {
+    "source": "de_demo_kafka_data",
+    "target": "/var/lib/kafka/data",
+    "container_kafka_log_dirs": "/var/lib/kafka/data",
+    "broker_effective_log_dir": "/var/lib/kafka/data",
+    "passed": true,
+    "anonymous_legacy_volume_preserved": true
+  }
+}

@@ -1,0 +1,26 @@
+2026-08-10T00:00:00Z Task 3 start: approval=approve-new-baseline; epoch candidate=b2-nb-20260810-01; historical checkpoints/evidence immutable.
+2026-08-10T11:39:29.4837602Z stop orders-producer orders-streaming --timeout 30: de-demo-orders-producer Stopped; de-demo-orders-streaming Stopped.
+2026-08-10T11:40:24Z historical checkpoint immutability proof: all four prefixes object count and lastModified tails unchanged across 5s observation (orders_raw, orders_postgres, orders_dead_letter, orders_reconciliation); no post-stop writes.
+2026-08-10T11:40:30.4360972Z Kafka pre-start tail: topic=orders partition=0 latest_exclusive=40209 (earliest=0 from preflight); topic id=Or9LdYWRRfCPHWtaGY6Pvw.
+2026-08-10T11:40:45Z precondition failure before Kafka restart: running broker is mounted on anonymous volume e4534efdad02ff47592f05ed7db69c1f0f961f5f8d20d66686fbdd5309696457 at /var/lib/kafka/data; required named volume de_demo_kafka_data does not exist. No volume reset/recreation, topic mutation, fixture publish, or Spark start performed.
+2026-08-10T11:40:50Z fail-closed disposition STOP; legacy tuple retained SILVER_MODE=legacy,GOLD_SOURCE=legacy,SHADOW_COMPARE=0; historical and new checkpoint state preserved.
+ retry Task 3 start: approval=approve-new-baseline; epoch candidate=b2-nb-20260810-01; prior Kafka tail=40209; historical checkpoints/evidence immutable.
+ stop orders-producer orders-streaming --timeout 30: exit=0
+2026-08-10T12:06:43.6730907Z retry Task 3 start: approval=approve-new-baseline; epoch candidate=b2-nb-20260810-01; prior Kafka tail=40209; historical checkpoints/evidence immutable.
+2026-08-10T12:06:43.6792695Z stop orders-producer orders-streaming --timeout 30: clean exit confirmed; compose ps empty.
+2026-08-10T12:07:08.6281236Z historical checkpoint immutability proof: all four prefixes listing bytes identical across 5s observation; no post-stop writes=True.
+2026-08-10T12:07:34.5962232Z Kafka pre-recreation tail: topic=orders partition=0 earliest=0 latest_exclusive=40209 (prior receipt tail=40209); topic_id=Or9LdYWRRfCPHWtaGY6Pvw.
+2026-08-10T12:07:58.6195334Z resolved Compose/current broker: Compose source=de_demo_kafka_data target=/var/lib/kafka/data env=KAFKA_LOG_DIRS=/var/lib/kafka/data; current mount source=e4534efdad02ff47592f05ed7db69c1f0f961f5f8d20d66686fbdd5309696457 (anonymous image-declared), effective log dir=/tmp/kafka-logs; anonymous volume preserved for rollback.
+2026-08-10T12:08:02.2296251Z controlled Kafka recreation requested via Compose --force-recreate kafka (approved single transition).
+2026-08-10T12:10:19.6030604Z post-recreation invariant PASS: docker source=de_demo_kafka_data target=/var/lib/kafka/data; env KAFKA_LOG_DIRS=/var/lib/kafka/data; broker server.properties log.dirs=/var/lib/kafka/data; effective log dir verified.
+2026-08-10T12:10:34.9640894Z fixture published: source_epoch_id=b2-nb-20260810-01 fixed_events=4 deterministic event IDs/canonical hashes; no producer service restarted.
+2026-08-10T12:11:22.8436944Z Spark executor started with SOURCE_EPOCH_ID=b2-nb-20260810-01, explicit fresh checkpoint roots under s3a://de-practicum/checkpoints/b2-new-baseline/b2-nb-20260810-01/{raw,postgres,dead-letter,reconciliation}, failOnDataLoss=true; fixture boundary is 4 records at offsets 0..3.
+2026-08-10T12:13:20.5047455Z Landing-to-Bronze writer restarted with LANDING_PREFIX=streaming/b2-new-baseline/b2-nb-20260810-01/raw to consume only bounded epoch output; historical writer state/paths preserved.
+2026-08-10T12:14:36.9524570Z stopped Spark input at fixture boundary and writer after Bronze commit; clean exits confirmed; no post-boundary input writes.
+2026-08-10T12:17:20.2622858Z bounded fixture boundary verified: Kafka=4 Landing=4 Bronze=4 unique/non-null event IDs; canonical digest=94b574f2279b6742f62a0aa93156b8774ab33264609b49ea695047a81895e6c8; Silver deduplicated count=3 digest=991d2346316848d0c5af1aff9d2405efd49cf2aaa32889d21ba3711f8c2a0fc7.
+2026-08-10T12:17:34.0738469Z readiness READY emitted: ready_for_01_02c=true; historical_continuity_claimed=false; old_checkpoints_untouched=true; no 01-02C executed.
+2026-08-10T12:17:46.8123723Z checkpoint verify: raw object_lines=19
+2026-08-10T12:17:47.1418023Z checkpoint verify: postgres object_lines=19
+2026-08-10T12:17:47.4467151Z checkpoint verify: dead-letter object_lines=8
+2026-08-10T12:17:47.6887034Z checkpoint verify: reconciliation object_lines=8
+2026-08-10T12:20:29.1442647Z checkpoint source metadata proves bounded per-partition start offset {orders:{0:0}} and end offset {orders:{0:4}}; failOnDataLoss=true.

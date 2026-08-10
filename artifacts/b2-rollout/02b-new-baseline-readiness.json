@@ -1,0 +1,178 @@
+{
+  "schema_version": 1,
+  "phase": "01-b2-controlled-rollout",
+  "plan": "02B-NB",
+  "disposition": "READY",
+  "approval": "approve-new-baseline",
+  "source_epoch_id": "b2-nb-20260810-01",
+  "historical_continuity_claimed": false,
+  "old_checkpoints_untouched": true,
+  "ready_for_01_02c": true,
+  "ready_for_01_02C": true,
+  "checks": {
+    "historical_stop_immutable": true,
+    "old_checkpoint_paths_untouched": true,
+    "kafka_tail_recorded": true,
+    "kafka_named_volume": true,
+    "kafka_log_dir_verified": true,
+    "fixture_bounded": true,
+    "spark_new_checkpoints": true,
+    "fail_on_data_loss": true,
+    "landing_bronze_silver_counts_and_digests": true,
+    "lineage_non_null_unique": true,
+    "runtime_legacy_tuple_restored": true
+  },
+  "approval_scope": "one bounded fixture only; no historical replay/topic truncation/checkpoint reset/01-03",
+  "kafka_volume": {
+    "source": "de_demo_kafka_data",
+    "target": "/var/lib/kafka/data",
+    "container_env": "KAFKA_LOG_DIRS=/var/lib/kafka/data",
+    "broker_effective_log_dir": "/var/lib/kafka/data",
+    "anonymous_legacy_volume_preserved": "e4534efdad02ff47592f05ed7db69c1f0f961f5f8d20d66686fbdd5309696457"
+  },
+  "source_window": {
+    "topic": "orders",
+    "partition_offsets": {
+      "0": {
+        "start": 0,
+        "end_exclusive": 4
+      }
+    },
+    "event_count": 4,
+    "unique_event_ids": 4,
+    "canonical_digest": "94b574f2279b6742f62a0aa93156b8774ab33264609b49ea695047a81895e6c8"
+  },
+  "checkpoint_paths": {
+    "old": [
+      "s3a://de-practicum/checkpoints/orders_raw",
+      "s3a://de-practicum/checkpoints/orders_postgres",
+      "s3a://de-practicum/checkpoints/orders_dead_letter",
+      "s3a://de-practicum/checkpoints/orders_reconciliation"
+    ],
+    "new": [
+      "s3a://de-practicum/checkpoints/b2-new-baseline/b2-nb-20260810-01/raw",
+      "s3a://de-practicum/checkpoints/b2-new-baseline/b2-nb-20260810-01/postgres",
+      "s3a://de-practicum/checkpoints/b2-new-baseline/b2-nb-20260810-01/dead-letter",
+      "s3a://de-practicum/checkpoints/b2-new-baseline/b2-nb-20260810-01/reconciliation"
+    ],
+    "old_untouched": true
+  },
+  "counts_digests": {
+    "kafka": {
+      "count": 4,
+      "unique_event_ids": 4,
+      "first_offsets": {
+        "0": 0
+      },
+      "last_offsets": {
+        "0": 3
+      },
+      "canonical_digest": "94b574f2279b6742f62a0aa93156b8774ab33264609b49ea695047a81895e6c8"
+    },
+    "landing": {
+      "count": 4,
+      "unique_event_ids": 4,
+      "null_event_ids": 0,
+      "duplicate_event_ids": 0,
+      "canonical_digest": "94b574f2279b6742f62a0aa93156b8774ab33264609b49ea695047a81895e6c8",
+      "columns": [
+        "order_id",
+        "customer",
+        "amount",
+        "country",
+        "status",
+        "event_time",
+        "business_version",
+        "source_epoch_id",
+        "event_id",
+        "canonical_payload",
+        "canonical_payload_hash",
+        "kafka_timestamp",
+        "kafka_partition",
+        "kafka_offset",
+        "event_date"
+      ]
+    },
+    "bronze": {
+      "count": 4,
+      "unique_event_ids": 4,
+      "null_event_ids": 0,
+      "first_offsets": {
+        "0": 0
+      },
+      "last_offsets": {
+        "0": 3
+      },
+      "canonical_digest": "94b574f2279b6742f62a0aa93156b8774ab33264609b49ea695047a81895e6c8",
+      "rows": [
+        [
+          "nb-order-001",
+          1,
+          "f096d2d6b0cc44b69d9803851adda162147d5dd85d8840d4f4d0d5d18edcfde0",
+          "b2-nb-20260810-01-event-001"
+        ],
+        [
+          "nb-order-001",
+          2,
+          "a66237e2daa9fd743bbbb70602b4549e794d17be9f845252f5112c6e63c63e04",
+          "b2-nb-20260810-01-event-002"
+        ],
+        [
+          "nb-order-002",
+          1,
+          "763cae018b5ebd006141997d736a934c30459f2ae04dfd14c86a1d0484897fa2",
+          "b2-nb-20260810-01-event-003"
+        ],
+        [
+          "nb-order-003",
+          1,
+          "cbd044bbf10f295a828bdf50360d5c99ffaf5da85f67e966696ded496991b01e",
+          "b2-nb-20260810-01-event-004"
+        ]
+      ]
+    },
+    "silver": {
+      "count": 3,
+      "deduplication_key": "(order_id,business_version) latest business_version per order_id",
+      "canonical_digest": "991d2346316848d0c5af1aff9d2405efd49cf2aaa32889d21ba3711f8c2a0fc7",
+      "rows": [
+        [
+          "nb-order-001",
+          2,
+          "a66237e2daa9fd743bbbb70602b4549e794d17be9f845252f5112c6e63c63e04",
+          "b2-nb-20260810-01-event-002"
+        ],
+        [
+          "nb-order-002",
+          1,
+          "763cae018b5ebd006141997d736a934c30459f2ae04dfd14c86a1d0484897fa2",
+          "b2-nb-20260810-01-event-003"
+        ],
+        [
+          "nb-order-003",
+          1,
+          "cbd044bbf10f295a828bdf50360d5c99ffaf5da85f67e966696ded496991b01e",
+          "b2-nb-20260810-01-event-004"
+        ]
+      ]
+    },
+    "source_epoch_id": "b2-nb-20260810-01",
+    "historical_continuity_claimed": false
+  },
+  "rollback": {
+    "runtime_tuple": {
+      "SILVER_MODE": "legacy",
+      "GOLD_SOURCE": "legacy",
+      "SHADOW_COMPARE": "0"
+    },
+    "receipt": "artifacts/b2-rollout/02b-new-baseline-rollback.txt",
+    "historical_state_preserved": true
+  },
+  "evidence": {
+    "sequencing": "artifacts/b2-rollout/02b-new-baseline-sequencing.log",
+    "kafka": "artifacts/b2-rollout/02b-new-baseline-kafka.json",
+    "counts": "artifacts/b2-rollout/02b-new-baseline-counts.json",
+    "preflight": "artifacts/b2-rollout/02b-new-baseline-preflight.json",
+    "volume": "artifacts/b2-rollout/02b-new-baseline-volume-investigation.json"
+  }
+}

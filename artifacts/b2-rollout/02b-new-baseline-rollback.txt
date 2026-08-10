@@ -1,0 +1,14 @@
+02B-NB ROLLBACK / STOP RECEIPT
+timestamp=2026-08-10T11:40:50Z
+disposition=STOP
+approval=approve-new-baseline
+source_epoch_id=b2-nb-20260810-01
+reason=precondition failure: running Kafka broker is mounted on anonymous volume e4534efdad02ff47592f05ed7db69c1f0f961f5f8d20d66686fbdd5309696457; required named volume de_demo_kafka_data is absent.
+actions=orders-producer and orders-streaming stopped cleanly; no fixture published; no Spark start; no volume reset; no topic recreation/truncation; no checkpoint reset.
+runtime_tuple_restored=SILVER_MODE=legacy,GOLD_SOURCE=legacy,SHADOW_COMPARE=0
+legacy/legacy/0
+historical_checkpoints_untouched=true
+historical_continuity_claimed=false
+ready_for_01_02C=false
+ready_for_01_02c=false
+2026-08-10T12:17:20.2731541Z RETRY SUCCESS / READY: post-recreation named volume and broker log.dir verified; bounded epoch b2-nb-20260810-01 committed Kafka/Landing/Bronze/Silver counts/digests; rollback remains legacy/legacy/0 and historical checkpoints untouched.
