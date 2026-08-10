@@ -176,6 +176,12 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+      # Keep broker records on a named volume so a container recreation does
+      # not silently create a new Kafka offset epoch.  The mount and
+      # KAFKA_LOG_DIRS value intentionally point at the same directory.
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+    volumes:
+      - de_demo_kafka_data:/var/lib/kafka/data
     healthcheck:
       test:
         - CMD-SHELL
@@ -515,6 +521,16 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       KAFKA_TOPIC: orders
       KAFKA_FAIL_ON_DATA_LOSS: ${KAFKA_FAIL_ON_DATA_LOSS:-true}
+      # New-baseline lineage/checkpoint overrides are opt-in.  The existing
+      # RAW_CHECKPOINT_PATH, POSTGRES_CHECKPOINT_PATH, DEAD_LETTER_CHECKPOINT_PATH,
+      # and RECONCILIATION_CHECKPOINT_PATH defaults remain in the Spark job
+      # untouched; these names are consumed only for a deliberate new epoch.
+      SOURCE_EPOCH_ID: ${SOURCE_EPOCH_ID:-}
+      NEW_BASELINE_CHECKPOINT_ROOT: ${NEW_BASELINE_CHECKPOINT_ROOT:-s3a://de-practicum/checkpoints/b2-new-baseline/}
+      NEW_BASELINE_RAW_CHECKPOINT_PATH: ${NEW_BASELINE_RAW_CHECKPOINT_PATH:-}
+      NEW_BASELINE_POSTGRES_CHECKPOINT_PATH: ${NEW_BASELINE_POSTGRES_CHECKPOINT_PATH:-}
+      NEW_BASELINE_DEAD_LETTER_CHECKPOINT_PATH: ${NEW_BASELINE_DEAD_LETTER_CHECKPOINT_PATH:-}
+      NEW_BASELINE_RECONCILIATION_CHECKPOINT_PATH: ${NEW_BASELINE_RECONCILIATION_CHECKPOINT_PATH:-}
 
       POSTGRES_HOST: de-demo-postgres
       POSTGRES_PORT: "5432"
@@ -606,6 +622,9 @@ services:
       - de_demo_net
 
 volumes:
+  de_demo_kafka_data:
+    # Keep the broker volume identity independent of the Compose project name.
+    name: de_demo_kafka_data
   de_demo_minio_data:
   de_demo_metabase_data:
   de_demo_superset_home:

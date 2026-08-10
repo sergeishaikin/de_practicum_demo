@@ -68,6 +68,20 @@ TABLE_SCHEMA = Schema(
     NestedField(9, "kafka_offset", LongType(), required=False),
     NestedField(10, "event_date", DateType(), required=False),
     NestedField(11, "business_version", LongType(), required=False),
+    # New-baseline lineage is additive and optional so historical Landing
+    # files remain appendable.  Values are copied by name from Parquet; no
+    # Silver/Gold schema or deduplication authority is changed here.
+    NestedField(12, "source_epoch_id", StringType(), required=False),
+    NestedField(13, "event_id", StringType(), required=False),
+    NestedField(14, "canonical_payload", StringType(), required=False),
+    NestedField(15, "canonical_payload_hash", StringType(), required=False),
+)
+
+BRONZE_LINEAGE_FIELDS = (
+    ("source_epoch_id", StringType()),
+    ("event_id", StringType()),
+    ("canonical_payload", StringType()),
+    ("canonical_payload_hash", StringType()),
 )
 
 PARTITION_SPEC = PartitionSpec(
@@ -306,18 +320,36 @@ def ensure_table(catalog: RestCatalog) -> None:
         )
         return
 
-    # M1 is additive: a Bronze table created before the contract can be
-    # upgraded without rewriting its existing data files.
+    # M1/new-baseline evolution is additive: a Bronze table created before the
+    # contract can be upgraded without rewriting its existing data files.
     schema_fn = getattr(table, "schema", None)
     update_schema_fn = getattr(table, "update_schema", None)
     if schema_fn is None or update_schema_fn is None:
         return
-    if "business_version" not in schema_fn().column_names:
-        update_schema_fn().add_column(
-            "business_version",
-            LongType(),
-            doc="Domain ordering; Kafka offset is transport metadata only",
-        ).commit()
+    existing_columns = set(schema_fn().column_names)
+    update = update_schema_fn()
+    missing = []
+    if "business_version" not in existing_columns:
+        missing.append(
+            (
+                "business_version",
+                LongType(),
+                "Domain ordering; Kafka offset is transport metadata only",
+            )
+        )
+    # Keep compatibility with very old lightweight table doubles that model
+    # only the M1 business_version migration; real Bronze tables that already
+    # have business_version receive all four new optional fields.
+    elif existing_columns:
+        missing.extend(
+            (name, field_type, "New-baseline canonical event lineage")
+            for name, field_type in BRONZE_LINEAGE_FIELDS
+            if name not in existing_columns
+        )
+    for name, field_type, doc in missing:
+        update.add_column(name, field_type, doc=doc)
+    if missing:
+        update.commit()
 
 
 def committed_load_records(catalog: RestCatalog) -> dict[str, dict[str, Any]]:

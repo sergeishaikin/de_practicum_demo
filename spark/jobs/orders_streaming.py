@@ -22,33 +22,64 @@ KAFKA_BOOTSTRAP_SERVERS = os.getenv(
 )
 KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "orders")
 
+# A new-baseline run sets SOURCE_EPOCH_ID and may set either an explicit path
+# per sink or NEW_BASELINE_CHECKPOINT_ROOT.  With neither set, the historical
+# paths below remain byte-for-byte unchanged for rollback compatibility.
+SOURCE_EPOCH_ID = os.getenv("SOURCE_EPOCH_ID", "").strip()
+NEW_BASELINE_CHECKPOINT_ROOT = os.getenv(
+    "NEW_BASELINE_CHECKPOINT_ROOT",
+    "",
+).rstrip("/")
+
+
+def _checkpoint_path(name: str, historical_default: str) -> str:
+    """Resolve an opt-in new-baseline checkpoint without altering legacy paths."""
+
+    # New-baseline overrides are intentionally inert until an explicit epoch is
+    # selected. This keeps ordinary legacy runs on their historical roots even
+    # when a deployment manifest happens to define empty override variables.
+    if not SOURCE_EPOCH_ID:
+        return os.getenv(f"{name}_CHECKPOINT_PATH", historical_default)
+
+    explicit = os.getenv(f"NEW_BASELINE_{name}_CHECKPOINT_PATH", "").strip()
+    if explicit:
+        return explicit
+    # Accept the concise per-sink names used by deployment manifests too.
+    explicit = os.getenv(f"B2_NEW_BASELINE_{name}_CHECKPOINT_PATH", "").strip()
+    if explicit:
+        return explicit
+    if NEW_BASELINE_CHECKPOINT_ROOT:
+        epoch = SOURCE_EPOCH_ID or os.getenv("NEW_BASELINE_EPOCH_ID", "new-baseline")
+        return f"{NEW_BASELINE_CHECKPOINT_ROOT}/{epoch}/{name.lower()}"
+    return os.getenv(f"{name}_CHECKPOINT_PATH", historical_default)
+
 MINIO_BUCKET = os.getenv("MINIO_BUCKET", "de-practicum")
 RAW_OUTPUT_PATH = os.getenv(
     "RAW_OUTPUT_PATH",
     f"s3a://{MINIO_BUCKET}/streaming/orders_raw",
 )
-RAW_CHECKPOINT_PATH = os.getenv(
-    "RAW_CHECKPOINT_PATH",
+RAW_CHECKPOINT_PATH = _checkpoint_path(
+    "RAW",
     f"s3a://{MINIO_BUCKET}/checkpoints/orders_raw",
 )
 DEAD_LETTER_OUTPUT_PATH = os.getenv(
     "DEAD_LETTER_OUTPUT_PATH",
     f"s3a://{MINIO_BUCKET}/streaming/orders_dead_letter",
 )
-DEAD_LETTER_CHECKPOINT_PATH = os.getenv(
-    "DEAD_LETTER_CHECKPOINT_PATH",
+DEAD_LETTER_CHECKPOINT_PATH = _checkpoint_path(
+    "DEAD_LETTER",
     f"s3a://{MINIO_BUCKET}/checkpoints/orders_dead_letter",
 )
 RECONCILIATION_OUTPUT_PATH = os.getenv(
     "RECONCILIATION_OUTPUT_PATH",
     f"s3a://{MINIO_BUCKET}/streaming/orders_reconciliation",
 )
-RECONCILIATION_CHECKPOINT_PATH = os.getenv(
-    "RECONCILIATION_CHECKPOINT_PATH",
+RECONCILIATION_CHECKPOINT_PATH = _checkpoint_path(
+    "RECONCILIATION",
     f"s3a://{MINIO_BUCKET}/checkpoints/orders_reconciliation",
 )
-POSTGRES_CHECKPOINT_PATH = os.getenv(
-    "POSTGRES_CHECKPOINT_PATH",
+POSTGRES_CHECKPOINT_PATH = _checkpoint_path(
+    "POSTGRES",
     f"s3a://{MINIO_BUCKET}/checkpoints/orders_postgres",
 )
 KAFKA_FAIL_ON_DATA_LOSS = os.getenv(
@@ -108,6 +139,13 @@ ORDER_SCHEMA = StructType(
         StructField("status", StringType(), nullable=True),
         StructField("event_time", TimestampType(), nullable=True),
         StructField("business_version", LongType(), nullable=True),
+        # New-baseline lineage is optional at the physical Landing boundary
+        # so historical files remain readable; configured new epochs validate
+        # all four values before they can enter Landing.
+        StructField("source_epoch_id", StringType(), nullable=True),
+        StructField("event_id", StringType(), nullable=True),
+        StructField("canonical_payload", StringType(), nullable=True),
+        StructField("canonical_payload_hash", StringType(), nullable=True),
     ]
 )
 
@@ -352,23 +390,68 @@ def main() -> None:
         )
     kafka_df = kafka_reader.load()
 
-    classified_df = (
-        kafka_df.select(
-            F.col("value").cast("string").alias("raw_payload"),
-            F.from_json(
-                F.col("value").cast("string"),
-                ORDER_SCHEMA,
-            ).alias("order"),
-            F.col("timestamp").alias("kafka_timestamp"),
-            F.col("partition").alias("kafka_partition"),
-            F.col("offset").alias("kafka_offset"),
-        )
-        .withColumn(
-            "dead_letter_reason",
-            F.when(F.col("order").isNull(), F.lit("invalid_json_or_schema"))
-            .when(F.col("order.order_id").isNull(), F.lit("missing_order_id")),
-        )
+    classified_base_df = kafka_df.select(
+        F.col("value").cast("string").alias("raw_payload"),
+        F.from_json(
+            F.col("value").cast("string"),
+            ORDER_SCHEMA,
+        ).alias("order"),
+        F.col("timestamp").alias("kafka_timestamp"),
+        F.col("partition").alias("kafka_partition"),
+        F.col("offset").alias("kafka_offset"),
     )
+
+    # Hash the exact UTF-8 canonical bytes emitted by the producer.  Spark's
+    # ``sha2(string, 256)`` uses UTF-8, so this verifies the byte-preserving
+    # Landing contract without re-serialising timestamps or floats.
+    recomputed_hash = F.sha2(
+        F.encode(F.col("order.canonical_payload"), "UTF-8"),
+        256,
+    )
+    reason = (
+        F.when(F.col("order").isNull(), F.lit("invalid_json_or_schema"))
+        .when(F.col("order.order_id").isNull(), F.lit("missing_order_id"))
+    )
+    if SOURCE_EPOCH_ID:
+        reason = (
+            reason
+            .when(
+                F.col("order.source_epoch_id").isNull(),
+                F.lit("missing_source_epoch_id"),
+            )
+            .when(
+                F.col("order.source_epoch_id") != F.lit(SOURCE_EPOCH_ID),
+                F.lit("source_epoch_mismatch"),
+            )
+            .when(F.col("order.event_id").isNull(), F.lit("missing_event_id"))
+            .when(
+                F.col("order.canonical_payload").isNull()
+                | F.col("order.canonical_payload_hash").isNull(),
+                F.lit("missing_canonical_lineage"),
+            )
+        )
+    else:
+        # Historical deployments may omit the new envelope.  If a producer
+        # does send it, still verify its supplied digest when present.
+        reason = reason.when(
+            F.col("order.canonical_payload").isNotNull()
+            & F.col("order.canonical_payload_hash").isNotNull()
+            & (
+                F.lower(F.col("order.canonical_payload_hash"))
+                != F.lower(recomputed_hash)
+            ),
+            F.lit("canonical_payload_hash_mismatch"),
+        )
+    reason = reason.when(
+        F.col("order.canonical_payload").isNotNull()
+        & F.col("order.canonical_payload_hash").isNotNull()
+        & (
+            F.lower(F.col("order.canonical_payload_hash"))
+            != F.lower(recomputed_hash)
+        ),
+        F.lit("canonical_payload_hash_mismatch"),
+    )
+    classified_df = classified_base_df.withColumn("dead_letter_reason", reason)
 
     orders_df = (
         classified_df.filter(F.col("dead_letter_reason").isNull())
@@ -380,6 +463,14 @@ def main() -> None:
         )
         .withColumn("event_date", F.to_date("event_time"))
     )
+    if SOURCE_EPOCH_ID:
+        # Stateful duplicate suppression is keyed by the producer-issued
+        # identity, never by Kafka offsets or order_id.  Duplicate IDs are
+        # therefore rejected from Landing while the first valid occurrence is
+        # retained.  A bounded watermark prevents unbounded state growth.
+        orders_df = orders_df.withWatermark("event_time", "1 day").dropDuplicates(
+            ["event_id"]
+        )
 
     dead_letter_df = (
         classified_df.filter(F.col("dead_letter_reason").isNotNull())
