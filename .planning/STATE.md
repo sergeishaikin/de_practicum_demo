@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: 01-02B-R closed STOP / RECOVERY_NOT_PROVEN; new-epoch baseline planning is next
-last_updated: "2026-08-10T00:00:00.000Z"
-last_activity: 2026-08-10 -- historical recovery closed; new baseline route selected
+status: 01-02C PASS; fresh B2 shadow evidence is green and 01-03 is next
+stopped_at: Completed 01-02C-PLAN.md
+last_updated: "2026-08-10T12:46:48.706Z"
+last_activity: 2026-08-10 — 01-02B-R closed RECOVERY_NOT_PROVEN
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 12
-  completed_plans: 4
+  completed_plans: 7
   percent: 0
 ---
 
@@ -26,11 +26,11 @@ See: `.planning/PROJECT.md` (updated 2026-08-09)
 ## Current Position
 
 Phase: 01 (b2-controlled-rollout) — EXECUTING
-Plan: 02B-NB of 12
-Status: New-epoch baseline plan pending; historical recovery is terminal STOP
+Plan: 01-03 of 12
+Status: 01-02C PASS; fresh B2 shadow evidence is green and 01-03 is next
 Last activity: 2026-08-10 — 01-02B-R closed RECOVERY_NOT_PROVEN
 
-Progress: ░░░░░░░░░░ 0% of current rollout phase
+Progress: ▓▓▓▓▓▓░░░░ 58% of current rollout phase
 
 ## Performance Metrics
 
@@ -41,6 +41,7 @@ Progress: ░░░░░░░░░░ 0% of current rollout phase
 | 1. B2 Controlled Rollout | 4 | 12 | planning / evidence closure |
 | Phase 01 P01 | 25min | 2 tasks | 5 files |
 | Phase 01 P02 | 10min | 2 tasks | 4 files |
+| Phase 01 P02C | 30m | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -55,15 +56,18 @@ Progress: ░░░░░░░░░░ 0% of current rollout phase
 - [Phase 01]: Canary failed closed after UncheckedSQLException/SQLite catalog concurrency and zero successful shadow cycles; restore legacy/legacy/0 before any later plan.
 - [Phase 01]: 01-02A must remove the SQLite catalog concurrency root cause; sleeps and blind retries are not sufficient.
 - [Phase 01]: 01-02B must preserve all four Spark checkpoints and keep `KAFKA_FAIL_ON_DATA_LOSS=true`; no checkpoint reset is authorized without continuity proof.
-- [Phase 01]: 01-02C is the only retry authorization for the B2 canary; 01-03 remains forbidden until it is green.
+- [Phase 01]: 01-02C passed with a fresh non-empty B2 cycle, shadow_comparisons=1, zero mismatches/FF14/in-flight work, and Gold retained on legacy; 01-03 is now the next plan.
 - [Phase 01]: 01-02A migrated catalog registrations to PostgreSQL only after SQLite backup/checksum and exact table metadata equivalence; SQLite remains preserved for rollback.
 - [Phase 01]: 01-02A concurrency proof passed; two idempotent namespace AlreadyExists 409s are recorded as initialization noise, not lock failures.
+- [Phase 01]: 02C PASS: authorize fresh b2/legacy/1 canary only after 02A and 02B-NB green receipts; retain legacy Gold and rollback legacy/legacy/0.
+- [Phase 01]: 02C evidence requires a fresh non-empty B2 work metric paired with shadow_comparisons=1, zero mismatches/FF14/inflight, and immutable b2-nb-20260810-01 state.
 
 ### Pending Todos
 
-Historical 01-02B and 01-02B-R remain immutable STOP results. 01-02B-V is not
-needed because no recovery executed. The next route is a deliberate new-epoch
-baseline; it must not claim historical continuity.
+Historical 01-02B and 01-02B-R remain immutable STOP results. 01-02B-NB
+established the independent epoch `b2-nb-20260810-01`, and 01-02C passed its
+guarded B2 canary without claiming historical continuity. The next route is
+01-03 drain and verification.
 See `.planning/todos/` for historical backlog.
 
 ### Blockers/Concerns
@@ -84,6 +88,6 @@ The 255 remaining outbox manifests are legitimate post-migration work, not histo
 
 ## Session Continuity
 
-Last session: 2026-08-09T20:00:00.000Z
-Stopped at: 01-02B STOP after stable payload reconciliation; checkpoint/output epoch conflict remains unresolved
+Last session: 2026-08-10T12:46:48.679Z
+Stopped at: Completed 01-02C-PLAN.md
 Resume file: None
