@@ -53,7 +53,7 @@ conditions, observe real B2 cost, and make an evidence-based D-3a/O2 decision.
 
 **Wave 9** *(forward-only remediation after the historical STOP)*
 
-- [ ] 01-03F-PLAN.md — Add durable per-manifest completion evidence for future B2 processing.
+- [x] 01-03F-PLAN.md — Add durable per-manifest completion evidence for future B2 processing; PASS / ready_for_01_04=true.
 
 - [ ] 01-04-PLAN.md — Collect and evaluate M5 cutover evidence.
 
