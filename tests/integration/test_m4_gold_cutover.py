@@ -109,6 +109,7 @@ def start_medallion(
             "SHADOW_COMPARE": "1" if shadow else "0",
             "BRONZE_OUTBOX_PREFIX": outbox_prefix,
             "MEDALLION_PROGRESS_PATH": progress_path,
+            "MEDALLION_COMPLETION_LEDGER_PREFIX": f"{namespace}/completion-ledger",
             "MEDALLION_INTERVAL_SECONDS": "1",
             "METRICS_ENABLED": "0",
         }

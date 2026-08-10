@@ -87,8 +87,12 @@ Forward remediation: `01-03` remains STOP / HISTORICAL_EVIDENCE_GAP;
 
 Current gate state: `01-03F = PASS`, `ready_for_01_04 = true`.
 
-M5 gate state: `01-04 = PASS`, `ready_for_01_05 = true`; live Gold remains
-legacy and persisted-Silver cutover is deferred to 01-05.
+M5 gate state: `01-04 = PASS`, `ready_for_01_05 = true`; it authorized the
+controlled persisted-Silver cutover in 01-05.
+
+Cutover state: `01-05 = CUTOVER_PASS`, `ready_for_01_06 = true`; live runtime
+is `b2/persisted_silver/1`. Do not execute 01-06 until the 01-05 receipt is
+present and validated.
 
 **Execution Order:** Phase 1 → 01-01 → 01-02 → 01-02A → historical 01-02B STOP → 01-02B-R STOP → 01-02B-NB → 01-02C → 01-03 → 01-04 → 01-05 → 01-06 → 01-07
 

@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: 01-04 PASS; M5 gate green; ready for 01-05
-stopped_at: 01-03 STOP / HISTORICAL_EVIDENCE_GAP; accepted; 01-04 M5 evidence passed
-last_updated: "2026-08-10T18:07:00.000Z"
-last_activity: 2026-08-10 -- 01-04 M5 cutover evidence completed
+status: 01-05 CUTOVER_PASS; ready for 01-06
+stopped_at: 01-03 STOP / HISTORICAL_EVIDENCE_GAP; accepted; 01-05 persisted-Silver cutover passed
+last_updated: "2026-08-10T18:30:00.000Z"
+last_activity: 2026-08-10 -- 01-05 controlled Gold cutover completed
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 13
-  completed_plans: 9
-  percent: 69
+  completed_plans: 10
+  percent: 77
 ---
 
 # Project State
@@ -26,9 +26,9 @@ See: `.planning/PROJECT.md` (updated 2026-08-09)
 ## Current Position
 
 Phase: 01 (b2-controlled-rollout) — EXECUTING
-Plan: 01-04 of 13
-Status: 01-04 PASS; M5 gate green; 01-05 is next (Gold cutover remains pending)
-Last activity: 2026-08-10 -- M5 evaluator passed with live Gold legacy
+Plan: 01-05 of 13
+Status: CUTOVER_PASS; `ready_for_01_06=true`; live Gold uses persisted Silver under shadow
+Last activity: 2026-08-10 -- controlled persisted-Silver Gold cutover completed
 
 Progress: ▓▓▓▓▓▓░░░░ 58% of current rollout phase
 
@@ -69,8 +69,8 @@ Historical 01-02B, 01-02B-R, and 01-03 remain immutable STOP results. 01-02B-NB
 established the independent epoch `b2-nb-20260810-01`, and 01-02C passed its
 guarded B2 canary without claiming historical continuity. 01-03F then proved
 durable per-identity completion evidence on one new bounded fixture; no
-historical replay or backfill ran. 01-04 passed its pure M5 gate; 01-05 is the
-next executable plan and is the first plan allowed to perform Gold cutover.
+historical replay or backfill ran. 01-04 passed its pure M5 gate and 01-05
+completed the controlled persisted-Silver Gold cutover. 01-06 is next.
 
 ### Blockers/Concerns
 

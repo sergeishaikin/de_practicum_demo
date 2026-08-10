@@ -90,6 +90,7 @@ def start_medallion(
             "SILVER_MODE": "b2",
             "BRONZE_OUTBOX_PREFIX": outbox_prefix,
             "MEDALLION_PROGRESS_PATH": progress_path,
+            "MEDALLION_COMPLETION_LEDGER_PREFIX": f"{namespace}/completion-ledger",
             "MEDALLION_INTERVAL_SECONDS": "1",
             "METRICS_ENABLED": "0",
             "SIMULATE_B2_CRASH_BEFORE_COMMIT": "1" if crash_before else "0",
