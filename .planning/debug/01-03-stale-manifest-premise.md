@@ -58,19 +58,30 @@ diagnose_only: true
   remain for 99 historical IDs because MAX_COMPLETED_PROGRESS=100 prunes older
   IDs; normal completion saves progress before deleting outbox.
 
+- timestamp: 2026-08-10
+  checked: historical Iceberg manifests for bronze.orders
+  found: all 255 original Bronze data-file paths from the preflight handoff
+  are present in historical Iceberg manifests. This is durable Bronze
+  ingestion evidence, but not a per-ID B2 completion ledger: Silver snapshots
+  expose no matching load-id property and retained progress entries have
+  silver_snapshot_id=null.
+
 ## Resolution
 
 - root_cause: "01-03 froze a live-outbox snapshot that no longer existed after
   earlier B2 processing, while retaining absolute historical Bronze/Silver
   counts that became stale after the additive new-epoch fixture."
-- disposition: MANIFEST_STATE_UNPROVEN
+- disposition: HISTORICAL_EVIDENCE_GAP
 - proven: "The original 255 identities existed and were preserved at S1.2B
-  preflight; current outbox/work are empty; 99 historical IDs remain in the
+  preflight; all 255 Bronze data-file paths are present in historical Iceberg
+  manifests; current outbox/work are empty; 99 historical IDs remain in the
   bounded progress tail; current totals reconcile as 218961+4 Bronze and
   218961+3 Silver."
-- not_proven: "The first 156 historical identities have no durable per-ID
-  completion/deletion ledger after bounded progress pruning; no 03 freeze or
-  after identity comparison exists."
+- not_proven: "Per-ID B2 completion is individually durable-proven for only
+  99 original IDs (progress sequences 159..257). The first 156 historical
+  identities have no durable completion/deletion ledger or Silver load-id
+  lineage after bounded progress pruning; Bronze file presence alone cannot
+  establish that the B2 drain completed each identity."
 - fix: "None in diagnose-only mode. Do not drain, clean, rewrite progress,
   delete rows/manifests, or execute 01-04."
 - next_action: "Keep 01-03 STOP. Any completion requires an explicitly amended
