@@ -2,8 +2,8 @@
 phase: 01-b2-controlled-rollout
 plan: 02C
 type: execute
-wave: 5
-depends_on: [01-02A, 01-02B]
+wave: 7
+depends_on: [01-02A, 01-02B-NB]
 files_modified:
   - artifacts/b2-rollout/02c-canary-runtime.txt
   - artifacts/b2-rollout/02c-canary-tests.log
@@ -28,10 +28,10 @@ must_haves:
       to: "artifacts/b2-rollout/02c-canary-receipt.json"
       via: "catalog green precondition"
       pattern: "passed"
-    - from: "artifacts/b2-rollout/02b-kafka-reconciliation.json"
+    - from: "artifacts/b2-rollout/02b-new-baseline-readiness.json"
       to: "artifacts/b2-rollout/02c-canary-receipt.json"
-      via: "offset continuity precondition"
-      pattern: "completeness_proven"
+      via: "new-epoch baseline readiness precondition"
+      pattern: "ready_for_01_02c|disposition"
 ---
 
 <objective>
@@ -45,7 +45,7 @@ Purpose: prove that the previous failure was removed rather than hidden, while k
 @.planning/STATE.md
 @.planning/phases/01-b2-controlled-rollout/CONTEXT.md
 @artifacts/b2-rollout/02a-catalog-recovery.json
-@artifacts/b2-rollout/02b-kafka-reconciliation.json
+@artifacts/b2-rollout/02b-new-baseline-readiness.json
 @artifacts/b2-rollout/02-canary-receipt.json
 @.planning/phases/01-b2-controlled-rollout/01-02-PLAN.md
 @tests/test_m5_fitness_functions.py
@@ -58,8 +58,8 @@ Purpose: prove that the previous failure was removed rather than hidden, while k
 <task type="auto">
   <name>Task 1: Apply the guarded repeat-canary tuple</name>
   <files>artifacts/b2-rollout/02c-canary-runtime.txt</files>
-  <action>Require 02A passed=true, 02B disposition=COMPLETE or BOUNDED_RECOVERY with completeness_proven=true, and restored services healthy. Set only SILVER_MODE=b2, GOLD_SOURCE=legacy, SHADOW_COMPARE=1; validate Compose and inspect the running container. Confirm orders-streaming remains fail-on-data-loss=true and no persisted-Silver Gold source is active. Capture runtime, service health, catalog backend, checkpoint epoch, and pre-canary progress.</action>
-  <verify><automated>python -c "import json; a=json.load(open('artifacts/b2-rollout/02a-catalog-recovery.json')); b=json.load(open('artifacts/b2-rollout/02b-kafka-reconciliation.json')); assert a['passed'] is True and b['disposition'] in {'COMPLETE','BOUNDED_RECOVERY'} and b['completeness_proven'] is True; print('repeat canary preconditions PASS')"; docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml config --quiet; docker inspect de-demo-iceberg-medallion --format '{{range .Config.Env}}{{println .}}{{end}}' | Select-String 'SILVER_MODE=b2|GOLD_SOURCE=legacy|SHADOW_COMPARE=1'</automated></verify>
+  <action>Require 02A passed=true, 02b-new-baseline-readiness disposition=READY with ready_for_01_02C=true, and restored services healthy. Set only SILVER_MODE=b2, GOLD_SOURCE=legacy, SHADOW_COMPARE=1; validate Compose and inspect the running container. Confirm orders-streaming remains fail-on-data-loss=true and no persisted-Silver Gold source is active. Capture runtime, service health, catalog backend, checkpoint epoch, and pre-canary progress.</action>
+  <verify><automated>python -c "import json; a=json.load(open('artifacts/b2-rollout/02a-catalog-recovery.json')); b=json.load(open('artifacts/b2-rollout/02b-new-baseline-readiness.json')); assert a['passed'] is True and b['disposition']=='READY' and b['ready_for_01_02C'] is True; print('repeat canary preconditions PASS')"; docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml config --quiet; docker inspect de-demo-iceberg-medallion --format '{{range .Config.Env}}{{println .}}{{end}}' | Select-String 'SILVER_MODE=b2|GOLD_SOURCE=legacy|SHADOW_COMPARE=1'</automated></verify>
   <done>The live services report the exact b2/legacy/1 canary tuple with both gap receipts green.</done>
 </task>
 

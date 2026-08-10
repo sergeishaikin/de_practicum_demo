@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Historical 01-02B STOP preserved; 01-02B-R imported and checker-passed, no runtime execution
+stopped_at: 01-02B-R closed STOP / RECOVERY_NOT_PROVEN; new-epoch baseline planning is next
 last_updated: "2026-08-10T00:00:00.000Z"
-last_activity: 2026-08-10 -- bounded recovery plan imported and validated
+last_activity: 2026-08-10 -- historical recovery closed; new baseline route selected
 progress:
   total_phases: 1
   completed_phases: 0
-  total_plans: 11
-  completed_plans: 3
+  total_plans: 12
+  completed_plans: 4
   percent: 0
 ---
 
@@ -26,9 +26,9 @@ See: `.planning/PROJECT.md` (updated 2026-08-09)
 ## Current Position
 
 Phase: 01 (b2-controlled-rollout) — EXECUTING
-Plan: 02B-R of 11
-Status: Imported and checker-passed; stateful execution not authorized
-Last activity: 2026-08-10 — bounded recovery plan imported and validated
+Plan: 02B-NB of 12
+Status: New-epoch baseline plan pending; historical recovery is terminal STOP
+Last activity: 2026-08-10 — 01-02B-R closed RECOVERY_NOT_PROVEN
 
 Progress: ░░░░░░░░░░ 0% of current rollout phase
 
@@ -38,7 +38,7 @@ Progress: ░░░░░░░░░░ 0% of current rollout phase
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 1. B2 Controlled Rollout | 3 | 10 | 40min |
+| 1. B2 Controlled Rollout | 4 | 12 | planning / evidence closure |
 | Phase 01 P01 | 25min | 2 tasks | 5 files |
 | Phase 01 P02 | 10min | 2 tasks | 4 files |
 
@@ -61,9 +61,9 @@ Progress: ░░░░░░░░░░ 0% of current rollout phase
 
 ### Pending Todos
 
-Historical 01-02B remains an immutable STOP result. 01-02B-R is the separate
-bounded recovery plan and is planning-only until its explicit authorization
-checkpoint passes. 01-02B-V must verify any recovery before 01-02C.
+Historical 01-02B and 01-02B-R remain immutable STOP results. 01-02B-V is not
+needed because no recovery executed. The next route is a deliberate new-epoch
+baseline; it must not claim historical continuity.
 See `.planning/todos/` for historical backlog.
 
 ### Blockers/Concerns
@@ -72,7 +72,7 @@ The 255 remaining outbox manifests are legitimate post-migration work, not histo
 
 - 01-02 failed closed: Iceberg REST uses `jdbc:sqlite:file:/catalog/iceberg_catalog.db`, and live concurrent access produced `UncheckedSQLException`/unknown failure with zero successful shadow cycles. 01-02A read-only diagnosis is captured, but metadata-preserving migration to a concurrent backend is not yet proven.
 - Orders streaming failed closed on unavailable Kafka history: checkpoint offset `218961` versus available offset `157`. The old checkpoint must be preserved; a new epoch requires business-state continuity proof.
-- 01-02A is complete. Historical 01-02B was resumed after manual host quiesce and stopped fail-closed: the stable Kafka range is 0..40208 (40209 messages), all are absent from Bronze, landing output ends at 218960, and the current checkpoint objects end at 157. No epoch continuity is proven; do not reset the checkpoint or use startingOffsets=latest. Run only the normal durable recovery path described by 01-02B-R after its gates pass; 01-02C remains blocked until 01-02B-V is green.
+- 01-02A is complete. Historical 01-02B and 01-02B-R both stopped fail-closed: the stable Kafka range is 0..40208 (40209 messages), all are absent from Bronze, landing output ends at 218960, and the current checkpoint objects end at 157. Historical continuity cannot be restored. Do not reset old checkpoints or use startingOffsets=latest. Establish a fresh durable new-epoch baseline before 01-02C.
 
 ## Deferred Items
 
