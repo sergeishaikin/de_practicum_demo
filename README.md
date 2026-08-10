@@ -228,6 +228,10 @@ Every writer batch and medallion cycle inserts one row into `marts.lakehouse_met
 | `duplicates_removed` | `bronze_rows - silver_rows` |
 | `quality_violations` | Total violations from the quality checks |
 | `duration_ms` | Cycle/batch duration |
+| `files_planned` / `bytes_planned` | Physical files and bytes selected by the B2 affected-key scan |
+| `files_removed` / `files_added` | Data files replaced by the committed B2 overwrite |
+| `bytes_removed` / `bytes_added` | Bytes replaced by the committed B2 overwrite |
+| `snapshot_delta` | Silver snapshots committed by the B2 cycle |
 
 Disable with `METRICS_ENABLED=0`. Query the table from PostgreSQL (`localhost:15432`, database `dwh`) or build dashboards in Metabase or Superset:
 

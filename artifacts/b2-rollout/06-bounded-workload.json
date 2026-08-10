@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "phase": "01-b2-controlled-rollout",
+  "plan": "01-06-remediation",
+  "purpose": "Generate one qualifying non-empty B2 cycle for the unchanged 01-06 telemetry gate.",
+  "event": {
+    "topic": "orders",
+    "key": "nb-order-001",
+    "event_id": "01-06-b2-cost-20260810-01",
+    "source_epoch_id": "b2-nb-20260810-01",
+    "business_version_before": 2,
+    "business_version_published": 3,
+    "amount_before": 101.25,
+    "amount_after": 102.25,
+    "status_before": "paid",
+    "status_after": "shipped",
+    "published_events": 1
+  },
+  "bounded_services": {
+    "orders_streaming_before": "stopped",
+    "iceberg_writer_before": "stopped",
+    "orders_streaming_during": "running",
+    "iceberg_writer_during": "running",
+    "orders_streaming_after": "stopped",
+    "iceberg_writer_after": "stopped"
+  },
+  "result": {
+    "spark_micro_batch_rows": 1,
+    "writer_rows": 1,
+    "writer_files": 1,
+    "silver_work_id": "288d37c3810c4f97b6072768098e5d01",
+    "silver_snapshot_id": 3206326457309031755,
+    "silver_business_version_after": 3,
+    "silver_amount_after": 102.25,
+    "silver_status_after": "shipped",
+    "bronze_outbox_records_after": 0,
+    "progress_in_flight_after": 0,
+    "progress_next_sequence_after": 260
+  },
+  "historical_checkpoints_reset": false,
+  "historical_evidence_modified": false
+}

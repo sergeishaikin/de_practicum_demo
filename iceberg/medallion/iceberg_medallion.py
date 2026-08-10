@@ -426,6 +426,23 @@ def _rows_to_silver(rows: list[dict]) -> pa.Table:
     )
 
 
+def _planned_scan_cost(scan) -> tuple[int, int]:
+    tasks = list(scan.plan_files())
+    return len(tasks), sum(task.file.file_size_in_bytes for task in tasks)
+
+
+def _snapshot_write_cost(snapshot) -> tuple[int, int, int, int]:
+    if snapshot is None or snapshot.summary is None:
+        return 0, 0, 0, 0
+    properties = snapshot.summary.additional_properties
+    return (
+        int(properties.get("deleted-data-files", 0)),
+        int(properties.get("added-data-files", 0)),
+        int(properties.get("removed-files-size", 0)),
+        int(properties.get("added-files-size", 0)),
+    )
+
+
 def run_b2(catalog: RestCatalog, metrics: Metrics, fs: S3FileSystem | None = None) -> None:
     """Process committed Bronze outbox work with the B2 Silver projection."""
 
@@ -456,6 +473,13 @@ def run_b2(catalog: RestCatalog, metrics: Metrics, fs: S3FileSystem | None = Non
     lower_versions_ignored = 0
     ff14_conflicts = 0
     files_processed = 0
+    files_planned = 0
+    bytes_planned = 0
+    files_removed = 0
+    files_added = 0
+    bytes_removed = 0
+    bytes_added = 0
+    snapshot_delta = 0
     started = time.monotonic()
     for record in records:
         load_id = record["load_id"]
@@ -493,11 +517,14 @@ def run_b2(catalog: RestCatalog, metrics: Metrics, fs: S3FileSystem | None = Non
         incoming = delta.to_pylist()
         keys = sorted({row["order_id"] for row in incoming})
         keys_processed += len(keys)
-        current = (
-            silver.scan(row_filter=In("order_id", keys)).to_arrow().to_pylist()
-            if keys
-            else []
-        )
+        if keys:
+            current_scan = silver.scan(row_filter=In("order_id", keys))
+            planned_files, planned_bytes = _planned_scan_cost(current_scan)
+            files_planned += planned_files
+            bytes_planned += planned_bytes
+            current = current_scan.to_arrow().to_pylist()
+        else:
+            current = []
         try:
             collapsed = collapse_delta(incoming)
             current_by_key = {row["order_id"]: row for row in current}
@@ -517,6 +544,8 @@ def run_b2(catalog: RestCatalog, metrics: Metrics, fs: S3FileSystem | None = Non
                 status="failed",
                 ff14_conflicts=ff14_conflicts,
                 keys_processed=keys_processed,
+                files_planned=files_planned,
+                bytes_planned=bytes_planned,
                 duration_ms=int((time.monotonic() - started) * 1000),
             )
             raise
@@ -526,6 +555,10 @@ def run_b2(catalog: RestCatalog, metrics: Metrics, fs: S3FileSystem | None = Non
 
         snapshot_id: int | None = None
         if resolved:
+            previous_snapshot = silver.current_snapshot()
+            previous_snapshot_id = (
+                previous_snapshot.snapshot_id if previous_snapshot else None
+            )
             silver.overwrite(
                 _rows_to_silver(resolved),
                 overwrite_filter=In("order_id", sorted({row["order_id"] for row in resolved})),
@@ -536,6 +569,18 @@ def run_b2(catalog: RestCatalog, metrics: Metrics, fs: S3FileSystem | None = Non
             )
             snapshot = silver.current_snapshot()
             snapshot_id = snapshot.snapshot_id if snapshot else None
+            if snapshot_id != previous_snapshot_id:
+                snapshot_delta += 1
+                (
+                    removed_files,
+                    added_files,
+                    removed_bytes,
+                    added_bytes,
+                ) = _snapshot_write_cost(snapshot)
+                files_removed += removed_files
+                files_added += added_files
+                bytes_removed += removed_bytes
+                bytes_added += added_bytes
 
         if SIMULATE_B2_CRASH_AFTER_COMMIT:
             os._exit(22)
@@ -566,6 +611,13 @@ def run_b2(catalog: RestCatalog, metrics: Metrics, fs: S3FileSystem | None = Non
         work_in_flight=len(progress["work"]),
         work_completed=len(progress["completed"]),
         silver_duration_ms=int((time.monotonic() - started) * 1000),
+        files_planned=files_planned,
+        bytes_planned=bytes_planned,
+        files_removed=files_removed,
+        files_added=files_added,
+        bytes_removed=bytes_removed,
+        bytes_added=bytes_added,
+        snapshot_delta=snapshot_delta,
         duration_ms=int((time.monotonic() - started) * 1000),
     )
 

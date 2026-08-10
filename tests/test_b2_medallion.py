@@ -98,10 +98,23 @@ class FakeScan:
             rows = [item for item in rows if item["order_id"] in values]
         return rows_to_arrow(rows)
 
+    def plan_files(self):
+        values = predicate_values(self.row_filter)
+        if not any(item["order_id"] in values for item in self.table.rows):
+            return iter(())
+        return iter(
+            [
+                SimpleNamespace(
+                    file=SimpleNamespace(file_size_in_bytes=self.table.file_size)
+                )
+            ]
+        )
+
 
 class FakeIcebergTable:
     def __init__(self, rows: list[dict] | None = None) -> None:
         self.rows = rows or []
+        self.file_size = len(self.rows) * 100
         self.metadata = SimpleNamespace(snapshots=[])
 
     def scan(self, row_filter=None) -> FakeScan:
@@ -109,14 +122,26 @@ class FakeIcebergTable:
 
     def overwrite(self, arrow_table, overwrite_filter, snapshot_properties=None) -> None:
         values = predicate_values(overwrite_filter)
+        removed_files = int(any(item["order_id"] in values for item in self.rows))
+        removed_bytes = self.file_size if removed_files else 0
         self.rows = [item for item in self.rows if item["order_id"] not in values]
         self.rows.extend(arrow_table.to_pylist())
+        self.file_size = arrow_table.nbytes
         snapshot_id = len(self.metadata.snapshots) + 1
+        physical_cost = {
+            "deleted-data-files": str(removed_files),
+            "added-data-files": "1",
+            "removed-files-size": str(removed_bytes),
+            "added-files-size": str(self.file_size),
+        }
         self.metadata.snapshots.append(
             SimpleNamespace(
                 snapshot_id=snapshot_id,
                 summary=SimpleNamespace(
-                    additional_properties=snapshot_properties or {}
+                    additional_properties={
+                        **physical_cost,
+                        **(snapshot_properties or {}),
+                    }
                 ),
             )
         )
@@ -239,6 +264,13 @@ def test_b2_run_commits_only_advancing_keys_and_completes_progress(monkeypatch) 
     assert by_id["b"]["business_version"] == 2
     assert metrics.records[-1]["status"] == "success"
     assert metrics.records[-1]["keys_processed"] == 2
+    assert metrics.records[-1]["files_planned"] == 1
+    assert metrics.records[-1]["bytes_planned"] == 100
+    assert metrics.records[-1]["files_removed"] == 1
+    assert metrics.records[-1]["files_added"] == 1
+    assert metrics.records[-1]["bytes_removed"] == 100
+    assert metrics.records[-1]["bytes_added"] > 0
+    assert metrics.records[-1]["snapshot_delta"] == 1
     assert metrics.records[-1]["work_in_flight"] == 0
     assert metrics.records[-1]["work_completed"] == 1
     assert f"de-practicum/test-outbox/{load_id}.json" not in fs.objects
@@ -256,6 +288,26 @@ def test_b2_run_commits_only_advancing_keys_and_completes_progress(monkeypatch) 
     assert len(silver.metadata.snapshots) == snapshots
     assert f"de-practicum/test-outbox/{load_id}.json" not in fs.objects
     assert len([p for p in fs.objects if "test-completion-ledger" in p]) == 1
+
+
+def test_b2_noop_records_planned_read_without_write_cost(monkeypatch) -> None:
+    current = row("a", 5, amount=50)
+    fs, catalog, silver, metrics, _ = setup_run(
+        monkeypatch,
+        [row("a", 3, amount=30)],
+        [current],
+    )
+
+    m.run_b2(catalog, metrics, fs)
+
+    assert silver.rows == [current]
+    assert metrics.records[-1]["files_planned"] == 1
+    assert metrics.records[-1]["bytes_planned"] == 100
+    assert metrics.records[-1]["files_removed"] == 0
+    assert metrics.records[-1]["files_added"] == 0
+    assert metrics.records[-1]["bytes_removed"] == 0
+    assert metrics.records[-1]["bytes_added"] == 0
+    assert metrics.records[-1]["snapshot_delta"] == 0
 
 
 def test_b2_crash_before_commit_retries(monkeypatch) -> None:

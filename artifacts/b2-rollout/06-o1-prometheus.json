@@ -2,100 +2,63 @@
   "schema_version": 1,
   "phase": "01-b2-controlled-rollout",
   "plan": "01-06",
-  "captured_at": "2026-08-10T18:13:20.533Z",
+  "captured_at": "2026-08-10T19:58:28.129461Z",
   "queries": {
     "lakehouse_up": {
       "status": "success",
-      "data": {
-        "resultType": "vector",
-        "result": [
-          {
-            "metric": {
-              "__name__": "lakehouse_up",
-              "instance": "iceberg-medallion:9102",
-              "job": "iceberg-medallion",
-              "source": "medallion"
-            },
-            "value": [1786385533.857, "1"]
-          }
-        ]
-      }
+      "data": {"resultType":"vector","result":[{"metric":{"__name__":"lakehouse_up","instance":"iceberg-medallion:9102","job":"iceberg-medallion","source":"medallion"},"value":[1786391908.055,"1"]}]}
     },
     "lakehouse_work": {
       "status": "success",
-      "data": {
-        "resultType": "vector",
-        "result": [
-          {"metric":{"__name__":"lakehouse_work","instance":"iceberg-medallion:9102","job":"iceberg-medallion","source":"medallion","state":"available"},"value":[1786385533.921,"0"]},
-          {"metric":{"__name__":"lakehouse_work","instance":"iceberg-medallion:9102","job":"iceberg-medallion","source":"medallion","state":"in_flight"},"value":[1786385533.921,"0"]},
-          {"metric":{"__name__":"lakehouse_work","instance":"iceberg-medallion:9102","job":"iceberg-medallion","source":"medallion","state":"completed"},"value":[1786385533.921,"0"]}
-        ]
-      }
+      "data": {"resultType":"vector","result":[
+        {"metric":{"__name__":"lakehouse_work","instance":"iceberg-medallion:9102","job":"iceberg-medallion","source":"medallion","state":"available"},"value":[1786391908.120,"0"]},
+        {"metric":{"__name__":"lakehouse_work","instance":"iceberg-medallion:9102","job":"iceberg-medallion","source":"medallion","state":"in_flight"},"value":[1786391908.120,"0"]},
+        {"metric":{"__name__":"lakehouse_work","instance":"iceberg-medallion:9102","job":"iceberg-medallion","source":"medallion","state":"completed"},"value":[1786391908.120,"0"]}
+      ]}
     },
     "lakehouse_correctness": {
       "status": "success",
-      "data": {
-        "resultType": "vector",
-        "result": []
-      }
+      "data": {"resultType":"vector","result":[]}
     },
     "lakehouse_correctness_total": {
       "status": "success",
-      "retry_correction": {
-        "queried_at": "2026-08-10T18:51:26.732Z",
-        "reason": "prometheus_client exports Counter('lakehouse_correctness', ...) under the canonical _total series name"
-      },
-      "data": {
-        "resultType": "vector",
-        "result": [
-          {"metric":{"__name__":"lakehouse_correctness_total","instance":"iceberg-medallion:9102","job":"iceberg-medallion","kind":"lower_versions_ignored","source":"medallion"},"value":[1786387886.732,"0"]},
-          {"metric":{"__name__":"lakehouse_correctness_total","instance":"iceberg-medallion:9102","job":"iceberg-medallion","kind":"ff14_conflicts","source":"medallion"},"value":[1786387886.732,"0"]},
-          {"metric":{"__name__":"lakehouse_correctness_total","instance":"iceberg-medallion:9102","job":"iceberg-medallion","kind":"shadow_mismatches","source":"medallion"},"value":[1786387886.732,"0"]}
-        ]
-      }
+      "query_correction": "prometheus_client exports Counter('lakehouse_correctness', ...) with the _total suffix",
+      "data": {"resultType":"vector","result":[
+        {"metric":{"__name__":"lakehouse_correctness_total","instance":"iceberg-medallion:9102","job":"iceberg-medallion","kind":"lower_versions_ignored","source":"medallion"},"value":[1786391908.123,"0"]},
+        {"metric":{"__name__":"lakehouse_correctness_total","instance":"iceberg-medallion:9102","job":"iceberg-medallion","kind":"ff14_conflicts","source":"medallion"},"value":[1786391908.123,"0"]},
+        {"metric":{"__name__":"lakehouse_correctness_total","instance":"iceberg-medallion:9102","job":"iceberg-medallion","kind":"shadow_mismatches","source":"medallion"},"value":[1786391908.123,"0"]}
+      ]}
     },
     "lakehouse_processed": {
       "status": "success",
-      "data": {
-        "resultType": "vector",
-        "result": [
-          {"metric":{"__name__":"lakehouse_processed","instance":"iceberg-medallion:9102","job":"iceberg-medallion","kind":"rows","source":"medallion"},"value":[1786385533.926,"0"]},
-          {"metric":{"__name__":"lakehouse_processed","instance":"iceberg-medallion:9102","job":"iceberg-medallion","kind":"files","source":"medallion"},"value":[1786385533.926,"0"]},
-          {"metric":{"__name__":"lakehouse_processed","instance":"iceberg-medallion:9102","job":"iceberg-medallion","kind":"keys","source":"medallion"},"value":[1786385533.926,"0"]}
-        ]
-      }
+      "data": {"resultType":"vector","result":[
+        {"metric":{"__name__":"lakehouse_processed","instance":"iceberg-medallion:9102","job":"iceberg-medallion","kind":"rows","source":"medallion"},"value":[1786391908.124,"0"]},
+        {"metric":{"__name__":"lakehouse_processed","instance":"iceberg-medallion:9102","job":"iceberg-medallion","kind":"files","source":"medallion"},"value":[1786391908.124,"0"]},
+        {"metric":{"__name__":"lakehouse_processed","instance":"iceberg-medallion:9102","job":"iceberg-medallion","kind":"keys","source":"medallion"},"value":[1786391908.124,"0"]}
+      ]}
     },
     "lakehouse_stage_duration_seconds": {
       "status": "success",
-      "data": {
-        "resultType": "vector",
-        "result": [
-          {"metric":{"__name__":"lakehouse_stage_duration_seconds","instance":"iceberg-medallion:9102","job":"iceberg-medallion","source":"medallion","stage":"silver"},"value":[1786385533.927,"29.911"]},
-          {"metric":{"__name__":"lakehouse_stage_duration_seconds","instance":"iceberg-medallion:9102","job":"iceberg-medallion","source":"medallion","stage":"gold"},"value":[1786385533.927,"4.376"]}
-        ]
-      }
+      "data": {"resultType":"vector","result":[
+        {"metric":{"__name__":"lakehouse_stage_duration_seconds","instance":"iceberg-medallion:9102","job":"iceberg-medallion","source":"medallion","stage":"silver"},"value":[1786391908.126,"23.959"]},
+        {"metric":{"__name__":"lakehouse_stage_duration_seconds","instance":"iceberg-medallion:9102","job":"iceberg-medallion","source":"medallion","stage":"gold"},"value":[1786391908.126,"4.008"]}
+      ]}
     },
     "lakehouse_files": {
       "status": "success",
-      "data": {
-        "resultType": "vector",
-        "result": [
-          {"metric":{"__name__":"lakehouse_files","instance":"iceberg-medallion:9102","job":"iceberg-medallion","kind":"planned","source":"medallion"},"value":[1786385533.929,"0"]},
-          {"metric":{"__name__":"lakehouse_files","instance":"iceberg-medallion:9102","job":"iceberg-medallion","kind":"removed","source":"medallion"},"value":[1786385533.929,"0"]},
-          {"metric":{"__name__":"lakehouse_files","instance":"iceberg-medallion:9102","job":"iceberg-medallion","kind":"added","source":"medallion"},"value":[1786385533.929,"0"]}
-        ]
-      }
+      "data": {"resultType":"vector","result":[
+        {"metric":{"__name__":"lakehouse_files","instance":"iceberg-medallion:9102","job":"iceberg-medallion","kind":"planned","source":"medallion"},"value":[1786391908.127,"0"]},
+        {"metric":{"__name__":"lakehouse_files","instance":"iceberg-medallion:9102","job":"iceberg-medallion","kind":"removed","source":"medallion"},"value":[1786391908.127,"0"]},
+        {"metric":{"__name__":"lakehouse_files","instance":"iceberg-medallion:9102","job":"iceberg-medallion","kind":"added","source":"medallion"},"value":[1786391908.127,"0"]}
+      ]}
     },
     "lakehouse_bytes": {
       "status": "success",
-      "data": {
-        "resultType": "vector",
-        "result": [
-          {"metric":{"__name__":"lakehouse_bytes","instance":"iceberg-medallion:9102","job":"iceberg-medallion","kind":"planned","source":"medallion"},"value":[1786385533.930,"0"]},
-          {"metric":{"__name__":"lakehouse_bytes","instance":"iceberg-medallion:9102","job":"iceberg-medallion","kind":"removed","source":"medallion"},"value":[1786385533.930,"0"]},
-          {"metric":{"__name__":"lakehouse_bytes","instance":"iceberg-medallion:9102","job":"iceberg-medallion","kind":"added","source":"medallion"},"value":[1786385533.930,"0"]}
-        ]
-      }
+      "data": {"resultType":"vector","result":[
+        {"metric":{"__name__":"lakehouse_bytes","instance":"iceberg-medallion:9102","job":"iceberg-medallion","kind":"planned","source":"medallion"},"value":[1786391908.128,"0"]},
+        {"metric":{"__name__":"lakehouse_bytes","instance":"iceberg-medallion:9102","job":"iceberg-medallion","kind":"removed","source":"medallion"},"value":[1786391908.128,"0"]},
+        {"metric":{"__name__":"lakehouse_bytes","instance":"iceberg-medallion:9102","job":"iceberg-medallion","kind":"added","source":"medallion"},"value":[1786391908.128,"0"]}
+      ]}
     }
   }
 }

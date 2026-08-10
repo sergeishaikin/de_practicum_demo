@@ -27,7 +27,7 @@
 
 - [ ] **CUT-01**: M5 evaluator is green before `GOLD_SOURCE=persisted_silver` is enabled.
 - [ ] **CUT-02**: Persisted-Silver Gold remains under shadow comparison during the observation window and rollback remains verified.
-- [ ] **TEL-01**: O1 captures representative B2 files planned, bytes planned, files added/removed, Silver duration, keys processed, snapshots, and recovery state.
+- [x] **TEL-01**: O1 captures representative B2 files planned, bytes planned, files added/removed, Silver duration, keys processed, snapshots, and recovery state.
 - [ ] **DEC-01**: The telemetry gate records exactly one outcome: open D-3a, open O2, or retain both deferred.
 
 ## Deferred requirements
@@ -54,7 +54,7 @@
 | CAN-03 | Phase 1 | Complete |
 | CUT-01 | Phase 1 | Pending |
 | CUT-02 | Phase 1 | Pending |
-| TEL-01 | Phase 1 | Pending |
+| TEL-01 | Phase 1 | Complete |
 | DEC-01 | Phase 1 | Pending |
 
 **Coverage:**
@@ -65,4 +65,4 @@
 
 ---
 *Requirements defined: 2026-08-09*
-*Last updated: 2026-08-09 after S1.2B re-baseline*
+*Last updated: 2026-08-10 after the 01-06 telemetry gate passed*

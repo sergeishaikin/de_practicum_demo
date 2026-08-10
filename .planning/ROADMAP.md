@@ -63,7 +63,7 @@ conditions, observe real B2 cost, and make an evidence-based D-3a/O2 decision.
 
 **Wave 11** *(blocked on Wave 10 completion)*
 
-- [ ] 01-06-PLAN.md — Collect a representative O1 telemetry window.
+- [x] 01-06-PLAN.md — Collect a representative O1 telemetry window; PASS after bounded instrumentation/workload remediation.
 
 **Wave 12** *(blocked on Wave 11 completion)*
 
@@ -94,16 +94,16 @@ Cutover state: `01-05 = CUTOVER_PASS`, `ready_for_01_06 = true`; live runtime
 is `b2/persisted_silver/1`. Do not execute 01-06 until the 01-05 receipt is
 present and validated.
 
-Telemetry state: `01-06 = STOP / O1_BLOCKED`, `ready_for_01_07 = false`.
-The bounded Prometheus query correction passed, but no qualifying post-cutover
-B2 workload exists and the B2 runtime path does not populate the physical-cost
-fields required by TEL-01. Keep 01-06 unchecked and do not execute 01-07.
+Telemetry state: `01-06 = PASS`, `ready_for_01_07 = true`. The representative
+window contains ten successful rows and one non-empty B2 cycle with complete
+planned/added/removed byte and file measures, one snapshot, zero shadow/FF-14
+failures, and no in-flight work. 01-07 is the next plan and was not executed.
 
 **Execution Order:** Phase 1 → 01-01 → 01-02 → 01-02A → historical 01-02B STOP → 01-02B-R STOP → 01-02B-NB → 01-02C → 01-03 → 01-04 → 01-05 → 01-06 → 01-07
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 1. B2 Controlled Rollout | Current | 7/12 | In Progress|  |
+| 1. B2 Controlled Rollout | Current | 8/12 | In Progress|  |
 
 Historical milestones are intentionally summarized above rather than
 replayed as unfinished GSD phases.

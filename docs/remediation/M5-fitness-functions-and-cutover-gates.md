@@ -45,8 +45,10 @@ snapshot_delta
 ~~~
 
 The B2 cycle records work-state counts, affected keys, ignored lower versions, FF-14 failures,
-processed files, and Silver duration. M4 records shadow success/failure and separate Silver/Gold
-durations. SPIKE-2 remains the source of physical plan/read/write evidence:
+processed files, Silver duration, affected-key scan tasks/bytes, committed files/bytes added and
+removed, and the snapshot delta. No-op updates retain their planned read cost while reporting zero
+write cost and zero snapshot delta. M4 records shadow success/failure and separate Silver/Gold
+durations. SPIKE-2 remains the comparison baseline for the equivalent physical measures:
 files_planned_for_read, bytes_planned_for_read, data_files_removed, data_files_added,
 bytes_removed, bytes_added, and snapshot_count_delta.
 

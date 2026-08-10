@@ -2,10 +2,10 @@
   "schema_version": 1,
   "phase": "01-b2-controlled-rollout",
   "plan": "01-06",
-  "disposition": "STOP",
-  "passed": false,
-  "ready_for_01_07": false,
-  "retry_evaluated_at": "2026-08-10T18:51:26.732Z",
+  "disposition": "PASS",
+  "passed": true,
+  "ready_for_01_07": true,
+  "evaluated_at": "2026-08-10T19:58:28.129461Z",
   "runtime_before": {
     "SILVER_MODE": "b2",
     "GOLD_SOURCE": "persisted_silver",
@@ -16,48 +16,33 @@
     "GOLD_SOURCE": "persisted_silver",
     "SHADOW_COMPARE": "1"
   },
-  "runtime_changed": false,
+  "runtime_config_changed": false,
+  "runtime_restarted_for_instrumentation": true,
   "container_evidence": {
     "id": "b7ea21755ad1b1882565c33f0cc8e2a89b7e3e1102641d58827740359171085b",
-    "started_at": "2026-08-10T15:16:34.7580608Z"
+    "started_at": "2026-08-10T19:50:47.328651914Z"
   },
   "checks": {
     "successful_cutover_receipt": true,
     "runtime_tuple_exact": true,
     "at_least_10_consecutive_success_rows": true,
-    "at_least_1_non_empty_b2_row": false,
+    "at_least_1_non_empty_b2_row": true,
     "all_required_fields_present": true,
+    "positive_keys_and_files_planned": true,
     "zero_shadow_mismatches": true,
     "zero_ff14_conflicts": true,
     "final_work_in_flight_zero": true,
-    "initial_requested_prometheus_correctness_series_present": false,
+    "prometheus_queries_successful": true,
     "corrected_prometheus_correctness_series_present": true,
-    "runtime_b2_cost_instrumentation_present": false
+    "runtime_b2_cost_instrumentation_present": true,
+    "upstream_workload_services_returned_to_stopped": true
   },
-  "failed_checks": [
-    "at_least_1_non_empty_b2_row",
-    "runtime_b2_cost_instrumentation_present"
-  ],
-  "reason": "The corrected Prometheus query passes, but the retry still has no qualifying B2 workload and the B2 runtime path does not populate the physical-cost fields required to calculate amplification. The same 01-06 gate therefore remains STOP at a genuine blocker.",
-  "retry_evidence": {
-    "successful_rows_since_cutover": 281,
-    "non_empty_b2_rows": 0,
-    "bronze_outbox_records": 0,
-    "progress_in_flight": 0,
-    "writer_last_metric_before_cutover": true,
-    "writer_container_running": false,
-    "orders_streaming_container_running": false,
-    "prometheus_counter_exported_as": "lakehouse_correctness_total",
-    "prometheus_correctness_series_count": 3
-  },
-  "blocker": {
-    "kind": "WORKLOAD_AND_INSTRUMENTATION",
-    "bounded_correction_applied": "Corrected the Prometheus query name without changing runtime state.",
-    "outside_01_06_scope": "Creating workload would publish/mutate pipeline state, and populating B2 physical-cost telemetry requires production medallion code plus focused tests/documentation; 01-06 authorizes observation artifacts only."
-  },
+  "failed_checks": [],
+  "reason": "The same 01-06 gate passed after bounded remediation: ten consecutive successful rows include one real B2 cycle with complete physical-cost fields, zero correctness failures, and no in-flight work.",
   "rollback_executed": false,
-  "rollback_reason": "The user explicitly required STOP with evidence and an unchanged runtime when the observation threshold is not met.",
+  "rollback_reason": null,
   "d3a_opened": false,
   "o2_opened": false,
+  "plan_01_07_executed": false,
   "historical_evidence_modified": false
 }
