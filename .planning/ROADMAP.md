@@ -16,7 +16,7 @@ conditions, observe real B2 cost, and make an evidence-based D-3a/O2 decision.
 
 **Depends on**: S1.2B verified cleanup at `89953fe`.
 **Requirements**: [CAN-01, CAN-02, CAN-03, CUT-01, CUT-02, TEL-01, DEC-01]
-**Plans**: 10 plans, including fail-closed runtime gap closure after the first canary.
+**Plans**: 11 plans, including fail-closed runtime gap closure and bounded recovery after the first canary.
 
 **Wave 1**
 
@@ -34,27 +34,31 @@ conditions, observe real B2 cost, and make an evidence-based D-3a/O2 decision.
 
 - [ ] 01-02B-PLAN.md — Reconcile Kafka checkpoint offset loss without resetting history.
 
-**Wave 5** *(blocked on 01-02A and 01-02B)*
+**Wave 5** *(blocked on historical 01-02B STOP; stateful execution requires explicit recovery authorization)*
+
+- [ ] 01-02B-R-PLAN.md — Separate bounded Kafka epoch recovery; preserves historical 01-02B STOP and fails closed when completeness or identity cannot be proven.
+
+**Wave 6** *(blocked on 01-02B-R and its post-recovery verification)*
 
 - [ ] 01-02C-PLAN.md — Repeat the guarded B2 canary and require fresh shadow evidence.
 
-**Wave 6** *(blocked on 01-02C)*
+**Wave 7** *(blocked on 01-02C)*
 
 - [ ] 01-03-PLAN.md — Drain and verify the 255 legitimate post-migration manifests.
 
-**Wave 7** *(blocked on Wave 6 completion)*
+**Wave 8** *(blocked on Wave 7 completion)*
 
 - [ ] 01-04-PLAN.md — Collect and evaluate M5 cutover evidence.
 
-**Wave 8** *(blocked on Wave 7 completion)*
+**Wave 9** *(blocked on Wave 8 completion)*
 
 - [ ] 01-05-PLAN.md — Switch Gold to persisted Silver only after a green M5 gate.
 
-**Wave 9** *(blocked on Wave 8 completion)*
+**Wave 10** *(blocked on Wave 9 completion)*
 
 - [ ] 01-06-PLAN.md — Collect a representative O1 telemetry window.
 
-**Wave 10** *(blocked on Wave 9 completion)*
+**Wave 11** *(blocked on Wave 10 completion)*
 
 - [ ] 01-07-PLAN.md — Decide D-3a, O2, or no-change and record the rollout result.
 
@@ -70,11 +74,11 @@ conditions, observe real B2 cost, and make an evidence-based D-3a/O2 decision.
 
 ## Progress
 
-**Execution Order:** Phase 1 → 01-01 → 01-02 → 01-02A → 01-02B → 01-02C → 01-03 → 01-04 → 01-05 → 01-06 → 01-07
+**Execution Order:** Phase 1 → 01-01 → 01-02 → 01-02A → historical 01-02B STOP → 01-02B-R → 01-02B-V → 01-02C → 01-03 → 01-04 → 01-05 → 01-06 → 01-07
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 1. B2 Controlled Rollout | Current | 3/10 | In Progress — ready for 01-02B |  |
+| 1. B2 Controlled Rollout | Current | 3/11 | In Progress — bounded recovery plan imported; historical 01-02B remains STOP |  |
 
 Historical milestones are intentionally summarized above rather than
 replayed as unfinished GSD phases.
