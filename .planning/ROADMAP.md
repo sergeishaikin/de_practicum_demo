@@ -47,11 +47,13 @@ conditions, observe real B2 cost, and make an evidence-based D-3a/O2 decision.
 
 - [x] 01-02C-PLAN.md — Repeat the guarded B2 canary and require fresh shadow evidence.
 
-**Wave 8** *(blocked on 01-02C)*
+**Wave 8** *(blocked on 01-02C; ended STOP)*
 
 - [ ] 01-03-PLAN.md — Drain and verify the 255 legitimate post-migration manifests.
 
-**Wave 9** *(blocked on Wave 8 completion)*
+**Wave 9** *(forward-only remediation after the historical STOP)*
+
+- [ ] 01-03F-PLAN.md — Add durable per-manifest completion evidence for future B2 processing.
 
 - [ ] 01-04-PLAN.md — Collect and evaluate M5 cutover evidence.
 
