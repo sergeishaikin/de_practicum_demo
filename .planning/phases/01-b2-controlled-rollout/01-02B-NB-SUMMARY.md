@@ -67,3 +67,9 @@ receipt must not be treated as authorization for 01-02C.
 
 - Focused contract suite: 34 passed (`tests/test_new_baseline_contract.py`, `tests/test_order_contract.py`, `tests/test_writer.py`).
 - Readiness schema assertion: PASS (`disposition=STOP`, `ready_for_01_02C=false`).
+
+## Self-Check: PASSED
+
+All five new-baseline evidence files and this summary exist; commit `675ed05`
+is present in git history. Evidence artifacts remain intentionally gitignored
+under the repository's `artifacts/` policy.
