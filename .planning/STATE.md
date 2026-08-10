@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: 01-02C PASS; fresh B2 shadow evidence is green and 01-03 is next
-stopped_at: Completed 01-02C-PLAN.md
-last_updated: "2026-08-10T12:46:48.706Z"
-last_activity: 2026-08-10 — 01-02B-R closed RECOVERY_NOT_PROVEN
+status: 01-03 STOP; required 255-manifest freeze unavailable
+stopped_at: 01-03 STOP / LIVE_POST_MIGRATION=0 instead of required 255
+last_updated: "2026-08-10T13:11:16.491Z"
+last_activity: 2026-08-10 -- Phase 01 execution started
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 12
   completed_plans: 7
-  percent: 0
+  percent: 58
 ---
 
 # Project State
@@ -27,8 +27,8 @@ See: `.planning/PROJECT.md` (updated 2026-08-09)
 
 Phase: 01 (b2-controlled-rollout) — EXECUTING
 Plan: 01-03 of 12
-Status: 01-02C PASS; fresh B2 shadow evidence is green and 01-03 is next
-Last activity: 2026-08-10 — 01-02B-R closed RECOVERY_NOT_PROVEN
+Status: 01-03 STOP; drain not started and 01-04 remains blocked
+Last activity: 2026-08-10 -- classifier found zero post-migration manifests
 
 Progress: ▓▓▓▓▓▓░░░░ 58% of current rollout phase
 
@@ -66,13 +66,16 @@ Progress: ▓▓▓▓▓▓░░░░ 58% of current rollout phase
 
 Historical 01-02B and 01-02B-R remain immutable STOP results. 01-02B-NB
 established the independent epoch `b2-nb-20260810-01`, and 01-02C passed its
-guarded B2 canary without claiming historical continuity. The next route is
-01-03 drain and verification.
+guarded B2 canary without claiming historical continuity. 01-03 then failed
+closed because the classifier observed zero manifests instead of the required
+255; no drain or cleanup ran, and the runtime was restored to legacy/legacy/0.
 See `.planning/todos/` for historical backlog.
 
 ### Blockers/Concerns
 
-The 255 remaining outbox manifests are legitimate post-migration work, not historical cleanup debt.
+The 255-manifest drain is currently blocked: the 01-03 classifier observed an
+empty outbox (`LIVE_POST_MIGRATION=0`) rather than the required frozen set.
+No cleanup or identity fabrication is authorized.
 
 - 01-02 failed closed: Iceberg REST uses `jdbc:sqlite:file:/catalog/iceberg_catalog.db`, and live concurrent access produced `UncheckedSQLException`/unknown failure with zero successful shadow cycles. 01-02A read-only diagnosis is captured, but metadata-preserving migration to a concurrent backend is not yet proven.
 - Orders streaming failed closed on unavailable Kafka history: checkpoint offset `218961` versus available offset `157`. The old checkpoint must be preserved; a new epoch requires business-state continuity proof.

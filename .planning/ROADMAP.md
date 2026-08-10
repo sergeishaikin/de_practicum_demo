@@ -4,6 +4,7 @@
 
 - ✓ **Architecture and remediation baseline** — M1–M5, R1/R2, O1, S1, S1.1,
   H1, S1.2A, S1.2A.1, and S1.2B completed and verified at `89953fe`.
+
 - 🚧 **B2 Controlled Rollout** — execute the accepted B2 architecture under
   controlled canary, evidence gate, cutover, and telemetry observation.
 
@@ -32,7 +33,7 @@ conditions, observe real B2 cost, and make an evidence-based D-3a/O2 decision.
 
 **Wave 4** *(blocked on 01-02A)*
 
-- [ ] 01-02B-PLAN.md — Reconcile Kafka checkpoint offset loss without resetting history.
+- [x] 01-02B-PLAN.md — Reconcile Kafka checkpoint offset loss without resetting history.
 
 **Wave 5** *(terminal STOP after historical 01-02B)*
 
@@ -40,11 +41,11 @@ conditions, observe real B2 cost, and make an evidence-based D-3a/O2 decision.
 
 **Wave 6** *(blocked on 01-02B-R STOP; new baseline required)*
 
-- [ ] 01-02B-NB-PLAN.md — Establish a durable, explicit new B2 baseline without claiming historical recovery.
+- [x] 01-02B-NB-PLAN.md — Establish a durable, explicit new B2 baseline without claiming historical recovery.
 
 **Wave 7** *(blocked on 01-02B-NB readiness gate)*
 
-- [ ] 01-02C-PLAN.md — Repeat the guarded B2 canary and require fresh shadow evidence.
+- [x] 01-02C-PLAN.md — Repeat the guarded B2 canary and require fresh shadow evidence.
 
 **Wave 8** *(blocked on 01-02C)*
 
@@ -82,7 +83,7 @@ conditions, observe real B2 cost, and make an evidence-based D-3a/O2 decision.
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 1. B2 Controlled Rollout | Current | 4/12 | In Progress — historical recovery STOP; new-epoch baseline planning |  |
+| 1. B2 Controlled Rollout | Current | 7/12 | In Progress|  |
 
 Historical milestones are intentionally summarized above rather than
 replayed as unfinished GSD phases.

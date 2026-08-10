@@ -19,7 +19,7 @@
 
 ### Canary
 
-- [ ] **CAN-01**: B2 runs with `SILVER_MODE=b2`, `GOLD_SOURCE=legacy`, and `SHADOW_COMPARE=1` while Gold remains on the legacy projection.
+- [x] **CAN-01**: B2 runs with `SILVER_MODE=b2`, `GOLD_SOURCE=legacy`, and `SHADOW_COMPARE=1` while Gold remains on the legacy projection.
 - [ ] **CAN-02**: All 255 legitimate post-migration manifests drain with zero unresolved progress, FF-14 conflicts, or shadow mismatches.
 - [x] **CAN-03**: Bronze/Silver correctness and dbt 26/26 remain green throughout the canary.
 
@@ -49,7 +49,7 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CAN-01 | Phase 1 | Pending |
+| CAN-01 | Phase 1 | Complete |
 | CAN-02 | Phase 1 | Pending |
 | CAN-03 | Phase 1 | Complete |
 | CUT-01 | Phase 1 | Pending |
