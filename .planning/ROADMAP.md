@@ -94,6 +94,11 @@ Cutover state: `01-05 = CUTOVER_PASS`, `ready_for_01_06 = true`; live runtime
 is `b2/persisted_silver/1`. Do not execute 01-06 until the 01-05 receipt is
 present and validated.
 
+Telemetry state: `01-06 = STOP / O1_BLOCKED`, `ready_for_01_07 = false`.
+The bounded Prometheus query correction passed, but no qualifying post-cutover
+B2 workload exists and the B2 runtime path does not populate the physical-cost
+fields required by TEL-01. Keep 01-06 unchecked and do not execute 01-07.
+
 **Execution Order:** Phase 1 → 01-01 → 01-02 → 01-02A → historical 01-02B STOP → 01-02B-R STOP → 01-02B-NB → 01-02C → 01-03 → 01-04 → 01-05 → 01-06 → 01-07
 
 | Phase | Milestone | Plans Complete | Status | Completed |

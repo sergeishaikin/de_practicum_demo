@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: 01-05 CUTOVER_PASS; ready for 01-06
-stopped_at: 01-03 STOP / HISTORICAL_EVIDENCE_GAP; accepted; 01-05 persisted-Silver cutover passed
-last_updated: "2026-08-10T18:30:00.000Z"
-last_activity: 2026-08-10 -- 01-05 controlled Gold cutover completed
+status: 01-06 STOP / O1_BLOCKED; 01-07 forbidden
+stopped_at: 01-03 STOP / HISTORICAL_EVIDENCE_GAP preserved; 01-06 retry blocked by absent workload and missing B2 cost instrumentation
+last_updated: "2026-08-10T18:51:26.732Z"
+last_activity: 2026-08-10 -- 01-06 Prometheus query corrected; same O1 gate retried and stopped at genuine blocker
 progress:
   total_phases: 1
   completed_phases: 0
@@ -26,9 +26,9 @@ See: `.planning/PROJECT.md` (updated 2026-08-09)
 ## Current Position
 
 Phase: 01 (b2-controlled-rollout) — EXECUTING
-Plan: 01-05 of 13
-Status: CUTOVER_PASS; `ready_for_01_06=true`; live Gold uses persisted Silver under shadow
-Last activity: 2026-08-10 -- controlled persisted-Silver Gold cutover completed
+Plan: 01-06 of 13
+Status: STOP / O1_BLOCKED; `ready_for_01_07=false`; live Gold remains on persisted Silver under shadow
+Last activity: 2026-08-10 -- corrected `lakehouse_correctness_total` query passed, but the O1 workload and physical-cost gates remain blocked
 
 Progress: ▓▓▓▓▓▓░░░░ 58% of current rollout phase
 
@@ -70,7 +70,14 @@ established the independent epoch `b2-nb-20260810-01`, and 01-02C passed its
 guarded B2 canary without claiming historical continuity. 01-03F then proved
 durable per-identity completion evidence on one new bounded fixture; no
 historical replay or backfill ran. 01-04 passed its pure M5 gate and 01-05
-completed the controlled persisted-Silver Gold cutover. 01-06 is next.
+completed the controlled persisted-Silver Gold cutover.
+
+01-06 preserved its initial STOP evidence, corrected the Prometheus Counter
+query from `lakehouse_correctness` to `lakehouse_correctness_total`, and retried
+the same gate. The corrected query returned three correctness series. The gate
+remains STOP because no post-cutover B2 work exists and the current B2 runtime
+path does not populate the physical-cost fields required by TEL-01. 01-07 is
+not authorized.
 
 ### Blockers/Concerns
 
@@ -78,6 +85,10 @@ Historical per-ID proof remains incomplete for 156 legacy identities and is
 accepted as unrecoverable. Future B2 processing is protected by the durable
 completion ledger; no historical cleanup, replay, or identity fabrication is
 authorized.
+
+- 01-06 O1 retry is blocked: 281 successful post-cutover medallion rows contain zero positive keys/files processing; outbox=0, progress in-flight=0, writer activity predates cutover, and the writer/streaming services are not running.
+- `run_b2_incremental` does not calculate or pass files/bytes planned, added, removed, or snapshot delta. Adding that production instrumentation and generating workload are outside the observation-only 01-06 artifact scope.
+- Runtime must remain `b2/persisted_silver/1`; do not run 01-07 from this STOP.
 
 - 01-02 failed closed: Iceberg REST uses `jdbc:sqlite:file:/catalog/iceberg_catalog.db`, and live concurrent access produced `UncheckedSQLException`/unknown failure with zero successful shadow cycles. 01-02A read-only diagnosis is captured, but metadata-preserving migration to a concurrent backend is not yet proven.
 - Orders streaming failed closed on unavailable Kafka history: checkpoint offset `218961` versus available offset `157`. The old checkpoint must be preserved; a new epoch requires business-state continuity proof.
@@ -93,6 +104,6 @@ authorized.
 
 ## Session Continuity
 
-Last session: 2026-08-10T12:46:48.679Z
-Stopped at: Completed 01-02C-PLAN.md
+Last session: 2026-08-10T18:51:26.732Z
+Stopped at: 01-06 STOP / O1_BLOCKED after bounded Prometheus query correction and same-gate retry
 Resume file: None
