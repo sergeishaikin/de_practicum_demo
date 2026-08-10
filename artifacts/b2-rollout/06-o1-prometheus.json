@@ -39,6 +39,21 @@
         "result": []
       }
     },
+    "lakehouse_correctness_total": {
+      "status": "success",
+      "retry_correction": {
+        "queried_at": "2026-08-10T18:51:26.732Z",
+        "reason": "prometheus_client exports Counter('lakehouse_correctness', ...) under the canonical _total series name"
+      },
+      "data": {
+        "resultType": "vector",
+        "result": [
+          {"metric":{"__name__":"lakehouse_correctness_total","instance":"iceberg-medallion:9102","job":"iceberg-medallion","kind":"lower_versions_ignored","source":"medallion"},"value":[1786387886.732,"0"]},
+          {"metric":{"__name__":"lakehouse_correctness_total","instance":"iceberg-medallion:9102","job":"iceberg-medallion","kind":"ff14_conflicts","source":"medallion"},"value":[1786387886.732,"0"]},
+          {"metric":{"__name__":"lakehouse_correctness_total","instance":"iceberg-medallion:9102","job":"iceberg-medallion","kind":"shadow_mismatches","source":"medallion"},"value":[1786387886.732,"0"]}
+        ]
+      }
+    },
     "lakehouse_processed": {
       "status": "success",
       "data": {

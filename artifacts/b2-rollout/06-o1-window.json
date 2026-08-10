@@ -16,6 +16,31 @@
     "ff14_conflicts": 0,
     "max_work_in_flight": 0
   },
+  "retry_observation": {
+    "captured_at": "2026-08-10T18:51:04.592114Z",
+    "successful_rows_since_cutover": 281,
+    "rows_with_keys_processed": 0,
+    "rows_with_files_processed": 0,
+    "rows_with_files_planned": 0,
+    "max_keys_processed": 0,
+    "max_files_processed": 0,
+    "max_files_planned": 0,
+    "max_bytes_planned": 0,
+    "writer_last_metric_ts": "2026-08-10T12:13:25.628788Z",
+    "writer_rows_since_cutover": 0,
+    "writer_files_since_cutover": 0,
+    "runtime_work_state": {
+      "bronze_outbox_records": 0,
+      "progress_in_flight": 0,
+      "progress_completed_retained": 100,
+      "progress_next_sequence": 259,
+      "completion_ledger_receipts": 9
+    },
+    "running_upstream_workload_services": {
+      "orders_streaming": false,
+      "iceberg_writer": false
+    }
+  },
   "candidate_window": {
     "selection": "latest_10_consecutive_success_rows",
     "row_count": 10,

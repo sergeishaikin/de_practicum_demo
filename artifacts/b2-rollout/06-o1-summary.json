@@ -12,13 +12,30 @@
   "ff14_conflicts": 0,
   "final_work_in_flight": 0,
   "required_fields_complete": true,
-  "prometheus_queries_successful": 7,
-  "prometheus_correctness_series_present": false,
+  "prometheus_queries_successful": 8,
+  "initial_prometheus_correctness_query": "lakehouse_correctness",
+  "initial_prometheus_correctness_series_present": false,
+  "corrected_prometheus_correctness_query": "lakehouse_correctness_total",
+  "prometheus_correctness_series_present": true,
   "validity_reasons": [
     "NO_NON_EMPTY_B2_ROW_AFTER_CUTOVER",
     "CANNOT_MEASURE_B2_FILE_OR_BYTE_AMPLIFICATION",
-    "REQUESTED_PROMETHEUS_CORRECTNESS_QUERY_RETURNED_NO_SERIES"
+    "B2_RUNTIME_PATH_DOES_NOT_POPULATE_COST_FIELDS"
   ],
+  "diagnosis": {
+    "lack_of_qualifying_workload": {
+      "verdict": true,
+      "evidence": "At retry there were 281 successful post-cutover medallion rows, but zero positive keys_processed/files_processed rows; the durable outbox and in-flight progress were empty, writer activity predated cutover, and writer/streaming containers were absent."
+    },
+    "telemetry_or_classification_defect": {
+      "verdict": "prometheus_query_only",
+      "evidence": "The SQL non-empty classification is consistent with raw runtime state. The Prometheus collection queried lakehouse_correctness, while prometheus_client exposes that Counter as lakehouse_correctness_total; the corrected query returned three medallion correctness series."
+    },
+    "instrumentation_defect": {
+      "verdict": true,
+      "evidence": "Metrics.record accepts physical-cost fields, but run_b2_incremental records files_processed/keys_processed and never calculates or passes files_planned, bytes_planned, files_removed, files_added, bytes_removed, bytes_added, or snapshot_delta. Runtime amplification cannot be proven by 01-06 artifacts alone."
+    }
+  },
   "ratios": [
     {"metric_ts":"2026-08-10T18:05:14.084329Z","files_planned_per_added":null,"bytes_planned_per_added":null,"files_removed_per_added":null,"bytes_removed_per_added":null,"snapshot_delta":0},
     {"metric_ts":"2026-08-10T18:06:15.268000Z","files_planned_per_added":null,"bytes_planned_per_added":null,"files_removed_per_added":null,"bytes_removed_per_added":null,"snapshot_delta":0},
