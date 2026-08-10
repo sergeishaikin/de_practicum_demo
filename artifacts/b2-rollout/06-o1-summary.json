@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "phase": "01-b2-controlled-rollout",
+  "plan": "01-06",
+  "disposition": "STOP",
+  "valid": false,
+  "successful_rows": 10,
+  "post_cutover_successful_rows": 232,
+  "non_empty_b2_rows": 0,
+  "shadow_comparisons": 5,
+  "shadow_mismatches": 0,
+  "ff14_conflicts": 0,
+  "final_work_in_flight": 0,
+  "required_fields_complete": true,
+  "prometheus_queries_successful": 7,
+  "prometheus_correctness_series_present": false,
+  "validity_reasons": [
+    "NO_NON_EMPTY_B2_ROW_AFTER_CUTOVER",
+    "CANNOT_MEASURE_B2_FILE_OR_BYTE_AMPLIFICATION",
+    "REQUESTED_PROMETHEUS_CORRECTNESS_QUERY_RETURNED_NO_SERIES"
+  ],
+  "ratios": [
+    {"metric_ts":"2026-08-10T18:05:14.084329Z","files_planned_per_added":null,"bytes_planned_per_added":null,"files_removed_per_added":null,"bytes_removed_per_added":null,"snapshot_delta":0},
+    {"metric_ts":"2026-08-10T18:06:15.268000Z","files_planned_per_added":null,"bytes_planned_per_added":null,"files_removed_per_added":null,"bytes_removed_per_added":null,"snapshot_delta":0},
+    {"metric_ts":"2026-08-10T18:06:47.108485Z","files_planned_per_added":null,"bytes_planned_per_added":null,"files_removed_per_added":null,"bytes_removed_per_added":null,"snapshot_delta":0},
+    {"metric_ts":"2026-08-10T18:07:47.898285Z","files_planned_per_added":null,"bytes_planned_per_added":null,"files_removed_per_added":null,"bytes_removed_per_added":null,"snapshot_delta":0},
+    {"metric_ts":"2026-08-10T18:08:17.993097Z","files_planned_per_added":null,"bytes_planned_per_added":null,"files_removed_per_added":null,"bytes_removed_per_added":null,"snapshot_delta":0},
+    {"metric_ts":"2026-08-10T18:09:18.698318Z","files_planned_per_added":null,"bytes_planned_per_added":null,"files_removed_per_added":null,"bytes_removed_per_added":null,"snapshot_delta":0},
+    {"metric_ts":"2026-08-10T18:09:51.369395Z","files_planned_per_added":null,"bytes_planned_per_added":null,"files_removed_per_added":null,"bytes_removed_per_added":null,"snapshot_delta":0},
+    {"metric_ts":"2026-08-10T18:10:52.631710Z","files_planned_per_added":null,"bytes_planned_per_added":null,"files_removed_per_added":null,"bytes_removed_per_added":null,"snapshot_delta":0},
+    {"metric_ts":"2026-08-10T18:11:25.659484Z","files_planned_per_added":null,"bytes_planned_per_added":null,"files_removed_per_added":null,"bytes_removed_per_added":null,"snapshot_delta":0},
+    {"metric_ts":"2026-08-10T18:12:26.301463Z","files_planned_per_added":null,"bytes_planned_per_added":null,"files_removed_per_added":null,"bytes_removed_per_added":null,"snapshot_delta":0}
+  ],
+  "raw_rows_artifact": "artifacts/b2-rollout/06-o1-window.json",
+  "prometheus_artifact": "artifacts/b2-rollout/06-o1-prometheus.json"
+}

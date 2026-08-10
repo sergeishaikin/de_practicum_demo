@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "phase": "01-b2-controlled-rollout",
+  "plan": "01-06",
+  "captured_at": "2026-08-10T18:13:20.533Z",
+  "queries": {
+    "lakehouse_up": {
+      "status": "success",
+      "data": {
+        "resultType": "vector",
+        "result": [
+          {
+            "metric": {
+              "__name__": "lakehouse_up",
+              "instance": "iceberg-medallion:9102",
+              "job": "iceberg-medallion",
+              "source": "medallion"
+            },
+            "value": [1786385533.857, "1"]
+          }
+        ]
+      }
+    },
+    "lakehouse_work": {
+      "status": "success",
+      "data": {
+        "resultType": "vector",
+        "result": [
+          {"metric":{"__name__":"lakehouse_work","instance":"iceberg-medallion:9102","job":"iceberg-medallion","source":"medallion","state":"available"},"value":[1786385533.921,"0"]},
+          {"metric":{"__name__":"lakehouse_work","instance":"iceberg-medallion:9102","job":"iceberg-medallion","source":"medallion","state":"in_flight"},"value":[1786385533.921,"0"]},
+          {"metric":{"__name__":"lakehouse_work","instance":"iceberg-medallion:9102","job":"iceberg-medallion","source":"medallion","state":"completed"},"value":[1786385533.921,"0"]}
+        ]
+      }
+    },
+    "lakehouse_correctness": {
+      "status": "success",
+      "data": {
+        "resultType": "vector",
+        "result": []
+      }
+    },
+    "lakehouse_processed": {
+      "status": "success",
+      "data": {
+        "resultType": "vector",
+        "result": [
+          {"metric":{"__name__":"lakehouse_processed","instance":"iceberg-medallion:9102","job":"iceberg-medallion","kind":"rows","source":"medallion"},"value":[1786385533.926,"0"]},
+          {"metric":{"__name__":"lakehouse_processed","instance":"iceberg-medallion:9102","job":"iceberg-medallion","kind":"files","source":"medallion"},"value":[1786385533.926,"0"]},
+          {"metric":{"__name__":"lakehouse_processed","instance":"iceberg-medallion:9102","job":"iceberg-medallion","kind":"keys","source":"medallion"},"value":[1786385533.926,"0"]}
+        ]
+      }
+    },
+    "lakehouse_stage_duration_seconds": {
+      "status": "success",
+      "data": {
+        "resultType": "vector",
+        "result": [
+          {"metric":{"__name__":"lakehouse_stage_duration_seconds","instance":"iceberg-medallion:9102","job":"iceberg-medallion","source":"medallion","stage":"silver"},"value":[1786385533.927,"29.911"]},
+          {"metric":{"__name__":"lakehouse_stage_duration_seconds","instance":"iceberg-medallion:9102","job":"iceberg-medallion","source":"medallion","stage":"gold"},"value":[1786385533.927,"4.376"]}
+        ]
+      }
+    },
+    "lakehouse_files": {
+      "status": "success",
+      "data": {
+        "resultType": "vector",
+        "result": [
+          {"metric":{"__name__":"lakehouse_files","instance":"iceberg-medallion:9102","job":"iceberg-medallion","kind":"planned","source":"medallion"},"value":[1786385533.929,"0"]},
+          {"metric":{"__name__":"lakehouse_files","instance":"iceberg-medallion:9102","job":"iceberg-medallion","kind":"removed","source":"medallion"},"value":[1786385533.929,"0"]},
+          {"metric":{"__name__":"lakehouse_files","instance":"iceberg-medallion:9102","job":"iceberg-medallion","kind":"added","source":"medallion"},"value":[1786385533.929,"0"]}
+        ]
+      }
+    },
+    "lakehouse_bytes": {
+      "status": "success",
+      "data": {
+        "resultType": "vector",
+        "result": [
+          {"metric":{"__name__":"lakehouse_bytes","instance":"iceberg-medallion:9102","job":"iceberg-medallion","kind":"planned","source":"medallion"},"value":[1786385533.930,"0"]},
+          {"metric":{"__name__":"lakehouse_bytes","instance":"iceberg-medallion:9102","job":"iceberg-medallion","kind":"removed","source":"medallion"},"value":[1786385533.930,"0"]},
+          {"metric":{"__name__":"lakehouse_bytes","instance":"iceberg-medallion:9102","job":"iceberg-medallion","kind":"added","source":"medallion"},"value":[1786385533.930,"0"]}
+        ]
+      }
+    }
+  }
+}

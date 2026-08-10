@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "phase": "01-b2-controlled-rollout",
+  "plan": "01-06",
+  "disposition": "STOP",
+  "passed": false,
+  "ready_for_01_07": false,
+  "runtime_before": {
+    "SILVER_MODE": "b2",
+    "GOLD_SOURCE": "persisted_silver",
+    "SHADOW_COMPARE": "1"
+  },
+  "runtime_after": {
+    "SILVER_MODE": "b2",
+    "GOLD_SOURCE": "persisted_silver",
+    "SHADOW_COMPARE": "1"
+  },
+  "runtime_changed": false,
+  "container_evidence": {
+    "id": "b7ea21755ad1b1882565c33f0cc8e2a89b7e3e1102641d58827740359171085b",
+    "started_at": "2026-08-10T15:16:34.7580608Z"
+  },
+  "checks": {
+    "successful_cutover_receipt": true,
+    "runtime_tuple_exact": true,
+    "at_least_10_consecutive_success_rows": true,
+    "at_least_1_non_empty_b2_row": false,
+    "all_required_fields_present": true,
+    "zero_shadow_mismatches": true,
+    "zero_ff14_conflicts": true,
+    "final_work_in_flight_zero": true,
+    "requested_prometheus_correctness_series_present": false
+  },
+  "failed_checks": [
+    "at_least_1_non_empty_b2_row",
+    "requested_prometheus_correctness_series_present"
+  ],
+  "reason": "The post-cutover history contains 232 successful medallion rows but zero rows with actual B2 keys/files planned, so the representative observation threshold is not met and amplification cannot be evaluated.",
+  "rollback_executed": false,
+  "rollback_reason": "The user explicitly required STOP with evidence and an unchanged runtime when the observation threshold is not met.",
+  "d3a_opened": false,
+  "o2_opened": false,
+  "historical_evidence_modified": false
+}
