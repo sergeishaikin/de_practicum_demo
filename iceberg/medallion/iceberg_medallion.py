@@ -5,8 +5,9 @@ import sys
 import time
 import json
 import math
+import hashlib
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from urllib.parse import urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -59,6 +60,10 @@ BRONZE_OUTBOX_PREFIX = os.getenv(
 )
 MEDALLION_PROGRESS_PATH = os.getenv(
     "MEDALLION_PROGRESS_PATH", "streaming/medallion/progress.json"
+)
+MEDALLION_COMPLETION_LEDGER_PREFIX = os.getenv(
+    "MEDALLION_COMPLETION_LEDGER_PREFIX",
+    "streaming/medallion/completion-ledger",
 )
 MAX_COMPLETED_PROGRESS = int(os.getenv("MAX_COMPLETED_PROGRESS", "100"))
 SIMULATE_B2_CRASH_BEFORE_COMMIT = (
@@ -209,6 +214,94 @@ def save_progress(fs: S3FileSystem, progress: dict) -> None:
         output.write(raw)
 
 
+def _completion_ledger_base_path() -> str:
+    return f"{MINIO_BUCKET}/{MEDALLION_COMPLETION_LEDGER_PREFIX}".rstrip("/")
+
+
+def _completion_receipt_path(load_id: str) -> str:
+    if not load_id or "/" in load_id:
+        raise ValueError(f"Invalid completion manifest identity: {load_id!r}")
+    return f"{_completion_ledger_base_path()}/{load_id}.json"
+
+
+def load_completion_ledger(fs: S3FileSystem) -> dict[str, dict]:
+    """Load immutable per-manifest completion receipts from durable storage."""
+
+    selector = FileSelector(
+        base_dir=_completion_ledger_base_path(),
+        recursive=False,
+        allow_not_found=True,
+    )
+    receipts: dict[str, dict] = {}
+    for info in sorted(fs.get_file_info(selector), key=lambda item: item.path):
+        if not info.is_file or not info.path.endswith(".json"):
+            continue
+        receipt = _read_json(fs, info.path)
+        load_id = str(receipt.get("load_id", ""))
+        if receipt.get("result") != "success" or not load_id:
+            raise ValueError(f"Invalid completion receipt: {info.path}")
+        if load_id in receipts and receipts[load_id] != receipt:
+            raise ValueError(f"Ambiguous completion receipts for {load_id}")
+        receipts[load_id] = receipt
+    return receipts
+
+
+def _append_completion_receipt(
+    fs: S3FileSystem,
+    record: dict,
+    *,
+    sequence: int,
+    snapshot_id: int | None,
+    changed_keys: list[str],
+    source_epoch_id: str | None,
+    output_digest: str | None,
+) -> dict:
+    """Write one immutable success receipt after the Silver commit."""
+
+    load_id = str(record["load_id"])
+    path = _completion_receipt_path(load_id)
+    try:
+        existing = _read_json(fs, path)
+    except (FileNotFoundError, OSError):
+        existing = None
+    if existing is not None:
+        if (
+            str(existing.get("load_id")) != load_id
+            or existing.get("manifest_id") != record.get("_object_path")
+            or existing.get("result") != "success"
+        ):
+            raise ValueError(f"Ambiguous completion identity for {load_id}")
+        return existing
+
+    receipt = {
+        "manifest_id": record.get("_object_path", _completion_receipt_path(load_id)),
+        "load_id": load_id,
+        "sequence": sequence,
+        "source_paths": sorted(record.get("source_paths", [])),
+        "source_epoch_id": source_epoch_id,
+        "completed_at": datetime.now(timezone.utc).isoformat(),
+        "result": "success",
+        "silver_snapshot_id": snapshot_id,
+        "changed_keys": sorted(changed_keys),
+        "output_digest": output_digest,
+    }
+    with fs.open_output_stream(path) as output:
+        output.write(json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode())
+    return receipt
+
+
+def _rows_output_digest(rows: list[dict]) -> str:
+    canonical = json.dumps(rows, sort_keys=True, default=str, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _source_epoch_id(rows: list[dict]) -> str | None:
+    epochs = sorted(
+        {str(row["source_epoch_id"]) for row in rows if row.get("source_epoch_id")}
+    )
+    return epochs[0] if len(epochs) == 1 else None
+
+
 def delete_bronze_work(fs: S3FileSystem, record: dict) -> None:
     fs.delete_file(record["_object_path"])
 
@@ -242,12 +335,26 @@ def _mark_b2_completed(
     changed_keys: list[str],
     *,
     delete_outbox: bool = True,
+    source_epoch_id: str | None = None,
+    output_digest: str | None = None,
 ) -> None:
     load_id = record["load_id"]
-    progress["next_sequence"] += 1
+    next_sequence = progress["next_sequence"] + 1
+    completion = _append_completion_receipt(
+        fs,
+        record,
+        sequence=next_sequence,
+        snapshot_id=snapshot_id,
+        changed_keys=changed_keys,
+        source_epoch_id=source_epoch_id,
+        output_digest=output_digest,
+    )
+    progress["next_sequence"] = max(
+        progress["next_sequence"], int(completion.get("sequence", next_sequence))
+    )
     progress["completed"][load_id] = {
-        "sequence": progress["next_sequence"],
-        "silver_snapshot_id": snapshot_id,
+        "sequence": completion.get("sequence", next_sequence),
+        "silver_snapshot_id": completion.get("silver_snapshot_id", snapshot_id),
         "changed_keys": sorted(changed_keys),
     }
     progress["work"].pop(load_id, None)
@@ -335,6 +442,7 @@ def run_b2(catalog: RestCatalog, metrics: Metrics, fs: S3FileSystem | None = Non
     silver = catalog.load_table(silver_id)
     progress = load_progress(fs)
     records = list_bronze_work(fs)
+    completion_ledger = load_completion_ledger(fs)
 
     # A completed marker is durable independently of Silver snapshot history.
     # It also makes a stale duplicate outbox object harmless.
@@ -352,6 +460,20 @@ def run_b2(catalog: RestCatalog, metrics: Metrics, fs: S3FileSystem | None = Non
     for record in records:
         load_id = record["load_id"]
         if load_id in progress["completed"]:
+            continue
+        if load_id in completion_ledger:
+            receipt = completion_ledger[load_id]
+            _mark_b2_completed(
+                fs,
+                progress,
+                record,
+                receipt.get("silver_snapshot_id"),
+                receipt.get("changed_keys", []),
+                source_epoch_id=receipt.get("source_epoch_id"),
+                output_digest=receipt.get("output_digest"),
+            )
+            processed += 1
+            files_processed += len(record["bronze_data_files"])
             continue
         if load_id in progress["work"] and load_id in committed_ids:
             _mark_b2_completed(
@@ -424,6 +546,8 @@ def run_b2(catalog: RestCatalog, metrics: Metrics, fs: S3FileSystem | None = Non
             record,
             snapshot_id,
             [row["order_id"] for row in resolved],
+            source_epoch_id=_source_epoch_id(incoming),
+            output_digest=_rows_output_digest(resolved),
         )
         processed += 1
         files_processed += len(record["bronze_data_files"])

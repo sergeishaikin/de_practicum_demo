@@ -17,7 +17,7 @@ conditions, observe real B2 cost, and make an evidence-based D-3a/O2 decision.
 
 **Depends on**: S1.2B verified cleanup at `89953fe`.
 **Requirements**: [CAN-01, CAN-02, CAN-03, CUT-01, CUT-02, TEL-01, DEC-01]
-**Plans**: 12 plans, including fail-closed runtime gap closure and a deliberate new-epoch baseline after historical recovery STOP.
+**Plans**: 13 plans, including fail-closed runtime gap closure, a deliberate new-epoch baseline, and forward-only completion evidence after historical recovery STOP.
 
 **Wave 1**
 
@@ -78,6 +78,10 @@ conditions, observe real B2 cost, and make an evidence-based D-3a/O2 decision.
 - Multi-writer support remains deferred.
 
 ## Progress
+
+Forward remediation: `01-03` remains STOP / HISTORICAL_EVIDENCE_GAP;
+`01-03F` is the required bounded forward-only completion-ledger plan before
+`01-04` may execute. Historical 156 identities are not backfilled.
 
 **Execution Order:** Phase 1 → 01-01 → 01-02 → 01-02A → historical 01-02B STOP → 01-02B-R STOP → 01-02B-NB → 01-02C → 01-03 → 01-04 → 01-05 → 01-06 → 01-07
 

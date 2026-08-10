@@ -174,6 +174,7 @@ def setup_run(monkeypatch, incoming: list[dict], silver_rows: list[dict] | None 
     monkeypatch.setattr(m, "MINIO_BUCKET", "de-practicum")
     monkeypatch.setattr(m, "BRONZE_OUTBOX_PREFIX", "test-outbox")
     monkeypatch.setattr(m, "MEDALLION_PROGRESS_PATH", "test-progress/progress.json")
+    monkeypatch.setattr(m, "MEDALLION_COMPLETION_LEDGER_PREFIX", "test-completion-ledger")
     monkeypatch.setattr(m, "ensure_table", lambda *args: None)
     monkeypatch.setattr(m, "read_bronze_work", lambda fs, bronze, record: rows_to_arrow(incoming))
     monkeypatch.setattr(m, "SIMULATE_B2_CRASH_BEFORE_COMMIT", False)
@@ -241,6 +242,12 @@ def test_b2_run_commits_only_advancing_keys_and_completes_progress(monkeypatch) 
     assert metrics.records[-1]["work_in_flight"] == 0
     assert metrics.records[-1]["work_completed"] == 1
     assert f"de-practicum/test-outbox/{load_id}.json" not in fs.objects
+    ledger_path = f"de-practicum/test-completion-ledger/{load_id}.json"
+    receipt = json.loads(fs.objects[ledger_path])
+    assert receipt["manifest_id"] == f"de-practicum/test-outbox/{load_id}.json"
+    assert receipt["load_id"] == load_id
+    assert receipt["result"] == "success"
+    assert receipt["sequence"] == 1
 
     snapshots = len(silver.metadata.snapshots)
     duplicate_path, duplicate_payload = outbox(load_id)
@@ -248,6 +255,7 @@ def test_b2_run_commits_only_advancing_keys_and_completes_progress(monkeypatch) 
     m.run_b2(catalog, metrics, fs)
     assert len(silver.metadata.snapshots) == snapshots
     assert f"de-practicum/test-outbox/{load_id}.json" not in fs.objects
+    assert len([p for p in fs.objects if "test-completion-ledger" in p]) == 1
 
 
 def test_b2_crash_before_commit_retries(monkeypatch) -> None:
@@ -310,3 +318,46 @@ def test_b2_crash_after_commit_reconciles_without_second_snapshot(monkeypatch) -
     progress = json.loads(fs.objects["de-practicum/test-progress/progress.json"])
     assert progress["work"] == {}
     assert progress["completed"]["load-1"]["silver_snapshot_id"] == 1
+
+
+def test_failed_b2_processing_does_not_write_success_receipt(monkeypatch) -> None:
+    conflicting = [
+        row("a", 4, amount=40, customer="first"),
+        row("a", 4, amount=41, customer="second"),
+    ]
+    fs, catalog, _silver, metrics, _load_id = setup_run(monkeypatch, conflicting)
+
+    with pytest.raises(ValueError, match="FF-14"):
+        m.run_b2(catalog, metrics, fs)
+
+    assert not [p for p in fs.objects if "test-completion-ledger" in p]
+
+
+def test_completion_ledger_survives_bounded_progress_pruning(monkeypatch) -> None:
+    fs, catalog, _silver, metrics, load_id = setup_run(monkeypatch, [row("a", 1, amount=10)])
+    monkeypatch.setattr(m, "MAX_COMPLETED_PROGRESS", 1)
+
+    m.run_b2(catalog, metrics, fs)
+    second_path, second_payload = outbox("load-2")
+    fs.objects[second_path] = second_payload
+    m.run_b2(catalog, metrics, fs)
+
+    progress = json.loads(fs.objects["de-practicum/test-progress/progress.json"])
+    assert load_id not in progress["completed"]
+    assert set(m.load_completion_ledger(fs)) == {"load-1", "load-2"}
+
+
+def test_historical_progress_is_not_backfilled_into_ledger(monkeypatch) -> None:
+    fs, catalog, _silver, metrics, load_id = setup_run(monkeypatch, [row("a", 1, amount=10)])
+    fs.objects["de-practicum/test-progress/progress.json"] = json.dumps(
+        {
+            "version": 1,
+            "next_sequence": 42,
+            "work": {},
+            "completed": {load_id: {"sequence": 42, "silver_snapshot_id": None}},
+        }
+    ).encode()
+
+    m.run_b2(catalog, metrics, fs)
+
+    assert not [p for p in fs.objects if "test-completion-ledger" in p]
