@@ -85,6 +85,8 @@ Forward remediation: `01-03` remains STOP / HISTORICAL_EVIDENCE_GAP;
 `01-03F` is the required bounded forward-only completion-ledger plan before
 `01-04` may execute. Historical 156 identities are not backfilled.
 
+Current gate state: `01-03F = PASS`, `ready_for_01_04 = true`.
+
 **Execution Order:** Phase 1 → 01-01 → 01-02 → 01-02A → historical 01-02B STOP → 01-02B-R STOP → 01-02B-NB → 01-02C → 01-03 → 01-04 → 01-05 → 01-06 → 01-07
 
 | Phase | Milestone | Plans Complete | Status | Completed |
