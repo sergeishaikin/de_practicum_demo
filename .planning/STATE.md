@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: milestone
 status: 01-06 PASS; 01-07 authorized but not executed
 stopped_at: 01-03 STOP / HISTORICAL_EVIDENCE_GAP preserved
-last_updated: "2026-08-10T19:58:28.129461Z"
-last_activity: 2026-08-10 -- bounded B2 cost instrumentation and workload closed the 01-06 O1 gate
+last_updated: "2026-08-15T22:50:00Z"
+last_activity: 2026-08-15 -- Quick Task 260815-ulp verified Airflow maintenance and batch hardening live
 progress:
   total_phases: 1
   completed_phases: 0
@@ -28,7 +28,7 @@ See: `.planning/PROJECT.md` (updated 2026-08-09)
 Phase: 01 (b2-controlled-rollout) — EXECUTING
 Plan: 01-06 of 13 complete; next is 01-07
 Status: PASS; `ready_for_01_07=true`; live Gold remains on persisted Silver under shadow
-Last activity: 2026-08-10 -- representative B2 physical-cost window passed the unchanged O1 gate
+Last activity: 2026-08-15 -- Quick Task 260815-ulp passed exact Airflow maintenance and batch live verification
 
 Progress: ▓▓▓▓▓▓▓░░░ 67% of current rollout phase
 
@@ -63,6 +63,7 @@ Progress: ▓▓▓▓▓▓▓░░░ 67% of current rollout phase
 - [Phase 01]: 02C evidence requires a fresh non-empty B2 work metric paired with shadow_comparisons=1, zero mismatches/FF14/inflight, and immutable b2-nb-20260810-01 state.
 - [Phase 01]: 01-03 remains STOP / HISTORICAL_EVIDENCE_GAP; 01-03F adds an immutable forward completion ledger without backfilling historical identities.
 - [Phase 01]: 01-06 PASS used one bounded higher-version event for an existing key; B2 recorded complete scan/write/snapshot cost, zero mismatches/FF-14/in-flight work, and retained `b2/persisted_silver/1`.
+- [Quick 260815-ulp]: Airflow maintenance and batch hardening passed exact one-shot live verification under `b2/persisted_silver/1`; no retry, clear, replay, backfill, or historical-evidence mutation occurred.
 
 ### Pending Todos
 
@@ -93,6 +94,12 @@ authorized.
 - 01-02 failed closed: Iceberg REST uses `jdbc:sqlite:file:/catalog/iceberg_catalog.db`, and live concurrent access produced `UncheckedSQLException`/unknown failure with zero successful shadow cycles. 01-02A read-only diagnosis is captured, but metadata-preserving migration to a concurrent backend is not yet proven.
 - Orders streaming failed closed on unavailable Kafka history: checkpoint offset `218961` versus available offset `157`. The old checkpoint must be preserved; a new epoch requires business-state continuity proof.
 - 01-02A is complete. Historical 01-02B and 01-02B-R both stopped fail-closed: the stable Kafka range is 0..40208 (40209 messages), all are absent from Bronze, landing output ends at 218960, and the current checkpoint objects end at 157. Historical continuity cannot be restored. Do not reset old checkpoints or use startingOffsets=latest. Establish a fresh durable new-epoch baseline before 01-02C.
+
+## Quick Tasks Completed
+
+| # | Description | Date | Commit | Status | Directory |
+|---|-------------|------|--------|--------|-----------|
+| 260815-ulp | Harden Airflow maintenance and batch workflows with exact live verification | 2026-08-15 | `2187c5e` | Verified | [260815-ulp-improve-airflow-workflows-resolve-the-pr](./quick/260815-ulp-improve-airflow-workflows-resolve-the-pr/) |
 
 ## Deferred Items
 

@@ -254,11 +254,13 @@ Primary threat is integrity loss from replaying an ambiguously committed mainten
 |---|---|---|
 | A1 | `[ASSUMED]` “Staging validation” means exact non-empty raw-CSV-to-staging row parity for all four configured loads, without adding business rules. | If the desired gate includes additional domain constraints, the planner must add them explicitly; do not invent them during implementation. |
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+**RESOLVED — chosen scope:** Staging validation is limited to exact, non-empty raw-CSV-to-staging row parity for all four configured `STG_LOADS`. The existing payment reconciliation, duplicate-grain/null-key checks, mart reconciliation, and final pipeline audit remain unchanged and continue to own their current business rules.
 
 1. **Does staging validation require rules beyond exact row parity/non-empty inputs?**
    - What is known: Existing `db/demo_sql/05_quality_scorecard.sql` treats non-empty staging as the staging-level quality check, while later tasks cover payment reconciliation, duplicate grain, null keys, and mart reconciliation. `[VERIFIED: repository SQL and DAG]`
-   - Recommendation: Keep this quick task to four-table parity/non-empty validation and preserve later gates unchanged. `[RECOMMENDED]`
+   - Resolution: No. Implement only four-table exact parity/non-empty validation and preserve all later gates unchanged. `[RESOLVED]`
 
 ## Sources
 
