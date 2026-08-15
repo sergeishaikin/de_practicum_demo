@@ -1,10 +1,3 @@
 # Project-scoped Codex multi-agent configuration.
-# The generated catalog is derived from the latest global models_cache.json by
-# scripts/patch_codex_model_catalog.py; the source cache is never modified.
-model_catalog_json = "C:/Users/serge/.codex/model-catalogs/desktop-multi-agent.json"
-
-[agents]
-enabled = true
-max_concurrent_threads_per_session = 6
-default_subagent_model = "gpt-5.6-luna"
-default_subagent_reasoning_effort = "high"
+# Named project agents are defined in .codex/agents/*.toml.
+# Keep global multi-agent defaults in the user-level Codex config.
