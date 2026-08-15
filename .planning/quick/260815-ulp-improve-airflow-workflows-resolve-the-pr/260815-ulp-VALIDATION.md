@@ -19,6 +19,7 @@ created: 2026-08-15
 | **Config file** | `pytest.ini`, `pyproject.toml`, `uv.lock` |
 | **Quick run command** | `uv run --locked pytest tests/test_residual_remediation.py tests/test_h1_runtime.py -q` |
 | **DAG run command** | `uv run --locked pytest tests/test_dags.py -m airflow -q` |
+| **Read-only receipt command** | `AIRFLOW_RECEIPT_E2E=1 uv run --locked pytest tests/e2e/test_airflow_run_receipts.py -m "e2e and airflow" -q` (PowerShell: set the environment variable with `$env:` first) |
 | **Focused integration command** | `uv run --locked pytest tests/integration/test_iceberg_trino.py::test_maintenance_procedures -m "integration and iceberg and trino" -q -s` |
 | **Full fast suite** | `uv run --locked pytest` |
 | **Live maintenance gate** | `uv run --locked python scripts/verify_maintenance_dag.py`, exactly once after the required pre-state capture |
@@ -126,5 +127,16 @@ None. The stateful gates require live services but are agent-executable and evid
 - [x] Ambiguous maintenance commits fail closed with no retry.
 - [x] Known coverage baseline is documented without weakening the threshold.
 - [x] `nyquist_compliant: true` and `wave_0_complete: true` are set.
+
+## Validation Audit 2026-08-15
+
+| Task ID | Layer | Gap tested | Behavioral evidence | Command | Status |
+|---------|-------|------------|---------------------|---------|--------|
+| 260815-ulp-03a | unit | `verify_maintenance_dag.main()` had no executable fail-closed control-flow coverage | One trigger and exact success; failed DagRun; successful DagRun with incomplete audit; timeout; malformed-state uncertainty | `uv run --locked pytest tests/test_h1_runtime.py -q` | green (`26 passed`) |
+| 260815-ulp-01d / 02c | feature | DAG checks inspected structure but did not execute task callables | Real Airflow task callables ran in the existing container with controlled connections; exact maintenance order/commit/audit/re-raise and four-table staging acceptance/rejection asserted | `uv run --locked pytest tests/test_dags.py -m airflow -q` | green (`10 passed`) |
+| 260815-ulp-01b | integration | Preserve distinct real Trino/Iceberg procedure compatibility coverage | Existing isolated `test_maintenance_procedures` retained; no redundant stateful integration added or rerun during this read-only audit | `uv run --locked pytest tests/integration/test_iceberg_trino.py::test_maintenance_procedures -m "integration and iceberg and trino" -q -s` | green (recorded `1 passed`) |
+| 260815-ulp-03d | e2e | Completed live proof lacked a repeatable non-mutating pytest gate | Exact receipt IDs queried read-only for successful DagRuns, task map indexes/attempts, DWH audits, and persisted runtime mode | `AIRFLOW_RECEIPT_E2E=1 uv run --locked pytest tests/e2e/test_airflow_run_receipts.py -m "e2e and airflow" -q` | green (`2 passed`) |
+
+Audit totals: 4 gaps found, 4 filled, 0 escalated. Canonical fast suite: `166 passed, 34 deselected`. The E2E command ran with maintenance receipt `maintenance_verify_20260815T222907391492Z_3be4ca723766` and batch receipt `batch_verify_20260815T223250865259Z_6c9d0f4252d6`; it performed no trigger, clear, retry, replay, backfill, or write.
 
 **Approval:** passed — implementation evidence and both authorized one-shot live gates were independently verified on 2026-08-15.
