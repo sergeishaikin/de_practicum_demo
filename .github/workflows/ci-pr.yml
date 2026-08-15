@@ -33,7 +33,7 @@ jobs:
             uv.lock requirements-dev.txt airflow.requirements.txt \
             dbt/requirements.txt iceberg/requirements.txt jupyter/requirements.txt \
             kafka/producer/requirements.txt observability/requirements.txt \
-            spark/requirements.txt superset/requirements.txt
+            spark/requirements.txt
       - name: Validate Compose files
         run: >
           docker compose --env-file .env.example

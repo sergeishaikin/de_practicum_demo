@@ -15,9 +15,16 @@ def read(relative: str) -> str:
 
 def test_clean_environment_pins_external_images_and_has_no_latest_tags() -> None:
     env = read(".env.example")
-    image_lines = [line for line in env.splitlines() if line.endswith("\n") is False and "_IMAGE=" in line]
+    image_lines = [
+        line
+        for line in env.splitlines()
+        if line.endswith("\n") is False and "_IMAGE=" in line
+    ]
     assert image_lines
-    assert all(re.search(r"@sha256:[0-9a-f]{64}$", line.split("=", 1)[1]) for line in image_lines)
+    assert all(
+        re.search(r"@sha256:[0-9a-f]{64}$", line.split("=", 1)[1])
+        for line in image_lines
+    )
     assert "latest" not in env
 
 
@@ -50,7 +57,7 @@ def test_custom_build_services_have_explicit_versioned_image_tags() -> None:
 def test_e2e_ad_hoc_container_inherits_runtime_credentials() -> None:
     e2e = read("tests/e2e/test_lakehouse_e2e.py")
 
-    assert 'f"POSTGRES_PASSWORD={PG[\'password\']}"' in e2e
+    assert "f\"POSTGRES_PASSWORD={PG['password']}\"" in e2e
     assert 'f"AWS_SECRET_ACCESS_KEY={SECRET_KEY}"' in e2e
     assert '"POSTGRES_PASSWORD=app"' not in e2e
     assert '"AWS_SECRET_ACCESS_KEY=minio123"' not in e2e
@@ -102,7 +109,6 @@ def test_python_dependencies_are_locked_and_installed_with_uv() -> None:
         ("kafka/producer/requirements.in", "kafka/producer/requirements.txt"),
         ("observability/requirements.in", "observability/requirements.txt"),
         ("spark/requirements.in", "spark/requirements.txt"),
-        ("superset/requirements.in", "superset/requirements.txt"),
     )
     for source, lock in lock_pairs:
         assert read(source).strip()
@@ -116,7 +122,6 @@ def test_python_dependencies_are_locked_and_installed_with_uv() -> None:
         "kafka/producer/Dockerfile",
         "observability/Dockerfile",
         "spark/Dockerfile",
-        "superset/Dockerfile",
     )
     for dockerfile in dockerfiles:
         content = read(dockerfile)
@@ -126,6 +131,9 @@ def test_python_dependencies_are_locked_and_installed_with_uv() -> None:
         assert "pip install" not in content.replace("/bin/uv pip install", "")
 
     assert "mamba create" not in read("jupyter/Dockerfile")
+    assert not (ROOT / "superset" / "Dockerfile").exists()
+    assert not (ROOT / "superset" / "requirements.in").exists()
+    assert not (ROOT / "superset" / "requirements.txt").exists()
 
 
 def test_config_validator_rejects_placeholders_and_unpinned_images() -> None:
@@ -138,16 +146,35 @@ def test_config_validator_rejects_placeholders_and_unpinned_images() -> None:
         "SUPERSET_SECRET_KEY": "secret",
         "AIRFLOW_SECRET_KEY": "secret",
         "AIRFLOW_ADMIN_PASSWORD": "secret",
-        **{key: "repo:latest" for key in (
-            "POSTGRES_IMAGE", "MINIO_IMAGE", "METABASE_IMAGE", "KAFKA_IMAGE",
-            "KAFKA_UI_IMAGE", "ICEBERG_REST_IMAGE", "TRINO_IMAGE",
-            "PROMETHEUS_IMAGE", "GRAFANA_IMAGE", "SUPERSET_IMAGE",
-        )},
-        **{key: "1234" for key in (
-            "POSTGRES_HOST_PORT", "AIRFLOW_HOST_PORT", "MINIO_API_PORT",
-            "MINIO_CONSOLE_PORT", "KAFKA_HOST_PORT", "ICEBERG_REST_PORT",
-            "TRINO_HOST_PORT", "PROMETHEUS_HOST_PORT", "GRAFANA_HOST_PORT",
-        )},
+        **{
+            key: "repo:latest"
+            for key in (
+                "POSTGRES_IMAGE",
+                "MINIO_IMAGE",
+                "METABASE_IMAGE",
+                "KAFKA_IMAGE",
+                "KAFKA_UI_IMAGE",
+                "ICEBERG_REST_IMAGE",
+                "TRINO_IMAGE",
+                "PROMETHEUS_IMAGE",
+                "GRAFANA_IMAGE",
+                "SUPERSET_IMAGE",
+            )
+        },
+        **{
+            key: "1234"
+            for key in (
+                "POSTGRES_HOST_PORT",
+                "AIRFLOW_HOST_PORT",
+                "MINIO_API_PORT",
+                "MINIO_CONSOLE_PORT",
+                "KAFKA_HOST_PORT",
+                "ICEBERG_REST_PORT",
+                "TRINO_HOST_PORT",
+                "PROMETHEUS_HOST_PORT",
+                "GRAFANA_HOST_PORT",
+            )
+        },
     }
 
     errors = validate(values, profile="clean")

@@ -36,4 +36,3 @@ compile 3.10 jupyter/requirements.in jupyter/requirements.txt
 compile 3.12 kafka/producer/requirements.in kafka/producer/requirements.txt
 compile 3.12 observability/requirements.in observability/requirements.txt
 compile 3.12 spark/requirements.in spark/requirements.txt
-compile 3.12 superset/requirements.in superset/requirements.txt

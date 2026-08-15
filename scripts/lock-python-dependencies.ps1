@@ -26,8 +26,7 @@ $Locks = @(
     @{ Input = "jupyter/requirements.in"; Output = "jupyter/requirements.txt"; Python = "3.10" },
     @{ Input = "kafka/producer/requirements.in"; Output = "kafka/producer/requirements.txt"; Python = "3.12" },
     @{ Input = "observability/requirements.in"; Output = "observability/requirements.txt"; Python = "3.12" },
-    @{ Input = "spark/requirements.in"; Output = "spark/requirements.txt"; Python = "3.12" },
-    @{ Input = "superset/requirements.in"; Output = "superset/requirements.txt"; Python = "3.12" }
+    @{ Input = "spark/requirements.in"; Output = "spark/requirements.txt"; Python = "3.12" }
 )
 
     foreach ($Lock in $Locks) {
