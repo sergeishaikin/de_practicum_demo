@@ -7,7 +7,7 @@ from pathlib import Path
 
 import psycopg2
 
-from airflow.sdk import chain, dag, task
+from airflow.sdk import Asset, chain, dag, task
 from airflow.sdk.exceptions import AirflowException
 
 
@@ -79,6 +79,49 @@ STG_LOADS = [
     ),
 ]
 
+BATCH_DAG_DOC = """
+## Core & marts batch pipeline
+
+Loads the four Olist CSV inputs into PostgreSQL staging tables, rebuilds the
+core model and marts views, validates payment reconciliation, and records an
+idempotent audit row in `marts.pipeline_runs`.
+
+This DAG is intentionally manual. Its Assets describe only data managed by
+this batch pipeline; external streaming and Iceberg state are not represented.
+"""
+
+RAW_CSV_ASSETS = [
+    Asset(f"file://{DATA_DIR / csv_name}", group="Raw CSV")
+    for _, csv_name, _ in STG_LOADS
+]
+
+
+def _postgres_asset(name: str, *, group: str) -> Asset:
+    return Asset(
+        "postgres://"
+        f"{DWH_CONN['host']}:{DWH_CONN['port']}/{DWH_CONN['dbname']}/{name}",
+        group=group,
+    )
+
+
+STG_ASSETS = [
+    _postgres_asset(table.replace(".", "/"), group="PostgreSQL · Staging")
+    for table, _, _ in STG_LOADS
+]
+CORE_ASSETS = [
+    _postgres_asset("core/orders", group="PostgreSQL · Core"),
+    _postgres_asset("core/order_items", group="PostgreSQL · Core"),
+]
+MART_ASSETS = [
+    _postgres_asset("marts/v_order_items_wide", group="PostgreSQL · Marts"),
+    _postgres_asset("marts/v_sales_daily", group="PostgreSQL · Marts"),
+    _postgres_asset("marts/v_customer_state_daily", group="PostgreSQL · Marts"),
+    _postgres_asset("marts/v_reconcile_sales_daily", group="PostgreSQL · Marts"),
+]
+PIPELINE_AUDIT_ASSET = _postgres_asset(
+    "marts/pipeline_runs", group="PostgreSQL · Audit"
+)
+
 
 def _connect():
     return psycopg2.connect(**DWH_CONN)
@@ -107,20 +150,23 @@ def _copy_csv(conn, table: str, csv_name: str, columns: list[str]) -> None:
 
 @dag(
     dag_id="demo_core_marts_pipeline",
+    dag_display_name="Core & Marts Batch Pipeline",
+    description="Load Olist CSV data and rebuild the PostgreSQL core and marts layers.",
+    doc_md=BATCH_DAG_DOC,
     start_date=datetime(2024, 1, 1),
     schedule=None,
     catchup=False,
     tags=["demo", "core", "marts"],
 )
 def demo_core_marts_pipeline():
-    @task
+    @task(inlets=RAW_CSV_ASSETS, outlets=STG_ASSETS)
     def load_raw_csv_to_stg() -> None:
         with _connect() as conn:
             _execute_sql_file(conn, SQL_DIR / "00_truncate_stg.sql")
             for table, csv_name, columns in STG_LOADS:
                 _copy_csv(conn, table, csv_name, columns)
 
-    @task
+    @task(inlets=STG_ASSETS, outlets=[*CORE_ASSETS, *MART_ASSETS])
     def rebuild_core_and_marts() -> None:
         with _connect() as conn:
             _execute_sql_file(conn, SQL_DIR / "10_rebuild_core.sql")
@@ -132,7 +178,7 @@ def demo_core_marts_pipeline():
     # TODO 4: если diff > 0.01, вызови AirflowException.
     # TODO 5: вставь check_payment_reconcile в цепочку задач ниже.
 
-    @task
+    @task(inlets=[STG_ASSETS[2], CORE_ASSETS[0]])
     def check_payment_reconcile() -> None:
         reconcile_sql = """
         select
@@ -163,7 +209,7 @@ def demo_core_marts_pipeline():
                 f"diff={diff}"
             )
 
-    @task
+    @task(inlets=MART_ASSETS, outlets=[PIPELINE_AUDIT_ASSET])
     def write_audit(airflow_run_id: str) -> None:
         audit_sql = """
         with metrics as (
