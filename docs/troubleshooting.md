@@ -76,13 +76,17 @@ http://localhost:18085
 Логин не требуется. Compose привязывает Airflow к `127.0.0.1`, а локальный
 Simple Auth Manager разрешает этому loopback-only UI работать в all-admin mode.
 
-## Airflow показывает предупреждение про SQLite
+## Airflow не подключается к metadata DB
 
-Это нормально для demo-стенда.
+Airflow 3.3.1 использует отдельную базу `airflow_meta` в PostgreSQL.
+Проверьте, что в `.env` заданы `AIRFLOW_DB_USER`, `AIRFLOW_DB_NAME` и отдельный
+URL-safe `AIRFLOW_DB_PASSWORD`, затем посмотрите результат one-shot сервиса:
 
-Airflow 3.3.1 использует здесь SQLite metadata DB, LocalExecutor и
-`airflow standalone`. Это сознательное локальное упрощение; такой deployment
-не предназначен для production.
+```powershell
+docker logs de-demo-airflow-db-init
+```
+
+Сервис идемпотентен и должен завершиться с кодом `0` до запуска Airflow.
 
 ## PowerShell блокирует `.ps1`
 

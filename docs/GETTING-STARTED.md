@@ -25,7 +25,7 @@ cd de_practicum_demo
 uv sync --locked
 ```
 
-Create the runtime environment file (the `.env.example` values are safe defaults):
+Create the runtime environment file:
 
 ```powershell
 Copy-Item .env.example .env
@@ -37,7 +37,10 @@ On macOS/Linux:
 cp .env.example .env
 ```
 
-Add `SUPERSET_SECRET_KEY` to `.env` before starting the extended stack if you use Superset — it is required by the `superset` and `superset-mcp` services and has no default (see [CONFIGURATION.md](CONFIGURATION.md)).
+Replace the placeholder values for `AIRFLOW_API_SECRET_KEY`,
+`AIRFLOW_JWT_SECRET`, and `AIRFLOW_DB_PASSWORD` with three independent random
+URL-safe secrets. Also replace `SUPERSET_SECRET_KEY` before starting the
+extended stack (see [CONFIGURATION.md](CONFIGURATION.md)).
 
 Validate the Compose files:
 

@@ -57,7 +57,9 @@ Create the local environment file:
 cp .env.example .env
 ```
 
-For this local demo, set the secret values in `.env`. Git ignores this file.
+Replace `AIRFLOW_API_SECRET_KEY`, `AIRFLOW_JWT_SECRET`, and
+`AIRFLOW_DB_PASSWORD` with independent random URL-safe values. Git ignores
+this file.
 
 ## 4. Run the doctor script
 
@@ -103,8 +105,9 @@ http://localhost:18085
 No login is required. The local demo uses Airflow 3.3.1 Simple Auth Manager in
 all-admin mode, and Compose exposes the UI only on `127.0.0.1`.
 
-SQLite metadata and LocalExecutor are intentional for this local practicum;
-do not use this deployment shape for production.
+Airflow metadata persists in a dedicated PostgreSQL database, while
+LocalExecutor remains intentional for this local practicum. Do not use this
+deployment shape for production.
 
 In Airflow:
 

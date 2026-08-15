@@ -46,11 +46,13 @@ docker compose --env-file .\.env -f .\docker-compose.yml -f .\docker-compose.ext
 ## Environment setup
 
 1. Copy `.env.example` to `.env` and review the values (`Copy-Item .env.example .env`).
-2. Set `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` to non-default secrets if the stack is exposed beyond localhost.
-3. Set `SUPERSET_SECRET_KEY` — required by the Superset services (see [CONFIGURATION.md](CONFIGURATION.md)).
-4. Start and verify with `scripts\doctor.cmd` (or `bash scripts/doctor.sh`) and `docker compose ps`.
+2. Replace `AIRFLOW_API_SECRET_KEY`, `AIRFLOW_JWT_SECRET`, and
+   `AIRFLOW_DB_PASSWORD` with independent random URL-safe values.
+3. Set `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` to non-default secrets if the stack is exposed beyond localhost.
+4. Set `SUPERSET_SECRET_KEY` — required by the Superset services (see [CONFIGURATION.md](CONFIGURATION.md)).
+5. Start and verify with `scripts\doctor.cmd` (or `bash scripts/doctor.sh`) and `docker compose ps`.
 
-Secrets are passed as environment variables to containers (`MINIO_ROOT_*`, `SUPERSET_SECRET_KEY`, `DWH_PASSWORD`). Trino credentials are injected at container start by `trino/etc/start-trino.sh` from `TRINO_S3_ACCESS_KEY` / `TRINO_S3_SECRET_KEY` (both set from the MinIO credentials in `docker-compose.extended.yml`), so no credential is committed in `trino/etc/catalog/iceberg.properties`.
+Secrets are passed as environment variables to containers (`MINIO_ROOT_*`, `SUPERSET_SECRET_KEY`, `AIRFLOW_API_SECRET_KEY`, `AIRFLOW_JWT_SECRET`, `AIRFLOW_DB_PASSWORD`, `DWH_PASSWORD`). Trino credentials are injected at container start by `trino/etc/start-trino.sh` from `TRINO_S3_ACCESS_KEY` / `TRINO_S3_SECRET_KEY` (both set from the MinIO credentials in `docker-compose.extended.yml`), so no credential is committed in `trino/etc/catalog/iceberg.properties`.
 
 ## Rollback procedure
 

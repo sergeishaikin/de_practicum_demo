@@ -20,6 +20,9 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      AIRFLOW_DB_USER: ${AIRFLOW_DB_USER:-airflow}
+      AIRFLOW_DB_PASSWORD: ${AIRFLOW_DB_PASSWORD:?AIRFLOW_DB_PASSWORD is required}
+      AIRFLOW_DB_NAME: ${AIRFLOW_DB_NAME:-airflow_meta}
       TZ: ${TZ:-Europe/Moscow}
     ports:
       - "15432:5432"
@@ -39,6 +42,27 @@ services:
     networks:
       - de_demo_net
 
+  airflow-db-init:
+    image: ${POSTGRES_IMAGE:?POSTGRES_IMAGE is required}
+    container_name: de-demo-airflow-db-init
+    environment:
+      PGHOST: de-demo-postgres
+      PGPORT: "5432"
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      AIRFLOW_DB_USER: ${AIRFLOW_DB_USER:-airflow}
+      AIRFLOW_DB_PASSWORD: ${AIRFLOW_DB_PASSWORD:?AIRFLOW_DB_PASSWORD is required}
+      AIRFLOW_DB_NAME: ${AIRFLOW_DB_NAME:-airflow_meta}
+    volumes:
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    entrypoint: ["/bin/sh", "/docker-entrypoint-initdb.d/006_airflow_metadata.sh"]
+    depends_on:
+      de-demo-postgres:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - de_demo_net
+
   de-demo-airflow:
     build:
       context: .
@@ -47,16 +71,18 @@ services:
     container_name: de-demo-airflow
     hostname: de-demo-airflow
     depends_on:
-      de-demo-postgres:
-        condition: service_healthy
+      airflow-db-init:
+        condition: service_completed_successfully
     environment:
       TZ: ${TZ:-Europe/Moscow}
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
       AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "True"
       AIRFLOW__CORE__DEFAULT_TIMEZONE: ${TZ:-Europe/Moscow}
+      AIRFLOW__CORE__PARALLELISM: "4"
       AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "True"
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: sqlite:////opt/airflow/airflow.db
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_DB_USER:-airflow}:${AIRFLOW_DB_PASSWORD:?AIRFLOW_DB_PASSWORD is required}@de-demo-postgres:5432/${AIRFLOW_DB_NAME:-airflow_meta}
+      AIRFLOW__API__INSTANCE_NAME: "DE Practicum · Local"
       AIRFLOW__API__SECRET_KEY: ${AIRFLOW_API_SECRET_KEY:?AIRFLOW_API_SECRET_KEY is required}
       AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET:?AIRFLOW_JWT_SECRET is required}
       DWH_HOST: de-demo-postgres

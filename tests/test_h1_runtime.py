@@ -61,16 +61,27 @@ def test_airflow_3_local_runtime_contract() -> None:
 
     assert "apache/airflow:3.3.1-python3.12@sha256:" in dockerfile
     for content in (compose, local_compose):
+        assert "airflow-db-init:" in content
+        assert "condition: service_completed_successfully" in content
         assert "AIRFLOW__CORE__EXECUTOR: LocalExecutor" in content
+        assert 'AIRFLOW__CORE__PARALLELISM: "4"' in content
         assert 'AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "True"' in content
+        assert 'AIRFLOW__API__INSTANCE_NAME: "DE Practicum · Local"' in content
         assert "AIRFLOW__API__SECRET_KEY:" in content
         assert "AIRFLOW__API_AUTH__JWT_SECRET:" in content
+        assert "postgresql+psycopg2://${AIRFLOW_DB_USER:-airflow}:" in content
+        assert "sqlite:////opt/airflow/airflow.db" not in content
         assert "127.0.0.1:${AIRFLOW_HOST_PORT:-18085}:8080" in content
         assert "- standalone" in content
         assert "SequentialExecutor" not in content
         assert "AIRFLOW__WEBSERVER__" not in content
         assert "airflow users create" not in content
         assert "airflow webserver" not in content
+
+    init = read("db/init/006_airflow_metadata.sh")
+    assert "CREATE ROLE" in init
+    assert "CREATE DATABASE" in init
+    assert "ALTER DATABASE" in init
 
 
 def test_e2e_ad_hoc_container_inherits_runtime_credentials() -> None:
@@ -160,6 +171,9 @@ def test_config_validator_rejects_placeholders_and_unpinned_images() -> None:
         "POSTGRES_USER": "app",
         "POSTGRES_PASSWORD": "change-me",
         "POSTGRES_DB": "dwh",
+        "AIRFLOW_DB_NAME": "airflow_meta",
+        "AIRFLOW_DB_USER": "airflow",
+        "AIRFLOW_DB_PASSWORD": "secret",
         "MINIO_ROOT_USER": "minio",
         "MINIO_ROOT_PASSWORD": "secret",
         "SUPERSET_SECRET_KEY": "secret",

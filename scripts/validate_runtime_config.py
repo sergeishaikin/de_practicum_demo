@@ -23,6 +23,9 @@ REQUIRED_KEYS = (
     "POSTGRES_USER",
     "POSTGRES_PASSWORD",
     "POSTGRES_DB",
+    "AIRFLOW_DB_NAME",
+    "AIRFLOW_DB_USER",
+    "AIRFLOW_DB_PASSWORD",
     "MINIO_ROOT_USER",
     "MINIO_ROOT_PASSWORD",
     "SUPERSET_SECRET_KEY",
@@ -46,6 +49,7 @@ PLACEHOLDERS = {
     "replace-with-a-random-deploy-secret",
     "replace-with-a-random-airflow-api-secret",
     "replace-with-a-random-airflow-jwt-secret",
+    "replace-with-a-random-airflow-db-password",
     "replace-with-a-deploy-secret",
 }
 

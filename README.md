@@ -103,6 +103,11 @@ Create the runtime environment file:
 Copy-Item .env.example .env
 ```
 
+Replace the placeholder values for `AIRFLOW_API_SECRET_KEY`,
+`AIRFLOW_JWT_SECRET`, and `AIRFLOW_DB_PASSWORD` with three independent random
+URL-safe secrets. The extended stack also requires a real
+`SUPERSET_SECRET_KEY`.
+
 Validate Compose:
 
 ```powershell
