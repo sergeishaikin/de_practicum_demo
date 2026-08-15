@@ -360,7 +360,8 @@ def test_maintenance_procedures(lake_schema):
     assert after_optimize >= before
 
     trino_exec(
-        f"ALTER TABLE iceberg.{ns}.orders EXECUTE expire_snapshots(retention_threshold => '1h')"
+        f"ALTER TABLE iceberg.{ns}.orders EXECUTE expire_snapshots("
+        "retention_threshold => '1h', clean_expired_metadata => false)"
     )
     after_expire = snapshot_count(cat, identifier)
     assert 0 < after_expire <= after_optimize

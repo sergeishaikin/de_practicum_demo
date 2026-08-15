@@ -46,6 +46,10 @@ for dag_id, dag in db.dags.items():
             for tid, task_instance in dag.task_dict.items()
             if task_instance.map_index_template
         },
+        "task_max_active_tis_per_dagrun": {
+            tid: task_instance.max_active_tis_per_dagrun
+            for tid, task_instance in dag.task_dict.items()
+        },
         "task_assets": {
             tid: {
                 "inlets": len(task_instance.inlets or []),

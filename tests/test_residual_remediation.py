@@ -112,6 +112,30 @@ def test_maintenance_exports_and_enforces_recovery_contract() -> None:
     assert "RETENTION_CONTRACT =" in source
 
 
+def test_maintenance_uses_compatible_non_retried_expiry() -> None:
+    source = (REPO_ROOT / "dags" / "lakehouse_maintenance.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "clean_expired_metadata => false" in source
+    assert "clean_expired_metadata => true" not in source
+    assert '"retries": 0' in source
+    assert "retry" not in source.lower()
+
+
+def test_each_mapped_maintenance_task_owns_failure_audit() -> None:
+    source = (REPO_ROOT / "dags" / "lakehouse_maintenance.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "max_active_tis_per_dagrun=1" in source
+    assert 'f"failed:{operation}"' in source
+    assert "on conflict (run_id, table_name) do update" in source
+    assert "raise\n" in source
+    assert "def capture_before" not in source
+    assert "def write_audit" not in source
+
+
 def test_streaming_job_has_explicit_dead_letter_and_data_loss_contract() -> None:
     source = STREAMING_JOB_PATH.read_text(encoding="utf-8")
 

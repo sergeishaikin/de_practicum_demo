@@ -19,14 +19,10 @@ DUMP_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "dump_dag_struct
 
 MAINTENANCE_DAG = "lakehouse_maintenance"
 EXPECTED_TASKS = {
-    "capture_before",
     "maintain_table",
-    "write_audit",
 }
 EXPECTED_UPSTREAM = {
-    "capture_before": [],
-    "maintain_table": ["capture_before"],
-    "write_audit": ["maintain_table"],
+    "maintain_table": [],
 }
 EXPECTED_TABLES = [
     ["bronze", "orders"],
@@ -92,6 +88,7 @@ def test_maintenance_dag_ui_metadata_and_mapping(dag_structure: dict) -> None:
     assert dag["has_doc_md"] is True
     assert dag["mapped_tasks"] == ["maintain_table"]
     assert dag["map_index_templates"] == {"maintain_table": "{{ table_name }}"}
+    assert dag["task_max_active_tis_per_dagrun"]["maintain_table"] == 1
 
 
 def test_maintenance_tables_config_is_sane(dag_structure: dict) -> None:

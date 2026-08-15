@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import traceback
 from datetime import datetime, timedelta
 
 import psycopg2
@@ -35,8 +36,9 @@ MAINTENANCE_DAG_DOC = """
 
 Runs Iceberg maintenance independently for each managed table. Every mapped
 task instance performs `optimize`, snapshot expiry, orphan-file cleanup, and
-then captures its post-maintenance snapshot count. A final task writes the
-per-table results to `marts.maintenance_runs`.
+then captures its post-maintenance snapshot count. Each mapped task commits its
+own success or failure result to `marts.maintenance_runs` before returning or
+re-raising the maintenance error.
 
 The retention contract is validated while the DAG is imported so an unsafe
 configuration cannot reach snapshot expiry.
@@ -88,6 +90,67 @@ def _snapshot_count(conn, schema: str, table: str) -> int:
         cur.close()
 
 
+def _fresh_snapshot_count(schema: str, table: str) -> int | None:
+    """Read the current snapshot count without reusing a failed Trino session."""
+    conn = None
+    try:
+        conn = _trino_connect()
+        return _snapshot_count(conn, schema, table)
+    except Exception:
+        print(f"best-effort snapshot count failed for {schema}.{table}", flush=True)
+        traceback.print_exc()
+        return None
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def _upsert_audit(
+    airflow_run_id: str,
+    table_name: str,
+    before_snapshots: int | None,
+    after_snapshots: int | None,
+    status: str,
+) -> None:
+    with psycopg2.connect(**DWH_CONN) as pg_conn:
+        with pg_conn.cursor() as cur:
+            cur.execute(AUDIT_DDL)
+            cur.execute(
+                """
+                insert into marts.maintenance_runs (
+                    run_id, run_ts, table_name,
+                    before_snapshots, after_snapshots, status
+                ) values (%s, now(), %s, %s, %s, %s)
+                on conflict (run_id, table_name) do update set
+                    run_ts = excluded.run_ts,
+                    before_snapshots = excluded.before_snapshots,
+                    after_snapshots = excluded.after_snapshots,
+                    status = excluded.status
+                """,
+                (
+                    airflow_run_id,
+                    table_name,
+                    before_snapshots,
+                    after_snapshots,
+                    status,
+                ),
+            )
+        pg_conn.commit()
+
+
+def _log_maintenance_exception(exc: Exception, operation: str, table_name: str) -> None:
+    error = getattr(exc, "error", None)
+    query_id = getattr(exc, "query_id", None)
+    if query_id is None and isinstance(error, dict):
+        query_id = error.get("queryId")
+    print(
+        f"maintenance failed: table={table_name} operation={operation} "
+        f"trino_query_id={query_id or 'unavailable'} exception={exc!r}",
+        flush=True,
+    )
+    traceback.print_exc()
+
+
 @dag(
     dag_id="lakehouse_maintenance",
     dag_display_name="Lakehouse Table Maintenance",
@@ -104,27 +167,20 @@ def _snapshot_count(conn, schema: str, table: str) -> int:
     tags=["demo", "iceberg", "maintenance"],
 )
 def lakehouse_maintenance():
-    @task
-    def capture_before() -> dict:
-        conn = _trino_connect()
-        try:
-            return {
-                f"{schema}.{table}": _snapshot_count(conn, schema, table)
-                for schema, table in MAINTENANCE_TABLES
-            }
-        finally:
-            conn.close()
-
-    @task(map_index_template="{{ table_name }}")
-    def maintain_table(target: dict[str, str], before: dict[str, int]) -> dict:
+    @task(map_index_template="{{ table_name }}", max_active_tis_per_dagrun=1)
+    def maintain_table(target: dict[str, str], airflow_run_id: str) -> dict:
         schema = target["schema"]
         table = target["table"]
         full_name = f"{schema}.{table}"
         get_current_context()["table_name"] = full_name
-        before_count = before.get(full_name)
+        before_count = None
+        after_count = None
+        operation = "capture_before"
 
-        conn = _trino_connect()
+        conn = None
         try:
+            conn = _trino_connect()
+            before_count = _snapshot_count(conn, schema, table)
             statements = (
                 (
                     "optimize",
@@ -137,7 +193,7 @@ def lakehouse_maintenance():
                     f"execute expire_snapshots("
                     f"retention_threshold => '{RETENTION}', "
                     f"retain_last => {RETAIN_LAST}, "
-                    f"clean_expired_metadata => true)",
+                    f"clean_expired_metadata => false)",
                 ),
                 (
                     "remove_orphan_files",
@@ -154,59 +210,57 @@ def lakehouse_maintenance():
                     cursor.close()
                 print(f"{operation}: {full_name} done", flush=True)
 
+            operation = "capture_after"
             after_count = _snapshot_count(conn, schema, table)
+        except Exception as exc:
+            _log_maintenance_exception(exc, operation, full_name)
+            after_count = _fresh_snapshot_count(schema, table)
+            try:
+                _upsert_audit(
+                    airflow_run_id,
+                    full_name,
+                    before_count,
+                    after_count,
+                    f"failed:{operation}",
+                )
+            except Exception as audit_exc:
+                print(
+                    f"failure audit could not be committed for {full_name}: "
+                    f"{audit_exc!r}",
+                    flush=True,
+                )
+                traceback.print_exc()
+                raise exc from audit_exc
+            raise
         finally:
-            conn.close()
+            if conn is not None:
+                conn.close()
 
         reduced = before_count is not None and after_count < before_count
         status = "ok" if after_count <= RETAIN_LAST + 2 or reduced else "noop"
-        return {
+        result = {
             "table_name": full_name,
             "before_snapshots": before_count,
             "after_snapshots": after_count,
             "status": status,
         }
+        _upsert_audit(
+            airflow_run_id,
+            full_name,
+            before_count,
+            after_count,
+            status,
+        )
+        print(
+            f"maintenance {full_name}: before={before_count} "
+            f"after={after_count} ({status})",
+            flush=True,
+        )
+        return result
 
-    @task
-    def write_audit(results: list[dict], airflow_run_id: str) -> None:
-        rows = list(results)
-        for result in rows:
-            print(
-                f"maintenance {result['table_name']}: "
-                f"before={result['before_snapshots']} "
-                f"after={result['after_snapshots']} ({result['status']})",
-                flush=True,
-            )
-
-        with psycopg2.connect(**DWH_CONN) as pg_conn:
-            with pg_conn.cursor() as cur:
-                cur.execute(AUDIT_DDL)
-                for result in rows:
-                    cur.execute(
-                        """
-                        insert into marts.maintenance_runs (
-                            run_id, run_ts, table_name,
-                            before_snapshots, after_snapshots, status
-                        ) values (%s, now(), %s, %s, %s, %s)
-                        on conflict (run_id, table_name) do update set
-                            run_ts = excluded.run_ts,
-                            before_snapshots = excluded.before_snapshots,
-                            after_snapshots = excluded.after_snapshots,
-                            status = excluded.status
-                        """,
-                        (
-                            airflow_run_id,
-                            result["table_name"],
-                            result["before_snapshots"],
-                            result["after_snapshots"],
-                            result["status"],
-                        ),
-                    )
-            pg_conn.commit()
-
-    before = capture_before()
-    results = maintain_table.partial(before=before).expand(target=MAINTENANCE_TARGETS)
-    write_audit(results=results, airflow_run_id="{{ run_id }}")
+    maintain_table.partial(airflow_run_id="{{ run_id }}").expand(
+        target=MAINTENANCE_TARGETS
+    )
 
 
 lakehouse_maintenance()
