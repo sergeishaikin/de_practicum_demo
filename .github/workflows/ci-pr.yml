@@ -119,6 +119,8 @@ jobs:
           exit 1
       - name: DagBag tests
         run: uv run --locked pytest tests/test_dags.py -m airflow
+      - name: Gherkin workflow features
+        run: uv run --locked pytest tests/features/test_airflow_workflow_behavior.py -m "bdd and airflow"
       - name: Cleanup
         if: always()
         run: docker compose down --remove-orphans
