@@ -17,6 +17,85 @@ import pytest
 CONTAINER = "de-demo-airflow"
 DUMP_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "dump_dag_structure.py"
 
+BEHAVIOR_SCRIPT = r"""
+import json
+import sys
+from airflow.models import DagBag
+
+sys.path.insert(0, "/opt/airflow/dags")
+bag = DagBag(dag_folder="/opt/airflow/dags")
+maintenance = bag.dags["lakehouse_maintenance"].task_dict["maintain_table"].python_callable
+staging = bag.dags["demo_core_marts_pipeline"].task_dict["validate_staging"].python_callable
+
+class Cursor:
+    def __init__(self, conn): self.conn = conn
+    def execute(self, sql):
+        operation = next((name for name in ("optimize", "expire_snapshots", "remove_orphan_files") if name in sql), "snapshot")
+        self.conn.operations.append(operation)
+        if self.conn.fail_on == operation:
+            raise RuntimeError(f"boom:{operation}")
+    def fetchone(self): return (self.conn.staging_counts.pop(0),)
+    def close(self): pass
+    def __enter__(self): return self
+    def __exit__(self, *_): pass
+
+class Connection:
+    def __init__(self, fail_on=None, staging_counts=None):
+        self.fail_on = fail_on
+        self.operations = []
+        self.commits = 0
+        self.staging_counts = list(staging_counts or [])
+    def cursor(self): return Cursor(self)
+    def commit(self): self.commits += 1
+    def close(self): pass
+    def __enter__(self): return self
+    def __exit__(self, *_): pass
+
+mg = maintenance.__globals__
+mg["get_current_context"] = lambda: {}
+audits = []
+mg["_upsert_audit"] = lambda *args: audits.append(args)
+mg["_snapshot_count"] = lambda conn, schema, table: 7 if not conn.commits else 5
+
+success_conn = Connection()
+mg["_trino_connect"] = lambda: success_conn
+success = maintenance({"schema": "bronze", "table": "orders"}, "run-success")
+
+failure_conn = Connection(fail_on="expire_snapshots")
+mg["_trino_connect"] = lambda: failure_conn
+mg["_fresh_snapshot_count"] = lambda *_: 6
+original_error = None
+try:
+    maintenance({"schema": "silver", "table": "orders_clean"}, "run-failure")
+except RuntimeError as exc:
+    original_error = str(exc)
+
+sg = staging.__globals__
+sg["_csv_data_row_count"] = lambda name: {"a": 1, "b": 2, "c": 3, "d": 4}[name]
+sg["STG_LOADS"] = [("stg.a", "a", []), ("stg.b", "b", []), ("stg.c", "c", []), ("stg.d", "d", [])]
+sg["_connect"] = lambda: Connection(staging_counts=[1, 2, 3, 4])
+staging()
+
+rejections = []
+for counts in ([1, 2, 0, 4], [1, 2, 99, 4]):
+    sg["_connect"] = lambda counts=counts: Connection(staging_counts=counts)
+    try:
+        staging()
+    except Exception as exc:
+        rejections.append(str(exc))
+
+print(json.dumps({
+    "success": success,
+    "success_operations": success_conn.operations,
+    "success_commits": success_conn.commits,
+    "failure_operations": failure_conn.operations,
+    "failure_commits": failure_conn.commits,
+    "original_error": original_error,
+    "audits": audits,
+    "staging_rejections": rejections,
+}))
+"""
+
 MAINTENANCE_DAG = "lakehouse_maintenance"
 EXPECTED_TASKS = {
     "maintain_table",
@@ -127,3 +206,37 @@ def test_demo_core_marts_pipeline_present(dag_structure: dict) -> None:
         "check_payment_reconcile": {"inlets": 2, "outlets": 0},
         "write_audit": {"inlets": 4, "outlets": 1},
     }
+
+
+def test_airflow_task_callables_enforce_maintenance_and_staging_behavior() -> None:
+    res = subprocess.run(
+        ["docker", "exec", "-i", CONTAINER, "python", "-"],
+        input=BEHAVIOR_SCRIPT,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert res.returncode == 0, res.stderr
+    payload = json.loads(res.stdout.splitlines()[-1])
+
+    assert payload["success"] == {
+        "table_name": "bronze.orders",
+        "before_snapshots": 7,
+        "after_snapshots": 5,
+        "status": "ok",
+    }
+    assert payload["success_operations"] == [
+        "optimize",
+        "expire_snapshots",
+        "remove_orphan_files",
+    ]
+    assert payload["success_commits"] == 3
+    assert payload["failure_operations"] == ["optimize", "expire_snapshots"]
+    assert payload["failure_commits"] == 1
+    assert payload["original_error"] == "boom:expire_snapshots"
+    assert payload["audits"] == [
+        ["run-success", "bronze.orders", 7, 5, "ok"],
+        ["run-failure", "silver.orders_clean", 7, 6, "failed:expire_snapshots"],
+    ]
+    assert len(payload["staging_rejections"]) == 2
+    assert all("stg.c" in message for message in payload["staging_rejections"])

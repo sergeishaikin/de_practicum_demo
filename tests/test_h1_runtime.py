@@ -354,3 +354,89 @@ def test_maintenance_verifier_rejects_non_exact_rows(
     accepted, _ = maintenance_verifier.classify_audit_rows("exact_run", rows)
 
     assert accepted is False
+
+
+def _exact_audit_rows(run_id: str) -> list[tuple[str, str, str]]:
+    return [(run_id, table, "ok") for table in maintenance_verifier.EXPECTED_TABLES]
+
+
+def test_maintenance_verifier_main_triggers_once_and_requires_exact_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_id = "maintenance_verify_exact"
+    triggers: list[str] = []
+    monkeypatch.setattr(maintenance_verifier, "ensure_dag_ready", lambda: None)
+    monkeypatch.setattr(maintenance_verifier, "make_run_id", lambda: run_id)
+    monkeypatch.setattr(maintenance_verifier, "trigger", triggers.append)
+    monkeypatch.setattr(maintenance_verifier, "dag_run_state", lambda _run: "success")
+    monkeypatch.setattr(
+        maintenance_verifier,
+        "audit_rows_for_run",
+        lambda _run: _exact_audit_rows(run_id),
+    )
+
+    assert maintenance_verifier.main() == 0
+    assert triggers == [run_id]
+
+
+@pytest.mark.parametrize(
+    ("state", "rows"),
+    [
+        ("failed", []),
+        ("success", [("maintenance_verify_exact", "bronze.orders", "ok")]),
+    ],
+    ids=["failed-dagrun", "successful-dagrun-invalid-audit"],
+)
+def test_maintenance_verifier_main_fails_closed_for_terminal_invalid_results(
+    monkeypatch: pytest.MonkeyPatch,
+    state: str,
+    rows: list[tuple[str, str, str]],
+) -> None:
+    run_id = "maintenance_verify_exact"
+    triggers: list[str] = []
+    monkeypatch.setattr(maintenance_verifier, "ensure_dag_ready", lambda: None)
+    monkeypatch.setattr(maintenance_verifier, "make_run_id", lambda: run_id)
+    monkeypatch.setattr(maintenance_verifier, "trigger", triggers.append)
+    monkeypatch.setattr(maintenance_verifier, "dag_run_state", lambda _run: state)
+    monkeypatch.setattr(maintenance_verifier, "audit_rows_for_run", lambda _run: rows)
+
+    assert maintenance_verifier.main() == 1
+    assert triggers == [run_id]
+
+
+def test_maintenance_verifier_main_times_out_without_retriggering(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_id = "maintenance_verify_exact"
+    triggers: list[str] = []
+    clock = iter([0.0, 0.0, 2.0])
+    monkeypatch.setattr(maintenance_verifier, "ensure_dag_ready", lambda: None)
+    monkeypatch.setattr(maintenance_verifier, "make_run_id", lambda: run_id)
+    monkeypatch.setattr(maintenance_verifier, "trigger", triggers.append)
+    monkeypatch.setattr(maintenance_verifier, "TIMEOUT_SECONDS", 1)
+    monkeypatch.setattr(maintenance_verifier.time, "time", lambda: next(clock))
+    monkeypatch.setattr(maintenance_verifier.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(maintenance_verifier, "dag_run_state", lambda _run: "running")
+    monkeypatch.setattr(maintenance_verifier, "audit_rows_for_run", lambda _run: [])
+
+    assert maintenance_verifier.main() == 1
+    assert triggers == [run_id]
+
+
+def test_maintenance_verifier_main_propagates_malformed_state_uncertainty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_id = "maintenance_verify_exact"
+    triggers: list[str] = []
+    monkeypatch.setattr(maintenance_verifier, "ensure_dag_ready", lambda: None)
+    monkeypatch.setattr(maintenance_verifier, "make_run_id", lambda: run_id)
+    monkeypatch.setattr(maintenance_verifier, "trigger", triggers.append)
+    monkeypatch.setattr(
+        maintenance_verifier,
+        "dag_run_state",
+        lambda _run: (_ for _ in ()).throw(RuntimeError("malformed DagRun state")),
+    )
+
+    with pytest.raises(RuntimeError, match="malformed DagRun state"):
+        maintenance_verifier.main()
+    assert triggers == [run_id]
