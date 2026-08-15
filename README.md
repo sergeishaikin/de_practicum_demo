@@ -83,6 +83,7 @@ Iceberg writer (PyIceberg -> REST Catalog)
 
 - Windows 10 or Windows 11
 - Docker Desktop using Linux containers
+- `uv` 0.12.5
 - WSL2 backend
 - PowerShell 5.1 or PowerShell 7
 - At least 12 GB RAM available to Docker; 16 GB is preferable

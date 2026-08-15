@@ -6,6 +6,7 @@
 - Windows 10 or Windows 11 with Docker Desktop (Linux containers) and the WSL2 backend, or macOS/Linux with Docker. See [quickstart_windows.md](quickstart_windows.md) or [quickstart_macos_linux.md](quickstart_macos_linux.md) for platform-specific setup.
 - PowerShell 5.1 or 7 (Windows) or a POSIX shell (macOS/Linux).
 - Git to clone the repository.
+- `uv` 0.12.5 for the host-side validation and bootstrap commands.
 - At least 12 GB of RAM available to Docker; 16 GB is preferable.
 - Docker with Docker Compose v2 (`docker compose version` should succeed).
 
@@ -16,6 +17,7 @@ The full extended stack runs 18 containers. The base stack (PostgreSQL + Airflow
 ```bash
 git clone https://github.com/dim4eg91/de_practicum_demo.git
 cd de_practicum_demo
+uv sync --locked
 ```
 
 Create the runtime environment file (the `.env.example` values are safe defaults):

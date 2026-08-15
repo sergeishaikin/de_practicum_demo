@@ -60,13 +60,14 @@ under `dbt/target/`; CI uploads these as the S1 artifact.
 From the repository root:
 
 ```powershell
-python -m pip install -r dbt/requirements.txt
+uv venv --python 3.12 .venv-dbt
+uv pip sync --python .venv-dbt/Scripts/python.exe --require-hashes dbt/requirements.txt
 Copy-Item dbt/profiles.yml.example dbt/profiles.yml
-python -m dbt parse --project-dir dbt --profiles-dir dbt
-python -m dbt compile --project-dir dbt --profiles-dir dbt
-python -m dbt docs generate --project-dir dbt --profiles-dir dbt
-python -m dbt run --project-dir dbt --profiles-dir dbt --select semantic
-python -m dbt test --project-dir dbt --profiles-dir dbt
+.venv-dbt/Scripts/dbt.exe parse --project-dir dbt --profiles-dir dbt
+.venv-dbt/Scripts/dbt.exe compile --project-dir dbt --profiles-dir dbt
+.venv-dbt/Scripts/dbt.exe docs generate --project-dir dbt --profiles-dir dbt
+.venv-dbt/Scripts/dbt.exe run --project-dir dbt --profiles-dir dbt --select semantic
+.venv-dbt/Scripts/dbt.exe test --project-dir dbt --profiles-dir dbt
 ```
 
 The profile defaults to the local Trino endpoint (`localhost:18082`) and can

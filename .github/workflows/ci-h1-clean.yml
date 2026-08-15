@@ -14,6 +14,11 @@ on:
       - "jupyter/**"
       - "superset/**"
       - "dbt/**"
+      - ".python-version"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "airflow.requirements.*"
+      - "airflow.constraints.txt"
       - "requirements-dev.txt"
       - "scripts/bootstrap_stack.py"
       - "scripts/validate_runtime_config.py"
@@ -29,11 +34,17 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: requirements-dev.txt
+          python-version-file: ".python-version"
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.5"
+          enable-cache: true
+          cache-dependency-glob: |
+            uv.lock
+            dbt/requirements.txt
       - name: Install host verification dependencies
-        run: python -m pip install -r requirements-dev.txt
+        run: uv sync --locked
       - name: Create clean deployment configuration
         run: |
           cp .env.example .env
@@ -45,7 +56,7 @@ jobs:
           sed -i 's/^GRAFANA_ADMIN_PASSWORD=.*/GRAFANA_ADMIN_PASSWORD=h1-grafana-secret/' .env
       - name: Validate configuration and Compose graph
         run: |
-          python scripts/validate_runtime_config.py --env-file .env --profile clean
+          uv run --locked python scripts/validate_runtime_config.py --env-file .env --profile clean
           docker network create de_demo_net || true
           docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml config >/tmp/h1-compose.yml
       - name: Export clean runtime configuration for host checks
@@ -72,26 +83,27 @@ jobs:
       - name: Build and start clean stack
         run: docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml up -d --build --pull always
       - name: Bootstrap and wait for dependencies
-        run: python scripts/bootstrap_stack.py --env-file .env --timeout 900
+        run: uv run --locked python scripts/bootstrap_stack.py --env-file .env --timeout 900
       - name: Integration suite
-        run: python -m pytest tests/integration -m integration
+        run: uv run --locked pytest tests/integration -m integration
       - name: Quiesce background Iceberg writers
         run: |
           docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml \
             stop iceberg-writer iceberg-medallion
       - name: Deterministic E2E
-        run: python -m pytest tests/e2e -m e2e
+        run: uv run --locked pytest tests/e2e -m e2e
       - name: dbt semantic contract
         working-directory: dbt
         run: |
-          python -m pip install -r requirements.txt
+          uv venv --python 3.12 ../.venv-dbt
+          uv pip sync --python ../.venv-dbt/bin/python --require-hashes requirements.txt
           cp profiles.yml.example profiles.yml
-          dbt parse --profiles-dir .
-          dbt compile --profiles-dir .
-          dbt run --profiles-dir . --select semantic --threads 1
-          dbt test --profiles-dir . 2>&1 | tee /tmp/h1-dbt-test.log
+          ../.venv-dbt/bin/dbt parse --profiles-dir .
+          ../.venv-dbt/bin/dbt compile --profiles-dir .
+          ../.venv-dbt/bin/dbt run --profiles-dir . --select semantic --threads 1
+          ../.venv-dbt/bin/dbt test --profiles-dir . 2>&1 | tee /tmp/h1-dbt-test.log
           grep -Eq 'PASS=26 .*ERROR=0 .*TOTAL=26' /tmp/h1-dbt-test.log
-          dbt docs generate --profiles-dir .
+          ../.venv-dbt/bin/dbt docs generate --profiles-dir .
       - name: Prometheus and Grafana smoke
         run: |
           curl -fsS http://localhost:19090/-/ready
@@ -103,7 +115,7 @@ jobs:
           docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml images
           docker exec de-demo-trino trino --version || true
           docker exec de-demo-orders-streaming /usr/local/bin/spark-submit-h1 --version || true
-          dbt --version || true
+          .venv-dbt/bin/dbt --version || true
       - name: Collect logs
         if: failure()
         run: docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml logs --no-color > h1-clean-stack.log || true

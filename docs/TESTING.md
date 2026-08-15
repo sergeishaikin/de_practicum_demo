@@ -3,7 +3,7 @@
 
 ## Test framework and setup
 
-Testing is pytest-based (`pytest.ini`, `requirements-dev.txt`, `tests/`), split by marker into a fast unit suite and stack-dependent suites: `integration` (live MinIO/REST catalog/Trino), `e2e` (full Kafka/Spark chain), and `airflow` (DagBag validation). The fast suite is the PR gate, with a 90% coverage floor on `iceberg/`; the marked suites run against the live Compose stack. See [Running tests](#running-tests) and [CI integration](#ci-integration) below.
+Testing is pytest-based (`pytest.ini`, `pyproject.toml`, `uv.lock`, `tests/`), split by marker into a fast unit suite and stack-dependent suites: `integration` (live MinIO/REST catalog/Trino), `e2e` (full Kafka/Spark chain), and `airflow` (DagBag validation). Run `uv sync --locked` once to create the host environment. The fast suite is the PR gate, with a 90% coverage floor on `iceberg/`; the marked suites run against the live Compose stack. See [Running tests](#running-tests) and [CI integration](#ci-integration) below.
 
 Alongside the pytest suites, the stack itself carries these checkable surfaces:
 
@@ -64,7 +64,7 @@ There is no single "run all tests" command; `scripts/run_checks.cmd` is the clos
 `tests/e2e/test_lakehouse_e2e.py` drives the whole chain (Kafka → Spark → landing → bronze → silver → gold → Trino → metrics) from a fixed 100-event fixture and asserts exact counts. It is excluded from the fast suite; the full stack must be up:
 
 ```bash
-python -m pytest tests/e2e -m e2e
+uv run --locked pytest tests/e2e -m e2e
 ```
 
 Each run is hermetic. Nothing is shared with the always-on random producer:
@@ -121,4 +121,4 @@ GitHub Actions workflows under `.github/workflows/`:
 - `ci-integration.yml` — live Iceberg/Trino integration layer (9 tests), manual trigger and on push to `main`. Kept out of the PR gate: it needs the real MinIO/REST-catalog/Trino stack.
 - `ci-nightly.yml` — scheduled (02:15 UTC): full stack, integration layer, deterministic Kafka/Spark E2E (when `tests/e2e/` exists), and the maintenance DAG end-to-end check (`scripts/verify_maintenance_dag.py`).
 
-Local runs follow the same commands as the workflows (see `requirements-dev.txt`).
+Local runs follow the same `uv run --locked ...` commands as the workflows.

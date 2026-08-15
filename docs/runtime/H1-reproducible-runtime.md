@@ -6,9 +6,9 @@ defined by `.github/workflows/ci-h1-clean.yml`.
 ## Contract
 
 A clean machine receives the repository plus declared deploy-time secrets and
-can reproduce the verified stack without runtime Maven/Ivy resolution,
-mutable image tags, startup `pip install`, or assumptions about old Docker
-volumes.
+can reproduce the verified stack without runtime Maven/Ivy/Python dependency
+resolution, mutable image tags, startup package installation, or assumptions
+about old Docker volumes.
 
 H1 does not change Bronze/Silver/Gold semantics, B2, durable progress/recovery,
 dbt semantic contracts, D-3a, multi-writer ownership, or observability logic.
@@ -24,12 +24,30 @@ Compose images. Custom images pin their base images in their Dockerfiles:
 | PyIceberg writer/medallion | Python 3.12 slim + digest | `iceberg/requirements.txt` |
 | Observability exporter | Python 3.12 slim + digest | `observability/requirements.txt` |
 | Producer | Python 3.12 slim + digest | `kafka/producer/requirements.txt` |
-| Airflow | 2.9.3 / Python 3.12 + digest | `airflow.Dockerfile` |
+| Airflow | 2.9.3 / Python 3.12 + digest | `airflow.requirements.txt` |
 | dbt | dbt-core 1.12.0, dbt-trino 1.10.3 | `dbt/requirements.txt` |
 
-The host `requirements-dev.txt` uses the same PyArrow/PyIceberg pins as the
-Iceberg runtime. CI installs the declared files and surfaces runtime versions
-in the clean-stack evidence artifact.
+Python dependency inputs live in `pyproject.toml` (host development) and the
+service-specific `requirements.in` files. `uv.lock` locks the host environment;
+the generated `requirements.txt` files lock every service transitively and
+include artifact hashes. All custom Python images copy `uv` 0.12.5 from a
+digest-pinned image and install with `--require-hashes`. The host and Iceberg
+inputs share the PyArrow/PyIceberg pins. CI uses `uv sync --locked` and surfaces
+runtime versions in the clean-stack evidence artifact.
+
+`airflow.constraints.txt` is the relevant subset of Airflow 2.9.3's official
+Python 3.12 constraints. It keeps the locked Trino client dependencies aligned
+with the environment already fixed by the Airflow base-image digest. The only
+documented deviation is Requests 2.32.4, the minimum required by the existing
+Trino 0.338.0 pin (Airflow's original constraint was 2.32.3).
+
+Regenerate every Python lock after changing an input:
+
+```powershell
+.\scripts\lock-python-dependencies.ps1
+```
+
+On macOS/Linux use `./scripts/lock-python-dependencies.sh`.
 
 ## Spark dependencies are baked
 
@@ -94,9 +112,9 @@ not silently migrated by image startup.
 ## Verification commands
 
 ```powershell
-python scripts/validate_runtime_config.py --env-file .env --profile local
+uv run --locked python scripts/validate_runtime_config.py --env-file .env --profile local
 docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml config
-python scripts/bootstrap_stack.py --env-file .env
+uv run --locked python scripts/bootstrap_stack.py --env-file .env
 ```
 
 The authoritative clean-machine gate is the H1 GitHub Actions workflow, not a

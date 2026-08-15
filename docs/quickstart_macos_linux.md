@@ -8,6 +8,7 @@
 
 - Docker Desktop или Docker Engine с Docker Compose v2
 - Git
+- uv 0.12.5
 
 Удобно, но не обязательно:
 

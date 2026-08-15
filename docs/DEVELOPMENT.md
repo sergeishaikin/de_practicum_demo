@@ -3,7 +3,16 @@
 
 ## Local setup
 
-The development environment is the same Docker Compose stack used for the demo — there is no separate build step. Fork and clone the repository, then:
+The runtime is the Docker Compose stack used for the demo. Host-side Python
+development uses `uv` 0.12.5, Python 3.12, and the committed `uv.lock`. Install
+`uv`, fork and clone the repository, then create the locked environment:
+
+```powershell
+uv sync --locked
+```
+
+Run host tools through the managed environment, for example `uv run --locked
+pytest` and `uv run --locked ruff check .`. Then create the runtime settings:
 
 ```powershell
 Copy-Item .env.example .env
@@ -47,7 +56,7 @@ docker compose --env-file .\.env -f .\docker-compose.yml -f .\docker-compose.ext
 
 ## Code style
 
-- No linter or formatter configuration (ESLint/Prettier/Biome/`.editorconfig`) is committed. Python code follows PEP 8 naming and formatting conventions.
+- Python formatting and linting are pinned in the `dev` dependency group. Run `uv run --locked ruff check .` and `uv run --locked black --check .`.
 - The Airflow DAG uses TaskFlow decorators (`@dag`, `@task`) and `airflow.models.baseoperator.chain`.
 - A `dags/.mypy_cache` directory indicates mypy has been used; run it manually when changing the DAG.
 
@@ -67,7 +76,7 @@ No pull-request template or review workflow is defined. The default process appl
 
 ### Airflow orchestration
 
-The batch pipeline lives in `dags/demo_core_marts_pipeline.py` and is built on the Airflow 2.9.3 image from `airflow.Dockerfile` (Python 3.12, `psycopg2-binary==2.9.9`). The DAG `demo_core_marts_pipeline` runs `chain(load_stg, rebuild, payment_check, audit)`:
+The batch pipeline lives in `dags/demo_core_marts_pipeline.py` and is built on the Airflow 2.9.3 image from `airflow.Dockerfile` (Python 3.12, `psycopg2-binary==2.9.10`). The DAG `demo_core_marts_pipeline` runs `chain(load_stg, rebuild, payment_check, audit)`:
 
 - `load_raw_csv_to_stg` truncates `stg.*` and copies the CSV files from `data/raw/` via `COPY ... FROM stdin`.
 - `rebuild_core_and_marts` executes `db/pipeline_sql/10_rebuild_core.sql`.
@@ -90,7 +99,7 @@ The streaming job is deployed as the `orders-streaming` Compose service. Classic
 
 ### Kafka data generation
 
-`kafka/producer/orders_producer.py` is a `confluent-kafka` producer (`confluent-kafka==2.15.0`, installed at container start) that publishes one synthetic order per `1 / EVENTS_PER_SECOND` seconds. Events are JSON with `order_id` (UUID), `customer`, `amount`, `country`, `status`, and `event_time`. Messages use `order_id` as the partition key with `acks=all` and idempotence enabled. It runs as the `orders-producer` service against `kafka:9092` (topic `orders`, 3 partitions, created manually or via Kafka UI).
+`kafka/producer/orders_producer.py` is a `confluent-kafka` producer (`confluent-kafka==2.15.0`, baked into its image from a hash-locked file) that publishes one synthetic order per `1 / EVENTS_PER_SECOND` seconds. Events are JSON with `order_id` (UUID), `customer`, `amount`, `country`, `status`, and `event_time`. Messages use `order_id` as the partition key with `acks=all` and idempotence enabled. It runs as the `orders-producer` service against `kafka:9092` (topic `orders`, 3 partitions, created manually or via Kafka UI).
 
 ### PyIceberg writer and medallion
 

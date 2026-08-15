@@ -1,5 +1,7 @@
 FROM quay.io/jupyter/base-notebook@sha256:8201703b74c5f05068a9d1d4a2e542dd67833d749502f197ec8346547cc2d9e6
 
+COPY --from=ghcr.io/astral-sh/uv:0.12.5@sha256:e85be844203885286c60ffad8a858d48afb6c5a5c237ca0e67f12e74b8f174b1 /uv /uvx /bin/
+
 USER root
 
 RUN apt-get update \
@@ -13,18 +15,13 @@ ENV PATH="${JAVA_HOME}/bin:${PATH}"
 
 USER ${NB_UID}
 
-RUN mamba create -y -n spark420 \
-        python=3.10 \
-        ipykernel \
-        pip \
-    && mamba clean --all -f -y
-
-RUN /opt/conda/envs/spark420/bin/python -m pip install --no-cache-dir \
-        "pyspark[connect]==4.2.0" \
-        "pandas==2.2.3" \
-        "pyarrow==21.0.0" \
-        psycopg2-binary==2.9.10 \
-        boto3==1.35.99
+COPY --chown=${NB_UID}:${NB_GID} requirements.txt /tmp/requirements.txt
+RUN /bin/uv python install 3.10.21 \
+    && /bin/uv venv --python 3.10.21 /opt/conda/envs/spark420 \
+    && /bin/uv pip install --python /opt/conda/envs/spark420/bin/python \
+        --no-cache \
+        --require-hashes \
+        -r /tmp/requirements.txt
 
 RUN /opt/conda/envs/spark420/bin/python -m ipykernel install \
         --user \

@@ -17,22 +17,31 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-          cache: pip
-          # Default globs are **/requirements.txt and **/pyproject.toml; this
-          # repo pins deps in requirements-dev.txt, so without this the action
-          # hard-fails with "No file ... matched".
-          cache-dependency-path: requirements-dev.txt
+          python-version-file: ".python-version"
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.5"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
       - name: Install dev dependencies
-        run: python -m pip install -r requirements-dev.txt
+        run: uv sync --locked
+      - name: Verify committed dependency locks
+        run: |
+          sh scripts/lock-python-dependencies.sh
+          git diff --exit-code -- \
+            uv.lock requirements-dev.txt airflow.requirements.txt \
+            dbt/requirements.txt iceberg/requirements.txt jupyter/requirements.txt \
+            kafka/producer/requirements.txt observability/requirements.txt \
+            spark/requirements.txt superset/requirements.txt
       - name: Validate Compose files
         run: >
           docker compose --env-file .env.example
           -f docker-compose.yml -f docker-compose.extended.yml config --quiet
       - name: Ruff
-        run: python -m ruff check .
+        run: uv run --locked ruff check .
       - name: Black
-        run: python -m black --check .
+        run: uv run --locked black --check .
 
   unit:
     name: Unit tests + coverage
@@ -41,16 +50,17 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-          cache: pip
-          # Default globs are **/requirements.txt and **/pyproject.toml; this
-          # repo pins deps in requirements-dev.txt, so without this the action
-          # hard-fails with "No file ... matched".
-          cache-dependency-path: requirements-dev.txt
+          python-version-file: ".python-version"
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.5"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
       - name: Install dev dependencies
-        run: python -m pip install -r requirements-dev.txt
+        run: uv sync --locked
       - name: Fast unit suite with coverage gate (>= 90%)
-        run: python -m pytest tests --cov=iceberg --cov-report=term-missing --cov-fail-under=90
+        run: uv run --locked pytest tests --cov=iceberg --cov-report=term-missing --cov-fail-under=90
 
   airflow-dags:
     name: Airflow DAG validation
@@ -61,19 +71,20 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-          cache: pip
-          # Default globs are **/requirements.txt and **/pyproject.toml; this
-          # repo pins deps in requirements-dev.txt, so without this the action
-          # hard-fails with "No file ... matched".
-          cache-dependency-path: requirements-dev.txt
-      - name: Install pytest
-        run: python -m pip install pytest
+          python-version-file: ".python-version"
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.5"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - name: Install dev dependencies
+        run: uv sync --locked
       - name: Cache Airflow image layers
         uses: actions/cache@v4
         with:
           path: /tmp/.buildx-cache
-          key: airflow-image-${{ hashFiles('airflow.Dockerfile') }}
+          key: airflow-image-${{ hashFiles('airflow.Dockerfile', 'airflow.requirements.txt', 'airflow.constraints.txt') }}
           restore-keys: airflow-image-
       - name: Build Airflow image (layer-cached)
         run: |
@@ -98,7 +109,7 @@ jobs:
           echo "airflow did not become ready"
           exit 1
       - name: DagBag tests
-        run: python -m pytest tests/test_dags.py -m airflow
+        run: uv run --locked pytest tests/test_dags.py -m airflow
       - name: Cleanup
         if: always()
         run: docker compose down --remove-orphans

@@ -8,6 +8,7 @@
 
 - Docker Desktop for Windows
 - Git
+- uv 0.12.5
 
 Удобно, но не обязательно:
 
