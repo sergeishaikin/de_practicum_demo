@@ -3,7 +3,7 @@
 
 ## Test framework and setup
 
-Testing is pytest-based (`pytest.ini`, `pyproject.toml`, `uv.lock`, `tests/`), split by marker into a fast unit suite and stack-dependent suites: `integration` (live MinIO/REST catalog/Trino), `e2e` (full Kafka/Spark chain), and `airflow` (DagBag validation). Run `uv sync --locked` once to create the host environment. The fast suite is the PR gate, with a 90% coverage floor on `iceberg/`; the marked suites run against the live Compose stack. See [Running tests](#running-tests) and [CI integration](#ci-integration) below.
+Testing uses pytest and pytest-bdd (`pytest.ini`, `pyproject.toml`, `uv.lock`, `tests/`). It is split by marker into a fast unit suite and stack-dependent suites: `integration` (live MinIO/REST catalog/Trino), `e2e` (full Kafka/Spark chain), `airflow` (DagBag validation), and `bdd` (Gherkin workflow behavior). Run `uv sync --locked` once to create the host environment. The fast suite is the PR gate, with a 90% coverage floor on `iceberg/`; the marked suites run against the live Compose stack. See [Running tests](#running-tests) and [CI integration](#ci-integration) below.
 
 Alongside the pytest suites, the stack itself carries these checkable surfaces:
 
@@ -58,6 +58,18 @@ bash scripts/check_task_airflow.sh  # macOS/Linux
 ```
 
 There is no single "run all tests" command; `scripts/run_checks.cmd` is the closest to a full suite for the batch pipeline.
+
+### Airflow BDD features
+
+The Gherkin specification in `tests/features/airflow_workflow_behavior.feature`
+covers maintenance success/failure auditing and exact staging-parity behavior.
+Its pytest-bdd step definitions execute the actual Airflow task callables in
+the running Airflow container with controlled fake database and Trino
+boundaries; they do not trigger a DAG or mutate live data:
+
+```bash
+uv run --locked pytest tests/features/test_airflow_workflow_behavior.py -m "bdd and airflow"
+```
 
 ### Deterministic E2E
 
@@ -128,7 +140,7 @@ The PR CI workflow gates on **>= 90%** statement coverage of the `iceberg/` pack
 
 GitHub Actions workflows under `.github/workflows/`:
 
-- `ci-pr.yml` — PR gate (and pushes to `main`): compose validation, `ruff`, `black --check`, fast unit suite with the 90% coverage gate, and Airflow DagBag validation (runs in the `de-demo-airflow` container, so the unit job needs no Docker).
+- `ci-pr.yml` — PR gate (and pushes to `main`): compose validation, `ruff`, `black --check`, fast unit suite with the 90% coverage gate, Airflow DagBag validation, and Gherkin workflow features (the Airflow checks run against `de-demo-airflow`).
 - `ci-integration.yml` — live Iceberg/Trino integration layer (9 tests), manual trigger and on push to `main`. Kept out of the PR gate: it needs the real MinIO/REST-catalog/Trino stack.
 - `ci-nightly.yml` — scheduled (02:15 UTC): full stack, integration layer, deterministic Kafka/Spark E2E (when `tests/e2e/` exists), and the maintenance DAG end-to-end check (`scripts/verify_maintenance_dag.py`).
 

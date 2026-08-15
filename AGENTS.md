@@ -44,8 +44,8 @@ of a layer without updating the relevant documentation and tests.
   equivalent), and inspect it with `stack.ps1 status` and `stack.ps1 logs`.
 - Run Python tools through the locked project environment with
   `uv run --locked`. `pytest.ini` excludes tests requiring the live stack; use
-  the explicit `integration`, `iceberg`, `trino`, `e2e`, or `airflow` markers
-  only when their dependencies are available.
+  the explicit `integration`, `iceberg`, `trino`, `e2e`, `airflow`, or `bdd`
+  markers only when their dependencies are available.
 - When changing a pipeline or schema, update focused tests and the applicable
   documentation. Prefer deterministic, idempotent tests over live-state tests
   unless a live integration is the requirement being verified.
@@ -85,8 +85,10 @@ Run additional checks according to the changed surface:
   `docker compose --env-file .env.example -f docker-compose.yml -f docker-compose.extended.yml config --quiet`.
 - Airflow runtime changes: run
   `uv run --locked pytest tests/test_h1_runtime.py`, validate DAG imports with
-  `uv run --locked pytest tests/test_dags.py -m airflow`, and perform a short
-  scheduler, triggerer, and DAG-processor health smoke.
+  `uv run --locked pytest tests/test_dags.py -m airflow`, execute the Gherkin
+  behavior contract with
+  `uv run --locked pytest tests/features/test_airflow_workflow_behavior.py -m "bdd and airflow"`,
+  and perform a short scheduler, triggerer, and DAG-processor health smoke.
 - Dependency input changes: regenerate the existing committed lock files with
   the repository lock script and verify the resulting diff.
 - Streaming, schema, recovery, or other stateful changes: run only the
