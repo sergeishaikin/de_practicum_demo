@@ -12,6 +12,11 @@
 
 The full extended stack runs 18 containers. The base stack (PostgreSQL + Airflow) needs only two.
 
+Install the exact required uv release before cloning. Use
+`powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/0.12.5/install.ps1 | iex"`
+on Windows or `curl -LsSf https://astral.sh/uv/0.12.5/install.sh | sh` on
+macOS/Linux, then confirm that `uv --version` reports `uv 0.12.5`.
+
 ## Installation steps
 
 ```bash

@@ -26,6 +26,11 @@ locked development environment from the repository root:
 uv sync --locked
 ```
 
+`pyproject.toml` sets `required-version = "==0.12.5"` — an **exact** pin, so any
+other uv version refuses to run and `uv lock --check` exits 2 with a version
+error rather than a lock error. Install exactly 0.12.5, or prefix commands with
+`uvx --from uv==0.12.5 uv ...`.
+
 Regenerate every committed dependency lock after intentionally changing
 `pyproject.toml` or a service `requirements.in` file with
 `scripts/lock-python-dependencies.ps1` on Windows or
@@ -52,7 +57,34 @@ uv run --locked black --check .
 docker compose --env-file .env.example -f docker-compose.yml -f docker-compose.extended.yml config --quiet
 ```
 
-Non-pytest checkable surfaces: `scripts/doctor.{cmd,sh}` (host/Docker diagnostics), `scripts/run_checks.{cmd,sh}` (numbered SQL gates in `db/demo_sql/`, executed in the Postgres container), `scripts/build_report.{cmd,sh}`, `scripts/verify_maintenance_dag.py`.
+Non-pytest checkable surfaces: `scripts/doctor.{cmd,sh}` (host/Docker diagnostics), `scripts/run_checks.{cmd,sh}` (numbered SQL gates in `db/demo_sql/`, executed in the Postgres container), `scripts/build_report.{cmd,sh}`, `scripts/verify_maintenance_dag.py`, `scripts/validate_runtime_config.py`, `scripts/bootstrap_stack.py`.
+
+## Dependency management
+
+Two parallel locking mechanisms, both generated — **never hand-edit a generated file**:
+
+- **Host dev environment** — `pyproject.toml` (`dev` dependency group) → `uv.lock` → exported to `requirements-dev.txt`.
+- **Runtime and tool locks** — `airflow.requirements.in`, the service inputs under `iceberg/`, `jupyter/`, `kafka/producer/`, `observability/`, and `spark/`, plus the separate `dbt/requirements.in`, are compiled by `uv pip compile --universal --generate-hashes` into sibling `requirements.txt` files. Every custom Python Dockerfile installs with `--require-hashes` from a uv binary pinned by digest (`ghcr.io/astral-sh/uv:0.12.5@sha256:e85be844…`, identical across all six).
+
+`ci-pr.yml` reruns the lock script and does `git diff --exit-code` across all nine generated lock/export files, so a stale lock fails the PR.
+
+Three exceptions worth knowing before editing an image:
+
+- **Airflow** compiles with `--constraint airflow.constraints.txt`, a hand-maintained compatibility subset from Airflow 2.9.3's own constraints; the base image digest fixes the rest of that environment.
+- **Jupyter** no longer uses conda — `uv venv --python 3.10.21` builds the `spark420` env at the old conda path.
+
+## CI
+
+Six workflows, all installing uv 0.12.5 via a SHA-pinned `astral-sh/setup-uv`:
+
+| Workflow | Trigger | Scope |
+|---|---|---|
+| `ci-pr.yml` | PR + push to `main` | Lint, compose validation, stale-lock check, fast suite with the 90% `iceberg/` coverage gate, Airflow DagBag |
+| `ci-integration.yml` | manual + push to `main` | Live MinIO/REST-catalog/Trino integration layer |
+| `ci-nightly.yml` | 02:15 UTC | Full stack, integration, deterministic E2E, maintenance DAG |
+| `ci-m5-gates.yml` | PR touching `iceberg/**` or `tests/test_*.py` | M3/M4 recovery and cutover gates on a minimal Iceberg stack |
+| `ci-h1-clean.yml` | manual + PR touching runtime env | Clean reproducible-runtime rebuild |
+| `ci-s1-dbt.yml` | manual + PR touching `dbt/**` | dbt parse/compile/docs + Trino contract fixture |
 
 ## Architecture
 

@@ -1,42 +1,49 @@
 # Quickstart for Windows
 
-Полный путь от пустой машины до отчета.
+Use this guide to create the local demo and generate its quality report.
 
-## 1. Поставь инструменты
+## 1. Install the tools
 
-Обязательно:
+Install these required tools:
 
 - Docker Desktop for Windows
 - Git
 - uv 0.12.5
 
-Удобно, но не обязательно:
+Install the exact uv release:
 
-- VS Code или PyCharm
-- DBeaver для просмотра Postgres
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/0.12.5/install.ps1 | iex"
+uv --version  # must report uv 0.12.5
+```
 
-Если Docker Desktop попросит войти в аккаунт, войди или зарегистрируйся. Публиковать образы никуда не нужно.
+These tools are optional:
 
-## 2. Проверь Docker
+- VS Code or PyCharm
+- DBeaver for PostgreSQL access
 
-Открой Docker Desktop и дождись рабочего состояния engine.
+If Docker Desktop asks you to sign in, sign in or create an account. You do not need to publish images.
 
-В PowerShell:
+## 2. Make sure that Docker works
+
+Start Docker Desktop. Wait until the Docker engine is ready.
+
+Run these commands in PowerShell:
 
 ```powershell
 docker --version
 docker compose version
 ```
 
-Если Docker пишет про WSL, открой PowerShell от имени администратора:
+If Docker reports a WSL error, open PowerShell as an administrator. Then run:
 
 ```powershell
 wsl --update
 ```
 
-После этого перезапусти Docker Desktop.
+Restart Docker Desktop after the update.
 
-## 3. Скачай репозиторий
+## 3. Clone the repository
 
 ```powershell
 cd D:\
@@ -44,149 +51,135 @@ git clone https://github.com/dim4eg91/de_practicum_demo.git de_practicum_demo
 cd D:\de_practicum_demo
 ```
 
-Проверь, что ты в корне проекта:
+Make sure that the current directory is the repository root:
 
 ```powershell
-dir docker-compose.yml
+Get-Item docker-compose.yml
 ```
 
-Если файла нет, ты не там. Дальше команды запускать бессмысленно.
+If the file does not exist, change to the correct directory before you continue.
 
-Файл `.env` создавать не обязательно. Настройки по умолчанию уже есть в `docker-compose.yml`. Пример лежит в `.env.example`.
+Create the local environment file:
 
-## 4. Запусти doctor
+```powershell
+Copy-Item .env.example .env
+```
+
+For this local demo, set the secret values in `.env`. Git ignores this file.
+
+## 4. Run the doctor script
 
 ```powershell
 scripts\doctor.cmd
 ```
 
-Doctor проверит Docker, Compose, CSV-файлы, порты `15432` и `18085`.
+The script reports the state of Docker, Compose, CSV files, and ports `15432` and `18085`.
 
-## 5. Подними demo-стенд
+## 5. Start the demo
 
 ```powershell
 docker compose up -d
 ```
 
-Если Docker Hub падает с `EOF`, а у тебя уже собран основной учебный стенд:
+If Docker Hub returns an `EOF` error, use the local Airflow fallback:
 
 ```powershell
 docker compose -f docker-compose.local-airflow.yml up -d
 ```
 
-Это запасной локальный вариант. Для обычного публичного запуска используй `docker compose up -d`.
+Use this fallback only when the local Airflow image already exists.
 
-Проверь контейнеры:
+Display the container state:
 
 ```powershell
 docker compose ps
 ```
 
-Ожидаемо:
+The expected state is:
 
-- `de-demo-postgres` healthy
-- `de-demo-airflow` running
+- `de-demo-postgres` is healthy.
+- `de-demo-airflow` is running.
 
-## 6. Посмотри состояние до DAG
+## 6. Display the initial data layers
 
 ```powershell
 scripts\show_layers.cmd
 ```
 
-До запуска DAG в БД должны быть пустые слои: `stg`, `core`, `marts`.
+Before the DAG runs, the `stg`, `core`, and `marts` layers must be empty.
 
-## 7. Запусти DAG
+## 7. Run the DAG
 
-Открой Airflow:
+Open Airflow:
 
 ```text
 http://localhost:18085
 ```
 
-Логин: `admin`
+Use `admin` as the login name. Use the `AIRFLOW_ADMIN_PASSWORD` value from `.env` as the password.
 
-Пароль: `admin`
+SQLite metadata and SequentialExecutor warnings are normal for this demo. The demo uses this configuration for a simple local start.
 
-Если Airflow показывает желтые предупреждения про SQLite metadata DB и SequentialExecutor, это нормально для demo. Здесь Airflow упрощен ради первого локального запуска.
+In Airflow:
 
-В Airflow:
+1. Find `demo_core_marts_pipeline`.
+2. Enable the DAG.
+3. Select **Trigger DAG**.
+4. Wait for the `success` state.
 
-1. Найди `demo_core_marts_pipeline`.
-2. Включи DAG.
-3. Нажми Trigger DAG.
-4. Дождись `success`.
-
-## 8. Проверь результат
+## 8. Run the data checks
 
 ```powershell
 scripts\run_checks.cmd
 ```
 
-Ожидаемо:
+The expected results are:
 
-- строки появились в `stg`, `core`, `marts`
-- duplicate grain rows = 0
-- null keys = 0
-- reconcile diff = 0.00
-- smoke status = success
+- The `stg`, `core`, and `marts` layers contain rows.
+- Duplicate grain rows equal `0`.
+- Null keys equal `0`.
+- The reconciliation difference equals `0.00`.
+- The smoke status is `success`.
 
-## 9. Собери отчет
+## 9. Build the report
 
 ```powershell
 scripts\build_report.cmd
 ```
 
-Открой:
+Open the generated report:
 
 ```text
 reports\demo_quality_report.html
 ```
 
-Схема demo-пайплайна:
+The repository also contains these data-model files:
 
-```text
-docs\schema.md
-```
+- `docs\schema.md`
+- `docs\dbdiagram_overview.dbml`
+- `docs\dbdiagram_demo.dbml`
 
-Короткая DBML-схема для dbdiagram.io:
+## 10. Complete the exercises
 
-```text
-docs\dbdiagram_overview.dbml
-```
+Open `docs\exercises.md`. It contains these exercises:
 
-Полная DBML-схема:
+- Build a SQL payment mart.
+- Add an Airflow quality gate.
 
-```text
-docs\dbdiagram_demo.dbml
-```
-
-## 10. Сделай задания руками
-
-Открой:
-
-```text
-docs\exercises.md
-```
-
-Там два задания:
-
-- SQL-витрина по оплатам
-- Airflow quality gate
-
-Проверки:
+Run the exercise checks:
 
 ```powershell
 scripts\check_task_sql.cmd
 scripts\check_task_airflow.cmd
 ```
 
-## 11. Останови стенд
+## 11. Stop the demo
 
 ```powershell
 docker compose down
 ```
 
-Удалить все demo-данные:
+CAUTION: The next command deletes all demo data.
 
 ```powershell
 docker compose down -v

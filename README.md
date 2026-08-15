@@ -88,6 +88,13 @@ Iceberg writer (PyIceberg -> REST Catalog)
 - PowerShell 5.1 or PowerShell 7
 - At least 12 GB RAM available to Docker; 16 GB is preferable
 
+Install the exact project uv version on Windows, then verify it before setup:
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/0.12.5/install.ps1 | iex"
+uv --version  # must report uv 0.12.5
+```
+
 ## Initial setup
 
 Create the runtime environment file:

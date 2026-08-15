@@ -5,11 +5,26 @@
 
 The runtime is the Docker Compose stack used for the demo. Host-side Python
 development uses `uv` 0.12.5, Python 3.12, and the committed `uv.lock`. Install
-`uv`, fork and clone the repository, then create the locked environment:
+the exact uv version, fork and clone the repository, then create the locked
+environment. On Windows:
 
 ```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/0.12.5/install.ps1 | iex"
+uv --version
 uv sync --locked
 ```
+
+On macOS/Linux:
+
+```bash
+curl -LsSf https://astral.sh/uv/0.12.5/install.sh | sh
+uv --version
+uv sync --locked
+```
+
+Both version checks must report `uv 0.12.5`. If changing the host installation
+is undesirable, run a project command through the exact tool version, for
+example `uvx --from uv==0.12.5 uv sync --locked`.
 
 Run host tools through the managed environment, for example `uv run --locked
 pytest` and `uv run --locked ruff check .`. Then create the runtime settings:
