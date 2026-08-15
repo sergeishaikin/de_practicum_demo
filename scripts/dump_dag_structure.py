@@ -26,12 +26,32 @@ for dag_id, dag in db.dags.items():
     if schedule is None:
         schedule = getattr(dag, "schedule_interval", None)
     out["dags"][dag_id] = {
+        "display_name": getattr(dag, "dag_display_name", None),
+        "description": dag.description,
+        "has_doc_md": bool(dag.doc_md),
         "schedule": str(schedule),
         "catchup": bool(dag.catchup),
         "max_active_runs": dag.max_active_runs,
         "tasks": {
             tid: sorted(t.get_direct_relative_ids(upstream=True))
             for tid, t in dag.task_dict.items()
+        },
+        "mapped_tasks": sorted(
+            tid
+            for tid, task_instance in dag.task_dict.items()
+            if type(task_instance).__name__ == "DecoratedMappedOperator"
+        ),
+        "map_index_templates": {
+            tid: task_instance.map_index_template
+            for tid, task_instance in dag.task_dict.items()
+            if task_instance.map_index_template
+        },
+        "task_assets": {
+            tid: {
+                "inlets": len(task_instance.inlets or []),
+                "outlets": len(task_instance.outlets or []),
+            }
+            for tid, task_instance in dag.task_dict.items()
         },
         "default_retries": dag.default_args.get("retries"),
         "execution_timeout": str(dag.default_args.get("execution_timeout")),

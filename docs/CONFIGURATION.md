@@ -13,6 +13,9 @@
 | `POSTGRES_PASSWORD` | Optional | `change-me` | Postgres password. |
 | `POSTGRES_DB` | Optional | `dwh` | Demo database name. |
 | `POSTGRES_HOST_PORT` | Optional | `15432` | Host port for Postgres. |
+| `AIRFLOW_DB_NAME` | Optional | `airflow_meta` | Dedicated Airflow metadata database in the shared PostgreSQL instance. |
+| `AIRFLOW_DB_USER` | Optional | `airflow` | Dedicated Airflow metadata role. |
+| `AIRFLOW_DB_PASSWORD` | Required | none | URL-safe password for the Airflow metadata role. |
 | `AIRFLOW_HOST_PORT` | Optional | `18085` | Loopback-only host port for the Airflow API server and UI. |
 | `AIRFLOW_API_SECRET_KEY` | Required | none | Secret used by the Airflow API server. |
 | `AIRFLOW_JWT_SECRET` | Required | none | Shared JWT signing secret for Airflow components. |
@@ -76,24 +79,28 @@ Orders streaming (`spark/jobs/orders_streaming.py`): `KAFKA_BOOTSTRAP_SERVERS` (
 
 Orders producer (`kafka/producer/orders_producer.py`): `KAFKA_BOOTSTRAP_SERVERS` (`kafka:9092`), `KAFKA_TOPIC` (`orders`), `EVENTS_PER_SECOND` (`2`).
 
-Airflow (`docker-compose.yml`): Airflow 3.3.1 runs through `airflow standalone` with `LocalExecutor`, SQLite metadata, and Simple Auth Manager's local-only all-admin mode. The UI port is bound to `127.0.0.1`; there is no login prompt. `AIRFLOW_API_SECRET_KEY` and `AIRFLOW_JWT_SECRET` are distinct required values. DAG connections use `DWH_HOST`, `DWH_PORT`, `DWH_DB`, `DWH_USER`, and `DWH_PASSWORD`, while `TZ` defaults to `Europe/Moscow`.
+Airflow (`docker-compose.yml`): Airflow 3.3.1 runs through `airflow standalone` with `LocalExecutor` (parallelism `4`), PostgreSQL metadata, and Simple Auth Manager's local-only all-admin mode. The UI is named `DE Practicum · Local`, its port is bound to `127.0.0.1`, and there is no login prompt. `AIRFLOW_API_SECRET_KEY`, `AIRFLOW_JWT_SECRET`, and `AIRFLOW_DB_PASSWORD` are distinct required values. DAG connections use `DWH_HOST`, `DWH_PORT`, `DWH_DB`, `DWH_USER`, and `DWH_PASSWORD`, while `TZ` defaults to `Europe/Moscow`.
 
 Existing checkouts must refresh `.env`: remove the Airflow 2 keys
 `AIRFLOW_SECRET_KEY` and `AIRFLOW_ADMIN_PASSWORD`, then add independent random
 values for `AIRFLOW_API_SECRET_KEY` and `AIRFLOW_JWT_SECRET`.
 
-The SQLite metadata file is intentionally not mounted as persistent state.
-Recreating the Airflow container creates a clean Airflow 3.3.1 environment and
-discards only Airflow run history; PostgreSQL DWH data and the lakehouse state
-are separate and remain untouched.
+Also add a third independent, URL-safe value for `AIRFLOW_DB_PASSWORD`.
+`AIRFLOW_DB_NAME` and `AIRFLOW_DB_USER` normally keep their defaults. The
+idempotent `airflow-db-init` service creates or refreshes that role and database
+before Airflow starts, including when the PostgreSQL volume already exists.
 
-Iceberg maintenance DAG (`dags/lakehouse_maintenance.py`): `TRINO_HOST` (`trino`), `TRINO_PORT` (`8080`), `TRINO_USER` (`admin`), `MAINTENANCE_RETENTION` (`2h`, retention threshold passed to `expire_snapshots`/`remove_orphan_files`), `MAINTENANCE_RECOVERY_HORIZON` (`1h`, maximum writer recovery period), `MAINTENANCE_RECOVERY_SAFETY_MARGIN` (`15m`, import-time validation requires retention to be strictly greater than horizon plus margin), `MAINTENANCE_RETAIN_LAST` (`5`, snapshots always kept by `expire_snapshots`), `MAINTENANCE_FILE_SIZE_THRESHOLD` (`10MB`, passed to `optimize`). The DAG runs hourly (`schedule="0 * * * *"`) and is also manually triggerable. The maintenance target tables are **hardcoded** (`bronze.orders`, `silver.orders_clean`, `gold.orders_daily_metrics`) — they are not configurable via environment variables.
+Airflow metadata is stored in the dedicated `airflow_meta` PostgreSQL database
+inside the existing persistent Postgres volume. Recreating the Airflow
+container therefore preserves DAG run history, variables, and other metadata.
+
+Iceberg maintenance DAG (`dags/lakehouse_maintenance.py`): `TRINO_HOST` (`trino`), `TRINO_PORT` (`8080`), `TRINO_USER` (`admin`), `MAINTENANCE_RETENTION` (`2h`, retention threshold passed to `expire_snapshots`/`remove_orphan_files`), `MAINTENANCE_RECOVERY_HORIZON` (`1h`, maximum writer recovery period), `MAINTENANCE_RECOVERY_SAFETY_MARGIN` (`15m`, import-time validation requires retention to be strictly greater than horizon plus margin), `MAINTENANCE_RETAIN_LAST` (`5`, snapshots always kept by `expire_snapshots`), `MAINTENANCE_FILE_SIZE_THRESHOLD` (`10MB`, passed to `optimize`). The DAG runs hourly (`schedule="0 * * * *"`) and is also manually triggerable. Each hardcoded target (`bronze.orders`, `silver.orders_clean`, `gold.orders_daily_metrics`) becomes a separately visible mapped task instance; the three maintenance procedures remain sequential inside each table instance.
 
 ## Config file format
 
 The primary configuration is Docker Compose YAML:
 
-- `docker-compose.yml` — base stack: `de-demo-postgres` and `de-demo-airflow`.
+- `docker-compose.yml` — base stack: `de-demo-postgres`, the one-shot `airflow-db-init`, and `de-demo-airflow`.
 - `docker-compose.extended.yml` — the extended stack: MinIO, Spark, Jupyter, Kafka, Iceberg, Trino, Superset, Metabase, and the producer/streaming services. References the shared network and adds named volumes.
 - `docker-compose.local-airflow.yml` — offline fallback for the base stack using a pre-built local image (`local/airflow:3.3.1-lab`, `pull_policy: never`).
 
@@ -103,13 +110,17 @@ Runtime config files:
 - `trino/etc/config.properties`, `trino/etc/jvm.config`, `trino/etc/node.properties` — Trino server settings.
 - `superset/superset_config.py` — Superset Python config (reads `SUPERSET_SECRET_KEY`; local MCP settings).
 
-A minimal `.env` from `.env.example` is sufficient for the base stack; `.env.extended.example` is an alternate minimal set (note it uses `MINIO_ROOT_PASSWORD=minio123` and `TZ=Europe/London`).
+Copy `.env.example` for the base stack, then replace its secret placeholders.
+`.env.extended.example` is an alternate minimal template for the extended
+stack and likewise requires real secret values.
 
 ## Required vs optional settings
 
 - Missing `SUPERSET_SECRET_KEY` fails Superset startup (`superset/superset_config.py` raises `KeyError`). Required only if you run the Superset services.
+- Missing `AIRFLOW_DB_PASSWORD`, `AIRFLOW_API_SECRET_KEY`, or
+  `AIRFLOW_JWT_SECRET` fails Compose interpolation for the Airflow service.
 - `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` are used by MinIO itself and injected into every S3-dependent service (Spark, Iceberg, Trino). Keep them consistent; the values can be changed in `.env`, but restart MinIO and dependent services afterwards.
-- Every other base variable has a default in `.env.example` or a Compose interpolation default, so an unset variable only changes the port/image rather than breaking startup.
+- Every other base variable has a value in `.env.example` or a Compose interpolation default, so an unset variable only changes the port/image rather than breaking startup.
 
 ## Defaults
 

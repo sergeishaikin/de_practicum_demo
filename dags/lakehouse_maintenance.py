@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import psycopg2
 import trino
 
-from airflow.sdk import dag, task
+from airflow.sdk import dag, get_current_context, task
 from recovery_contract import validate_retention_contract
 
 TRINO_HOST = os.getenv("TRINO_HOST", "trino")
@@ -26,6 +26,21 @@ MAINTENANCE_TABLES = [
     ("silver", "orders_clean"),
     ("gold", "orders_daily_metrics"),
 ]
+MAINTENANCE_TARGETS = [
+    {"schema": schema, "table": table} for schema, table in MAINTENANCE_TABLES
+]
+
+MAINTENANCE_DAG_DOC = """
+## Lakehouse maintenance
+
+Runs Iceberg maintenance independently for each managed table. Every mapped
+task instance performs `optimize`, snapshot expiry, orphan-file cleanup, and
+then captures its post-maintenance snapshot count. A final task writes the
+per-table results to `marts.maintenance_runs`.
+
+The retention contract is validated while the DAG is imported so an unsafe
+configuration cannot reach snapshot expiry.
+"""
 
 RETENTION = os.getenv("MAINTENANCE_RETENTION", "2h")
 RECOVERY_HORIZON = os.getenv("MAINTENANCE_RECOVERY_HORIZON", "1h")
@@ -75,6 +90,9 @@ def _snapshot_count(conn, schema: str, table: str) -> int:
 
 @dag(
     dag_id="lakehouse_maintenance",
+    dag_display_name="Lakehouse Table Maintenance",
+    description="Maintain each managed Iceberg table and audit snapshot counts.",
+    doc_md=MAINTENANCE_DAG_DOC,
     start_date=datetime(2024, 1, 1),
     schedule="0 * * * *",
     catchup=False,
@@ -97,83 +115,73 @@ def lakehouse_maintenance():
         finally:
             conn.close()
 
-    @task
-    def optimize_tables() -> None:
-        conn = _trino_connect()
-        try:
-            for schema, table in MAINTENANCE_TABLES:
-                stmt = (
-                    f"alter table iceberg.{schema}.{table} "
-                    f"execute optimize(file_size_threshold => '{FILE_SIZE_THRESHOLD}')"
-                )
-                conn.cursor().execute(stmt)
-                conn.commit()
-                print(f"optimize: {schema}.{table} done", flush=True)
-        finally:
-            conn.close()
+    @task(map_index_template="{{ table_name }}")
+    def maintain_table(target: dict[str, str], before: dict[str, int]) -> dict:
+        schema = target["schema"]
+        table = target["table"]
+        full_name = f"{schema}.{table}"
+        get_current_context()["table_name"] = full_name
+        before_count = before.get(full_name)
 
-    @task
-    def expire_snapshots_tables() -> None:
         conn = _trino_connect()
         try:
-            for schema, table in MAINTENANCE_TABLES:
-                stmt = (
+            statements = (
+                (
+                    "optimize",
+                    f"alter table iceberg.{schema}.{table} "
+                    f"execute optimize(file_size_threshold => '{FILE_SIZE_THRESHOLD}')",
+                ),
+                (
+                    "expire_snapshots",
                     f"alter table iceberg.{schema}.{table} "
                     f"execute expire_snapshots("
                     f"retention_threshold => '{RETENTION}', "
                     f"retain_last => {RETAIN_LAST}, "
-                    f"clean_expired_metadata => true)"
-                )
-                conn.cursor().execute(stmt)
-                conn.commit()
-                print(f"expire_snapshots: {schema}.{table} done", flush=True)
-        finally:
-            conn.close()
-
-    @task
-    def remove_orphan_files_tables() -> None:
-        conn = _trino_connect()
-        try:
-            for schema, table in MAINTENANCE_TABLES:
-                stmt = (
+                    f"clean_expired_metadata => true)",
+                ),
+                (
+                    "remove_orphan_files",
                     f"alter table iceberg.{schema}.{table} "
-                    f"execute remove_orphan_files(retention_threshold => '{RETENTION}')"
-                )
-                conn.cursor().execute(stmt)
-                conn.commit()
-                print(f"remove_orphan_files: {schema}.{table} done", flush=True)
+                    f"execute remove_orphan_files(retention_threshold => '{RETENTION}')",
+                ),
+            )
+            for operation, statement in statements:
+                cursor = conn.cursor()
+                try:
+                    cursor.execute(statement)
+                    conn.commit()
+                finally:
+                    cursor.close()
+                print(f"{operation}: {full_name} done", flush=True)
+
+            after_count = _snapshot_count(conn, schema, table)
         finally:
             conn.close()
+
+        reduced = before_count is not None and after_count < before_count
+        status = "ok" if after_count <= RETAIN_LAST + 2 or reduced else "noop"
+        return {
+            "table_name": full_name,
+            "before_snapshots": before_count,
+            "after_snapshots": after_count,
+            "status": status,
+        }
 
     @task
-    def write_audit(before: dict, airflow_run_id: str) -> None:
-        conn = _trino_connect()
-        try:
-            after = {
-                f"{schema}.{table}": _snapshot_count(conn, schema, table)
-                for schema, table in MAINTENANCE_TABLES
-            }
-        finally:
-            conn.close()
-
-        rows = []
-        for full_name, after_count in after.items():
-            before_count = before.get(full_name)
-            reduced = before_count is not None and after_count < before_count
-            status = "ok" if after_count <= RETAIN_LAST + 2 or reduced else "noop"
-            rows.append((full_name, before_count, after_count, status))
-
-        for full_name, before_count, after_count, status in rows:
+    def write_audit(results: list[dict], airflow_run_id: str) -> None:
+        rows = list(results)
+        for result in rows:
             print(
-                f"maintenance {full_name}: before={before_count} "
-                f"after={after_count} ({status})",
+                f"maintenance {result['table_name']}: "
+                f"before={result['before_snapshots']} "
+                f"after={result['after_snapshots']} ({result['status']})",
                 flush=True,
             )
 
         with psycopg2.connect(**DWH_CONN) as pg_conn:
             with pg_conn.cursor() as cur:
                 cur.execute(AUDIT_DDL)
-                for full_name, before_count, after_count, status in rows:
+                for result in rows:
                     cur.execute(
                         """
                         insert into marts.maintenance_runs (
@@ -188,21 +196,17 @@ def lakehouse_maintenance():
                         """,
                         (
                             airflow_run_id,
-                            full_name,
-                            before_count,
-                            after_count,
-                            status,
+                            result["table_name"],
+                            result["before_snapshots"],
+                            result["after_snapshots"],
+                            result["status"],
                         ),
                     )
             pg_conn.commit()
 
     before = capture_before()
-    optimize = optimize_tables()
-    expire = expire_snapshots_tables()
-    orphan = remove_orphan_files_tables()
-    audit = write_audit(before=before, airflow_run_id="{{ run_id }}")
-
-    before >> optimize >> expire >> orphan >> audit
+    results = maintain_table.partial(before=before).expand(target=MAINTENANCE_TARGETS)
+    write_audit(results=results, airflow_run_id="{{ run_id }}")
 
 
 lakehouse_maintenance()

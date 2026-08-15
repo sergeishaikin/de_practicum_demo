@@ -98,9 +98,13 @@ The batch pipeline lives in `dags/demo_core_marts_pipeline.py` and is built on t
 - `check_payment_reconcile` compares `sum(payment_value)` between `stg.order_payments` and `core.orders` and fails if the difference exceeds `0.01`.
 - `write_audit` inserts into `marts.pipeline_runs` with a `success`/`failed` status computed from duplicate-grain rows, null keys, and the reconcile diff.
 
-The base stack is defined in `docker-compose.yml`; the same service is available in `docker-compose.local-airflow.yml` using a pre-built local image (`local/airflow:3.3.1-lab`, `pull_policy: never`) as an offline fallback. The Airflow container uses `airflow standalone`, SQLite metadata, and LocalExecutor for the demo. Simple Auth Manager runs in all-admin mode with no login prompt, and the UI port is bound only to `127.0.0.1`.
+The tasks publish Airflow Assets for the managed raw CSV, `stg`, `core`,
+`marts`, and audit objects. These Assets document the batch lineage only; they
+do not claim ownership of external streaming or Iceberg events.
 
-The SQL behind the layers (`stg` → `core` → `marts`) lives in `db/`, with `db/init/` executed only when the Postgres volume is first created.
+The base stack is defined in `docker-compose.yml`; the same service is available in `docker-compose.local-airflow.yml` using a pre-built local image (`local/airflow:3.3.1-lab`, `pull_policy: never`) as an offline fallback. The Airflow container uses `airflow standalone`, LocalExecutor with parallelism `4`, and the dedicated `airflow_meta` database in PostgreSQL. The idempotent `airflow-db-init` service provisions the database before Airflow starts, so metadata survives container recreation. Simple Auth Manager runs in all-admin mode with no login prompt, and the named UI is bound only to `127.0.0.1`.
+
+The SQL behind the layers (`stg` → `core` → `marts`) lives in `db/`. PostgreSQL runs `db/init/` when its volume is first created; `airflow-db-init` also reruns only the idempotent Airflow metadata bootstrap for existing volumes.
 
 ### Spark jobs
 
@@ -132,7 +136,7 @@ Both services share the `iceberg/Dockerfile` image (`python:3.12-slim` with `pyi
 - `ALTER TABLE <schema>.<table> EXECUTE expire_snapshots (retention_threshold => '1h', retain_last => 5)`
 - `ALTER TABLE <schema>.<table> EXECUTE remove_orphan_files (retention_threshold => '1h')`
 
-Targets are `bronze.orders`, `silver.orders_clean`, `gold.orders_daily_metrics`. Before/after snapshot counts per table are written to `marts.maintenance_runs`. Tuning knobs: `TRINO_HOST`/`TRINO_PORT`/`TRINO_USER`, `MAINTENANCE_RETENTION`, `MAINTENANCE_RETAIN_LAST`, `MAINTENANCE_FILE_SIZE_THRESHOLD`. The Trino catalog lowers `iceberg.expire-snapshots.min-retention`/`remove-orphan-files.min-retention` to `1h` (see [CONFIGURATION.md](CONFIGURATION.md)).
+Targets are `bronze.orders`, `silver.orders_clean`, `gold.orders_daily_metrics`. Airflow maps one `maintain_table` task instance per target; each instance runs the three procedures in order and returns its before/after snapshot counts to the shared audit task. Results are written to `marts.maintenance_runs`. Tuning knobs: `TRINO_HOST`/`TRINO_PORT`/`TRINO_USER`, `MAINTENANCE_RETENTION`, `MAINTENANCE_RETAIN_LAST`, `MAINTENANCE_FILE_SIZE_THRESHOLD`. The Trino catalog lowers `iceberg.expire-snapshots.min-retention`/`remove-orphan-files.min-retention` to `1h` (see [CONFIGURATION.md](CONFIGURATION.md)).
 
 Trigger a run: `docker exec de-demo-airflow airflow dags trigger lakehouse_maintenance` (unpause first if needed).
 

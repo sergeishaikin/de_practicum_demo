@@ -20,17 +20,13 @@ DUMP_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "dump_dag_struct
 MAINTENANCE_DAG = "lakehouse_maintenance"
 EXPECTED_TASKS = {
     "capture_before",
-    "optimize_tables",
-    "expire_snapshots_tables",
-    "remove_orphan_files_tables",
+    "maintain_table",
     "write_audit",
 }
 EXPECTED_UPSTREAM = {
     "capture_before": [],
-    "optimize_tables": ["capture_before"],
-    "expire_snapshots_tables": ["optimize_tables"],
-    "remove_orphan_files_tables": ["expire_snapshots_tables"],
-    "write_audit": ["capture_before", "remove_orphan_files_tables"],
+    "maintain_table": ["capture_before"],
+    "write_audit": ["maintain_table"],
 }
 EXPECTED_TABLES = [
     ["bronze", "orders"],
@@ -89,6 +85,15 @@ def test_maintenance_dag_retries_and_timeout(dag_structure: dict) -> None:
     assert dag["execution_timeout"] == "0:15:00"
 
 
+def test_maintenance_dag_ui_metadata_and_mapping(dag_structure: dict) -> None:
+    dag = dag_structure["dags"][MAINTENANCE_DAG]
+    assert dag["display_name"] == "Lakehouse Table Maintenance"
+    assert dag["description"]
+    assert dag["has_doc_md"] is True
+    assert dag["mapped_tasks"] == ["maintain_table"]
+    assert dag["map_index_templates"] == {"maintain_table": "{{ table_name }}"}
+
+
 def test_maintenance_tables_config_is_sane(dag_structure: dict) -> None:
     cfg = dag_structure["maintenance_config"]
     assert cfg["MAINTENANCE_TABLES"] == EXPECTED_TABLES
@@ -104,4 +109,13 @@ def test_maintenance_tables_config_is_sane(dag_structure: dict) -> None:
 
 
 def test_demo_core_marts_pipeline_present(dag_structure: dict) -> None:
-    assert "demo_core_marts_pipeline" in dag_structure["dags"]
+    dag = dag_structure["dags"]["demo_core_marts_pipeline"]
+    assert dag["display_name"] == "Core & Marts Batch Pipeline"
+    assert dag["description"]
+    assert dag["has_doc_md"] is True
+    assert dag["task_assets"] == {
+        "load_raw_csv_to_stg": {"inlets": 4, "outlets": 4},
+        "rebuild_core_and_marts": {"inlets": 4, "outlets": 6},
+        "check_payment_reconcile": {"inlets": 2, "outlets": 0},
+        "write_audit": {"inlets": 4, "outlets": 1},
+    }
