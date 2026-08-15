@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import os
 from datetime import datetime
 from decimal import Decimal
@@ -83,8 +84,9 @@ BATCH_DAG_DOC = """
 ## Core & marts batch pipeline
 
 Loads the four Olist CSV inputs into PostgreSQL staging tables, rebuilds the
-core model and marts views, validates payment reconciliation, and records an
-idempotent audit row in `marts.pipeline_runs`.
+core model and marts views only after all four non-empty CSV inputs exactly
+match their staging row counts, validates payment reconciliation, and records
+an idempotent audit row in `marts.pipeline_runs`.
 
 This DAG is intentionally manual. Its Assets describe only data managed by
 this batch pipeline; external streaming and Iceberg state are not represented.
@@ -148,6 +150,17 @@ def _copy_csv(conn, table: str, csv_name: str, columns: list[str]) -> None:
             cur.copy_expert(copy_sql, csv_file)
 
 
+def _csv_data_row_count(csv_name: str) -> int:
+    csv_path = DATA_DIR / csv_name
+    if not csv_path.exists():
+        raise AirflowException(f"Missing raw CSV file: {csv_path}")
+
+    with csv_path.open("r", encoding="utf-8", newline="") as csv_file:
+        records = csv.reader(csv_file)
+        next(records, None)
+        return sum(1 for _ in records)
+
+
 @dag(
     dag_id="demo_core_marts_pipeline",
     dag_display_name="Core & Marts Batch Pipeline",
@@ -156,6 +169,7 @@ def _copy_csv(conn, table: str, csv_name: str, columns: list[str]) -> None:
     start_date=datetime(2024, 1, 1),
     schedule=None,
     catchup=False,
+    max_active_runs=1,
     tags=["demo", "core", "marts"],
 )
 def demo_core_marts_pipeline():
@@ -165,6 +179,26 @@ def demo_core_marts_pipeline():
             _execute_sql_file(conn, SQL_DIR / "00_truncate_stg.sql")
             for table, csv_name, columns in STG_LOADS:
                 _copy_csv(conn, table, csv_name, columns)
+
+    @task(inlets=STG_ASSETS)
+    def validate_staging() -> None:
+        mismatches = []
+        with _connect() as conn:
+            for table, csv_name, _ in STG_LOADS:
+                csv_count = _csv_data_row_count(csv_name)
+                with conn.cursor() as cur:
+                    cur.execute(f"select count(*) from {table}")
+                    staging_count = int(cur.fetchone()[0])
+                if csv_count <= 0 or staging_count <= 0 or csv_count != staging_count:
+                    mismatches.append(
+                        f"table={table} file={csv_name} "
+                        f"csv_count={csv_count} staging_count={staging_count}"
+                    )
+
+        if mismatches:
+            raise AirflowException(
+                "Staging row-count validation failed: " + "; ".join(mismatches)
+            )
 
     @task(inlets=STG_ASSETS, outlets=[*CORE_ASSETS, *MART_ASSETS])
     def rebuild_core_and_marts() -> None:
@@ -298,11 +332,12 @@ def demo_core_marts_pipeline():
             )
 
     load_stg = load_raw_csv_to_stg()
+    staging_check = validate_staging()
     rebuild = rebuild_core_and_marts()
     payment_check = check_payment_reconcile()
     audit = write_audit("{{ run_id }}")
 
-    chain(load_stg, rebuild, payment_check, audit)
+    chain(load_stg, staging_check, rebuild, payment_check, audit)
 
 
 demo_core_marts_pipeline()

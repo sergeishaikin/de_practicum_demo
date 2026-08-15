@@ -29,6 +29,14 @@ EXPECTED_TABLES = [
     ["silver", "orders_clean"],
     ["gold", "orders_daily_metrics"],
 ]
+BATCH_DAG = "demo_core_marts_pipeline"
+BATCH_UPSTREAM = {
+    "load_raw_csv_to_stg": [],
+    "validate_staging": ["load_raw_csv_to_stg"],
+    "rebuild_core_and_marts": ["validate_staging"],
+    "check_payment_reconcile": ["rebuild_core_and_marts"],
+    "write_audit": ["check_payment_reconcile"],
+}
 
 pytestmark = pytest.mark.airflow
 
@@ -106,12 +114,15 @@ def test_maintenance_tables_config_is_sane(dag_structure: dict) -> None:
 
 
 def test_demo_core_marts_pipeline_present(dag_structure: dict) -> None:
-    dag = dag_structure["dags"]["demo_core_marts_pipeline"]
+    dag = dag_structure["dags"][BATCH_DAG]
     assert dag["display_name"] == "Core & Marts Batch Pipeline"
     assert dag["description"]
     assert dag["has_doc_md"] is True
+    assert dag["max_active_runs"] == 1
+    assert dag["tasks"] == BATCH_UPSTREAM
     assert dag["task_assets"] == {
         "load_raw_csv_to_stg": {"inlets": 4, "outlets": 4},
+        "validate_staging": {"inlets": 4, "outlets": 0},
         "rebuild_core_and_marts": {"inlets": 4, "outlets": 6},
         "check_payment_reconcile": {"inlets": 2, "outlets": 0},
         "write_audit": {"inlets": 4, "outlets": 1},
