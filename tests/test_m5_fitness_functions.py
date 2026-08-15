@@ -55,7 +55,12 @@ def test_ff09_cross_date_update_keeps_one_global_current_row() -> None:
     resolved = resolve_against_current(state, [update])
     state = [item for item in state if item["order_id"] != "order-1"] + resolved
     assert len(state) == len({item["order_id"] for item in state}) == 2
-    assert next(item for item in state if item["order_id"] == "order-1")["business_version"] == 5
+    assert (
+        next(item for item in state if item["order_id"] == "order-1")[
+            "business_version"
+        ]
+        == 5
+    )
 
 
 @pytest.mark.architecture
@@ -179,4 +184,6 @@ def test_runtime_rollout_rejects_persisted_silver_without_shadow() -> None:
 def test_postgres_serving_upsert_is_monotonic_on_business_version() -> None:
     source = Path("spark/jobs/orders_streaming.py").read_text(encoding="utf-8")
     assert "POSTGRES_VERSION_GUARD" in source
-    assert "excluded.business_version > marts.streaming_orders.business_version" in source
+    assert (
+        "excluded.business_version > marts.streaming_orders.business_version" in source
+    )

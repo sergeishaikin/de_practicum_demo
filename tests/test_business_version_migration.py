@@ -62,7 +62,9 @@ def test_duplicate_or_overlapping_history_fails_closed() -> None:
             backfill_singleton_versions(source)
 
 
-def test_b2_projection_collapses_versioned_observations_without_transport_ordering() -> None:
+def test_b2_projection_collapses_versioned_observations_without_transport_ordering() -> (
+    None
+):
     source = rows_table([row("a", 1, amount=10.0), row("a", 2, amount=20.0)])
 
     projected = b2_projection(source)

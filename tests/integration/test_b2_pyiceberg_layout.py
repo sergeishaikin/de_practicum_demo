@@ -182,9 +182,7 @@ def update_batch() -> list[dict[str, Any]]:
 
     later = date(2026, 8, DAYS + 5)
     rows = [
-        make_row(
-            "order-00-00000", day=later, version=3, amount=300, status="shipped"
-        ),
+        make_row("order-00-00000", day=later, version=3, amount=300, status="shipped"),
         make_row(
             "order-00-00000", day=later, version=5, amount=500, status="delivered"
         ),
@@ -226,9 +224,7 @@ def planned_read_metrics(table, keys: list[str]) -> dict[str, int]:
     tasks = list(table.scan(row_filter=row_filter(keys)).plan_files())
     return {
         "files_planned_for_read": len(tasks),
-        "bytes_planned_for_read": sum(
-            task.file.file_size_in_bytes for task in tasks
-        ),
+        "bytes_planned_for_read": sum(task.file.file_size_in_bytes for task in tasks),
     }
 
 
@@ -245,7 +241,10 @@ def apply_b2_update(table, incoming: list[dict[str, Any]]) -> dict[str, int]:
         table.overwrite(
             rows_to_arrow(resolved),
             overwrite_filter=row_filter(changed_keys),
-            snapshot_properties={"spike": "SPIKE-2", "changed_keys": str(len(changed_keys))},
+            snapshot_properties={
+                "spike": "SPIKE-2",
+                "changed_keys": str(len(changed_keys)),
+            },
         )
 
     after_files = live_data_files(table)
@@ -300,7 +299,9 @@ def test_b2_layouts_preserve_correctness_and_emit_cost_evidence(spike_namespace)
         ),
     ):
         identifier = f"{spike_namespace}.{table_name}"
-        cat.create_table(identifier, schema=SILVER_SCHEMA, partition_spec=partition_spec)
+        cat.create_table(
+            identifier, schema=SILVER_SCHEMA, partition_spec=partition_spec
+        )
         table = cat.load_table(identifier)
         seeded_rows = seed_table(table)
         initial_files = live_data_files(table)
@@ -374,8 +375,7 @@ def test_b2_layouts_preserve_correctness_and_emit_cost_evidence(spike_namespace)
                 "seeded_rows": seeded_rows,
                 "initial_data_files": initial_data_files,
                 "initial_partition_files": {
-                    str(key): value
-                    for key, value in initial_partition_files.items()
+                    str(key): value for key, value in initial_partition_files.items()
                 },
                 "first_update": first_update,
                 "replay": replay,

@@ -45,7 +45,9 @@ def classify(records, rows_by_load, bronze, silver, *, progress=None, ts=100):
         bronze,
         silver,
         {record["load_id"]: [snapshot(record["load_id"], ts)] for record in records},
-        SnapshotEvidence("migration", 200, None, "legacy-singleton-business-version-v1"),
+        SnapshotEvidence(
+            "migration", 200, None, "legacy-singleton-business-version-v1"
+        ),
         progress or {"work": {}, "completed": {}},
     )
 
@@ -90,12 +92,11 @@ def test_missing_authoritative_row_blocks_cleanup() -> None:
     )
 
     assert result["blocked"] == 1
-    assert "rows_not_fully_represented_in_authoritative_bronze" in result[
-        "blocked_reasons"
-    ]
-    assert "order_id_missing_from_authoritative_bronze" in result[
-        "blocked_reasons"
-    ]
+    assert (
+        "rows_not_fully_represented_in_authoritative_bronze"
+        in result["blocked_reasons"]
+    )
+    assert "order_id_missing_from_authoritative_bronze" in result["blocked_reasons"]
 
 
 def test_cleanup_digest_is_order_independent() -> None:

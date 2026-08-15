@@ -55,9 +55,7 @@ INTERVAL = int(os.getenv("MEDALLION_INTERVAL_SECONDS", "60"))
 SILVER_MODE = os.getenv("SILVER_MODE", "legacy").lower()
 GOLD_SOURCE = os.getenv("GOLD_SOURCE", "legacy").lower()
 SHADOW_COMPARE_ENABLED = os.getenv("SHADOW_COMPARE", "0") == "1"
-BRONZE_OUTBOX_PREFIX = os.getenv(
-    "BRONZE_OUTBOX_PREFIX", "streaming/bronze_outbox"
-)
+BRONZE_OUTBOX_PREFIX = os.getenv("BRONZE_OUTBOX_PREFIX", "streaming/bronze_outbox")
 MEDALLION_PROGRESS_PATH = os.getenv(
     "MEDALLION_PROGRESS_PATH", "streaming/medallion/progress.json"
 )
@@ -69,9 +67,7 @@ MAX_COMPLETED_PROGRESS = int(os.getenv("MAX_COMPLETED_PROGRESS", "100"))
 SIMULATE_B2_CRASH_BEFORE_COMMIT = (
     os.getenv("SIMULATE_B2_CRASH_BEFORE_COMMIT", "0") == "1"
 )
-SIMULATE_B2_CRASH_AFTER_COMMIT = (
-    os.getenv("SIMULATE_B2_CRASH_AFTER_COMMIT", "0") == "1"
-)
+SIMULATE_B2_CRASH_AFTER_COMMIT = os.getenv("SIMULATE_B2_CRASH_AFTER_COMMIT", "0") == "1"
 
 SILVER_WORK_ID_KEY = "silver-work-id"
 PROGRESS_VERSION = 1
@@ -286,7 +282,9 @@ def _append_completion_receipt(
         "output_digest": output_digest,
     }
     with fs.open_output_stream(path) as output:
-        output.write(json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode())
+        output.write(
+            json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode()
+        )
     return receipt
 
 
@@ -443,7 +441,9 @@ def _snapshot_write_cost(snapshot) -> tuple[int, int, int, int]:
     )
 
 
-def run_b2(catalog: RestCatalog, metrics: Metrics, fs: S3FileSystem | None = None) -> None:
+def run_b2(
+    catalog: RestCatalog, metrics: Metrics, fs: S3FileSystem | None = None
+) -> None:
     """Process committed Bronze outbox work with the B2 Silver projection."""
 
     fs = fs or get_fs()
@@ -561,7 +561,9 @@ def run_b2(catalog: RestCatalog, metrics: Metrics, fs: S3FileSystem | None = Non
             )
             silver.overwrite(
                 _rows_to_silver(resolved),
-                overwrite_filter=In("order_id", sorted({row["order_id"] for row in resolved})),
+                overwrite_filter=In(
+                    "order_id", sorted({row["order_id"] for row in resolved})
+                ),
                 snapshot_properties={
                     SILVER_WORK_ID_KEY: load_id,
                     "changed-keys": str(len(resolved)),
@@ -809,7 +811,9 @@ def _shadow_value(value):
     return (type(value).__name__, value)
 
 
-def _shadow_rows_by_key(table: pa.Table | list[dict]) -> tuple[dict[str, dict], list[dict]]:
+def _shadow_rows_by_key(
+    table: pa.Table | list[dict],
+) -> tuple[dict[str, dict], list[dict]]:
     rows = table.to_pylist() if isinstance(table, pa.Table) else list(table)
     rows_by_key: dict[str, list[dict]] = {}
     for row in rows:
@@ -821,8 +825,7 @@ def _shadow_rows_by_key(table: pa.Table | list[dict]) -> tuple[dict[str, dict], 
         ordered_rows = sorted(
             rows_by_key[key],
             key=lambda row: tuple(
-                (column, repr(_shadow_value(row.get(column))))
-                for column in sorted(row)
+                (column, repr(_shadow_value(row.get(column)))) for column in sorted(row)
             ),
         )
         by_key[key] = ordered_rows[0]
@@ -844,9 +847,7 @@ def compare_business_state(
 
     legacy_by_key, legacy_duplicates = _shadow_rows_by_key(legacy)
     b2_by_key, b2_duplicates = _shadow_rows_by_key(persisted_b2)
-    mismatches = [
-        {**item, "side": "legacy"} for item in legacy_duplicates
-    ] + [
+    mismatches = [{**item, "side": "legacy"} for item in legacy_duplicates] + [
         {**item, "side": "persisted_b2"} for item in b2_duplicates
     ]
 
@@ -1035,9 +1036,7 @@ def _run_legacy(catalog: RestCatalog, metrics: Metrics) -> None:
         bronze_rows=cycle["bronze_df"].num_rows,
         silver_rows=cycle["silver_df"].num_rows,
         gold_rows=gold_df.num_rows,
-        duplicates_removed=(
-            cycle["bronze_df"].num_rows - cycle["silver_df"].num_rows
-        ),
+        duplicates_removed=(cycle["bronze_df"].num_rows - cycle["silver_df"].num_rows),
         quality_violations=cycle["violations_total"],
         duration_ms=int((time.monotonic() - cycle["started"]) * 1000),
         silver_duration_ms=int((gold_started - cycle["started"]) * 1000),
@@ -1076,11 +1075,17 @@ def _run_m4(catalog: RestCatalog, metrics: Metrics, selected_mode: str) -> None:
     persisted_silver_df = _read_persisted_silver(catalog)
     if SHADOW_COMPARE_ENABLED:
         if legacy_silver_df is None:
-            raise RuntimeError("Shadow comparison requires a legacy business projection")
+            raise RuntimeError(
+                "Shadow comparison requires a legacy business projection"
+            )
         comparison = compare_business_state(legacy_silver_df, persisted_silver_df)
         if not comparison["equal"]:
-            diagnostic = json.dumps(comparison["mismatches"], sort_keys=True, default=str)
-            print(f"Shadow comparison mismatch: {diagnostic}", file=sys.stderr, flush=True)
+            diagnostic = json.dumps(
+                comparison["mismatches"], sort_keys=True, default=str
+            )
+            print(
+                f"Shadow comparison mismatch: {diagnostic}", file=sys.stderr, flush=True
+            )
             metrics.record(
                 source="medallion",
                 status="shadow_failed",

@@ -215,8 +215,7 @@ def test_r1_malformed_event_dead_letter_reconciliation_and_replay() -> None:
         bronze_id = f"{namespace}.orders"
         bronze_probe = Probe(lambda: table_rows(_catalog(), bronze_id))
         wait_until(
-            lambda: bronze_probe() == 1
-            and _pending_empty(state_file),
+            lambda: bronze_probe() == 1 and _pending_empty(state_file),
             180,
             "R1 valid row reaches Bronze",
             proc=writer,
@@ -332,7 +331,10 @@ def test_r1_offset_loss_fails_loudly() -> None:
 
         def failed() -> bool:
             state = docker(
-                "inspect", stream_name, "--format", "{{.State.Status}}|{{.State.ExitCode}}"
+                "inspect",
+                stream_name,
+                "--format",
+                "{{.State.Status}}|{{.State.ExitCode}}",
             ).strip()
             return state.startswith("exited|") and not state.endswith("|0")
 

@@ -68,7 +68,8 @@ def evaluate_cutover_gate(
         "shadow_comparison_success": evidence.get("shadow_comparison_success") is True,
         "unresolved_progress_zero": evidence.get("unresolved_progress", 1) == 0,
         "ff14_conflicts_zero": evidence.get("ff14_conflicts", 1) == 0,
-        "recent_recovery_tests_passed": evidence.get("recent_recovery_tests_passed") is True,
+        "recent_recovery_tests_passed": evidence.get("recent_recovery_tests_passed")
+        is True,
         "gold_equivalence": evidence.get("gold_equivalence") is True,
         "rollback_verified": evidence.get("rollback_verified") is True,
     }

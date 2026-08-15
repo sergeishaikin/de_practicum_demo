@@ -134,7 +134,9 @@ def _snapshot_count_and_rows(
     return len(snapshots), ice.scan().to_arrow().num_rows
 
 
-def _snapshot_business_versions(namespace: str, table: str, cat: RestCatalog) -> list[int]:
+def _snapshot_business_versions(
+    namespace: str, table: str, cat: RestCatalog
+) -> list[int]:
     ice = cat.load_table(f"{namespace}.{table}")
     return ice.scan().to_arrow()["business_version"].to_pylist()
 

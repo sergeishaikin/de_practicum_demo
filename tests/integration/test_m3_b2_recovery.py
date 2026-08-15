@@ -49,10 +49,10 @@ def fs() -> S3FileSystem:
     )
 
 
-def append_work(table, load_id: str, rows: list[dict], storage: S3FileSystem, outbox_prefix: str) -> None:
-    before = {
-        item["file_path"] for item in table.inspect.data_files().to_pylist()
-    }
+def append_work(
+    table, load_id: str, rows: list[dict], storage: S3FileSystem, outbox_prefix: str
+) -> None:
+    before = {item["file_path"] for item in table.inspect.data_files().to_pylist()}
     table.append(m._rows_to_silver(rows), snapshot_properties={"load-id": load_id})
     after = {item["file_path"] for item in table.inspect.data_files().to_pylist()}
     record = {
@@ -62,7 +62,9 @@ def append_work(table, load_id: str, rows: list[dict], storage: S3FileSystem, ou
         "bronze_data_files": sorted(after - before),
         "row_count": len(rows),
     }
-    with storage.open_output_stream(f"{BUCKET}/{outbox_prefix}/{load_id}.json") as output:
+    with storage.open_output_stream(
+        f"{BUCKET}/{outbox_prefix}/{load_id}.json"
+    ) as output:
         output.write(json.dumps(record).encode("utf-8"))
 
 
@@ -225,11 +227,22 @@ def test_m3_b2_projection_and_crash_recovery():
         wait_for_completed(storage, progress_path, replay_id)
         proc.terminate()
         proc.wait(timeout=10)
-        assert len(cat.load_table(f"{namespace}.silver").metadata.snapshots) == snapshots_after_update
+        assert (
+            len(cat.load_table(f"{namespace}.silver").metadata.snapshots)
+            == snapshots_after_update
+        )
 
         before_id = f"before-{run_id}"
-        append_work(bronze, before_id, [{**state["a"], "order_id": "before", "business_version": 1}], storage, outbox_prefix)
-        proc = start_medallion(namespace, outbox_prefix, progress_path, crash_before=True)
+        append_work(
+            bronze,
+            before_id,
+            [{**state["a"], "order_id": "before", "business_version": 1}],
+            storage,
+            outbox_prefix,
+        )
+        proc = start_medallion(
+            namespace, outbox_prefix, progress_path, crash_before=True
+        )
         assert proc.wait(timeout=90) == 21
         proc = start_medallion(namespace, outbox_prefix, progress_path)
         wait_for_completed(storage, progress_path, before_id)
@@ -238,15 +251,28 @@ def test_m3_b2_projection_and_crash_recovery():
         assert "before" in rows_by_id(cat.load_table(f"{namespace}.silver"))
 
         after_id = f"after-{run_id}"
-        append_work(bronze, after_id, [{**state["a"], "order_id": "after", "business_version": 1}], storage, outbox_prefix)
-        proc = start_medallion(namespace, outbox_prefix, progress_path, crash_after=True)
+        append_work(
+            bronze,
+            after_id,
+            [{**state["a"], "order_id": "after", "business_version": 1}],
+            storage,
+            outbox_prefix,
+        )
+        proc = start_medallion(
+            namespace, outbox_prefix, progress_path, crash_after=True
+        )
         assert proc.wait(timeout=90) == 22
-        snapshots_after_commit = len(cat.load_table(f"{namespace}.silver").metadata.snapshots)
+        snapshots_after_commit = len(
+            cat.load_table(f"{namespace}.silver").metadata.snapshots
+        )
         proc = start_medallion(namespace, outbox_prefix, progress_path)
         wait_for_completed(storage, progress_path, after_id)
         proc.terminate()
         proc.wait(timeout=10)
-        assert len(cat.load_table(f"{namespace}.silver").metadata.snapshots) == snapshots_after_commit
+        assert (
+            len(cat.load_table(f"{namespace}.silver").metadata.snapshots)
+            == snapshots_after_commit
+        )
         assert len(rows_by_id(cat.load_table(f"{namespace}.silver"))) == 4
     finally:
         for identifier in (f"{namespace}.silver", f"{namespace}.bronze"):

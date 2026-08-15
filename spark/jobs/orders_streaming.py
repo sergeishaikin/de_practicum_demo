@@ -53,6 +53,7 @@ def _checkpoint_path(name: str, historical_default: str) -> str:
         return f"{NEW_BASELINE_CHECKPOINT_ROOT}/{epoch}/{name.lower()}"
     return os.getenv(f"{name}_CHECKPOINT_PATH", historical_default)
 
+
 MINIO_BUCKET = os.getenv("MINIO_BUCKET", "de-practicum")
 RAW_OUTPUT_PATH = os.getenv(
     "RAW_OUTPUT_PATH",
@@ -339,15 +340,11 @@ def write_reconciliation(batch_df: DataFrame, batch_id: int) -> None:
     counts = batch_df.agg(
         F.count(F.lit(1)).alias("observed_count"),
         F.coalesce(
-            F.sum(
-                F.when(F.col("dead_letter_reason").isNull(), 1).otherwise(0)
-            ),
+            F.sum(F.when(F.col("dead_letter_reason").isNull(), 1).otherwise(0)),
             F.lit(0),
         ).alias("valid_count"),
         F.coalesce(
-            F.sum(
-                F.when(F.col("dead_letter_reason").isNotNull(), 1).otherwise(0)
-            ),
+            F.sum(F.when(F.col("dead_letter_reason").isNotNull(), 1).otherwise(0)),
             F.lit(0),
         ).alias("dead_letter_count"),
         F.min("kafka_partition").alias("min_kafka_partition"),
@@ -364,8 +361,9 @@ def write_reconciliation(batch_df: DataFrame, batch_id: int) -> None:
     # The batch-id directory is overwritten on retry, so a retried micro-batch
     # cannot create a second reconciliation receipt.
     (
-        counts.write.mode("overwrite")
-        .parquet(f"{RECONCILIATION_OUTPUT_PATH}/batch_id={batch_id}")
+        counts.write.mode("overwrite").parquet(
+            f"{RECONCILIATION_OUTPUT_PATH}/batch_id={batch_id}"
+        )
     )
 
 
@@ -408,14 +406,12 @@ def main() -> None:
         F.encode(F.col("order.canonical_payload"), "UTF-8"),
         256,
     )
-    reason = (
-        F.when(F.col("order").isNull(), F.lit("invalid_json_or_schema"))
-        .when(F.col("order.order_id").isNull(), F.lit("missing_order_id"))
+    reason = F.when(F.col("order").isNull(), F.lit("invalid_json_or_schema")).when(
+        F.col("order.order_id").isNull(), F.lit("missing_order_id")
     )
     if SOURCE_EPOCH_ID:
         reason = (
-            reason
-            .when(
+            reason.when(
                 F.col("order.source_epoch_id").isNull(),
                 F.lit("missing_source_epoch_id"),
             )
@@ -445,10 +441,7 @@ def main() -> None:
     reason = reason.when(
         F.col("order.canonical_payload").isNotNull()
         & F.col("order.canonical_payload_hash").isNotNull()
-        & (
-            F.lower(F.col("order.canonical_payload_hash"))
-            != F.lower(recomputed_hash)
-        ),
+        & (F.lower(F.col("order.canonical_payload_hash")) != F.lower(recomputed_hash)),
         F.lit("canonical_payload_hash_mismatch"),
     )
     classified_df = classified_base_df.withColumn("dead_letter_reason", reason)

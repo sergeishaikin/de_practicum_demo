@@ -65,13 +65,11 @@ def test_streaming_job_has_explicit_dead_letter_and_data_loss_contract() -> None
     assert '"dead_letter_count"' in source
     assert '"min_kafka_offset"' in source
     assert '"max_kafka_offset"' in source
-    assert 'batch_id={batch_id}' in source
+    assert "batch_id={batch_id}" in source
 
 
 def test_streaming_compose_defaults_to_loud_offset_loss() -> None:
-    source = (REPO_ROOT / "docker-compose.extended.yml").read_text(
-        encoding="utf-8"
-    )
+    source = (REPO_ROOT / "docker-compose.extended.yml").read_text(encoding="utf-8")
 
     assert "KAFKA_FAIL_ON_DATA_LOSS: ${KAFKA_FAIL_ON_DATA_LOSS:-true}" in source
     assert "orders_dead_letter" in source

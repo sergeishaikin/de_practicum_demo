@@ -92,7 +92,14 @@ def main() -> int:
     parser.add_argument("--profile", choices=("clean", "local"), default="clean")
     args = parser.parse_args()
     values = read_env_file(args.env_file) if args.env_file else {}
-    values = {**values, **{key: value for key, value in os.environ.items() if key in values or not args.env_file}}
+    values = {
+        **values,
+        **{
+            key: value
+            for key, value in os.environ.items()
+            if key in values or not args.env_file
+        },
+    }
     errors = validate(values, profile=args.profile)
     if errors:
         for error in errors:

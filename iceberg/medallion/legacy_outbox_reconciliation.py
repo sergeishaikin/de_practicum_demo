@@ -117,13 +117,15 @@ def snapshot_evidence(table) -> list[SnapshotEvidence]:
     return evidence
 
 
-def migration_boundary(snapshots: Iterable[SnapshotEvidence]) -> SnapshotEvidence | None:
-    markers = [
-        item
-        for item in snapshots
-        if item.migration_marker == MIGRATION_MARKER
-    ]
-    return max(markers, key=lambda item: (item.timestamp_ms, str(item.snapshot_id))) if markers else None
+def migration_boundary(
+    snapshots: Iterable[SnapshotEvidence],
+) -> SnapshotEvidence | None:
+    markers = [item for item in snapshots if item.migration_marker == MIGRATION_MARKER]
+    return (
+        max(markers, key=lambda item: (item.timestamp_ms, str(item.snapshot_id)))
+        if markers
+        else None
+    )
 
 
 def _progress_references(record: dict, progress: dict) -> list[str]:
@@ -183,8 +185,7 @@ def classify_manifests(
     """
 
     available_rows: Counter = Counter(
-        _canonical_row(row, normalize_legacy=False)
-        for row in authoritative_bronze_rows
+        _canonical_row(row, normalize_legacy=False) for row in authoritative_bronze_rows
     )
     silver_by_id = {str(row["order_id"]): row for row in silver_rows}
     authoritative_by_id = {
@@ -247,7 +248,9 @@ def classify_manifests(
                 reasons.append("order_id_missing_from_authoritative_bronze")
             elif silver is None:
                 reasons.append("order_id_missing_from_current_silver")
-            elif silver.get("business_version") != authoritative.get("business_version"):
+            elif silver.get("business_version") != authoritative.get(
+                "business_version"
+            ):
                 reasons.append("silver_not_at_authoritative_b2_version")
 
         post_migration = "manifest_is_post_migration_work" in reasons
@@ -261,9 +264,7 @@ def classify_manifests(
         else:
             status = "BLOCKED"
         blocking_reasons = (
-            sorted(set(reasons))
-            if status in {"IN_FLIGHT_BLOCKED", "BLOCKED"}
-            else []
+            sorted(set(reasons)) if status in {"IN_FLIGHT_BLOCKED", "BLOCKED"} else []
         )
 
         dispositions.append(
@@ -287,12 +288,8 @@ def classify_manifests(
         for item in dispositions
         if item["status"] == "SAFE_STALE"
     ]
-    live = [
-        item for item in dispositions if item["status"] == "LIVE_POST_MIGRATION"
-    ]
-    inflight = [
-        item for item in dispositions if item["status"] == "IN_FLIGHT_BLOCKED"
-    ]
+    live = [item for item in dispositions if item["status"] == "LIVE_POST_MIGRATION"]
+    inflight = [item for item in dispositions if item["status"] == "IN_FLIGHT_BLOCKED"]
     blocked = [item for item in dispositions if item["status"] == "BLOCKED"]
     return {
         "classified_manifests": len(dispositions),
@@ -354,9 +351,7 @@ def reconcile_inflight_noop(catalog, fs, load_id: str) -> dict:
 
     raw_rows = read_bronze_work(fs, bronze, record).to_pylist()
     authoritative_rows = _table_rows(bronze)
-    authoritative_keys = Counter(
-        _canonical_row(row) for row in authoritative_rows
-    )
+    authoritative_keys = Counter(_canonical_row(row) for row in authoritative_rows)
     normalized_rows = []
     for row in raw_rows:
         normalized = dict(row)
@@ -395,9 +390,9 @@ def reconcile_inflight_noop(catalog, fs, load_id: str) -> dict:
             for raw, row in zip(raw_rows, normalized_rows, strict=True)
         ),
         "resolved_rows": len(resolved),
-        "silver_snapshot_id": silver.current_snapshot().snapshot_id
-        if silver.current_snapshot()
-        else None,
+        "silver_snapshot_id": (
+            silver.current_snapshot().snapshot_id if silver.current_snapshot() else None
+        ),
         "progress_completed": True,
         "manifest_deleted": False,
     }
@@ -421,7 +416,9 @@ def build_live_receipt(catalog, fs) -> dict:
     for manifest in manifests:
         load_id = str(manifest["load_id"])
         if manifest.get("bronze_data_files"):
-            rows_by_load_id[load_id] = read_bronze_work(fs, bronze, manifest).to_pylist()
+            rows_by_load_id[load_id] = read_bronze_work(
+                fs, bronze, manifest
+            ).to_pylist()
         else:
             rows_by_load_id[load_id] = []
 
@@ -435,12 +432,8 @@ def build_live_receipt(catalog, fs) -> dict:
         boundary,
         progress,
     )
-    null_bronze_rows = sum(
-        row.get("business_version") is None for row in bronze_rows
-    )
-    null_silver_rows = sum(
-        row.get("business_version") is None for row in silver_rows
-    )
+    null_bronze_rows = sum(row.get("business_version") is None for row in bronze_rows)
+    null_silver_rows = sum(row.get("business_version") is None for row in silver_rows)
     result.update(
         {
             "migration": MIGRATION_NAME,
@@ -465,9 +458,7 @@ def build_live_receipt(catalog, fs) -> dict:
             "silver_null_business_version_rows": null_silver_rows,
             "authoritative_bronze_rows": len(bronze_rows),
             "authoritative_silver_rows": len(silver_rows),
-            "silver_unique_order_ids": len(
-                {row.get("order_id") for row in silver_rows}
-            )
+            "silver_unique_order_ids": len({row.get("order_id") for row in silver_rows})
             == len(silver_rows),
             "silver_equals_b2_projection": _same_rows(
                 silver.scan().to_arrow(), expected_silver

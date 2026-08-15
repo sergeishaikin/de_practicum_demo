@@ -16,7 +16,9 @@ PG_PARAMS = {
     "password": os.getenv("POSTGRES_PASSWORD", "app"),
 }
 
-EXPORTER_UP = Gauge("lakehouse_exporter_up", "Whether the durable metrics exporter can query Postgres")
+EXPORTER_UP = Gauge(
+    "lakehouse_exporter_up", "Whether the durable metrics exporter can query Postgres"
+)
 SOURCE_UP = Gauge("lakehouse_source_up", "Latest durable source status", ["source"])
 SOURCE_LAST_EVENT = Gauge(
     "lakehouse_source_last_event_timestamp_seconds",

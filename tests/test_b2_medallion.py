@@ -120,7 +120,9 @@ class FakeIcebergTable:
     def scan(self, row_filter=None) -> FakeScan:
         return FakeScan(self, row_filter)
 
-    def overwrite(self, arrow_table, overwrite_filter, snapshot_properties=None) -> None:
+    def overwrite(
+        self, arrow_table, overwrite_filter, snapshot_properties=None
+    ) -> None:
         values = predicate_values(overwrite_filter)
         removed_files = int(any(item["order_id"] in values for item in self.rows))
         removed_bytes = self.file_size if removed_files else 0
@@ -199,9 +201,13 @@ def setup_run(monkeypatch, incoming: list[dict], silver_rows: list[dict] | None 
     monkeypatch.setattr(m, "MINIO_BUCKET", "de-practicum")
     monkeypatch.setattr(m, "BRONZE_OUTBOX_PREFIX", "test-outbox")
     monkeypatch.setattr(m, "MEDALLION_PROGRESS_PATH", "test-progress/progress.json")
-    monkeypatch.setattr(m, "MEDALLION_COMPLETION_LEDGER_PREFIX", "test-completion-ledger")
+    monkeypatch.setattr(
+        m, "MEDALLION_COMPLETION_LEDGER_PREFIX", "test-completion-ledger"
+    )
     monkeypatch.setattr(m, "ensure_table", lambda *args: None)
-    monkeypatch.setattr(m, "read_bronze_work", lambda fs, bronze, record: rows_to_arrow(incoming))
+    monkeypatch.setattr(
+        m, "read_bronze_work", lambda fs, bronze, record: rows_to_arrow(incoming)
+    )
     monkeypatch.setattr(m, "SIMULATE_B2_CRASH_BEFORE_COMMIT", False)
     monkeypatch.setattr(m, "SIMULATE_B2_CRASH_AFTER_COMMIT", False)
     monkeypatch.setattr(
@@ -250,7 +256,9 @@ def test_b2_run_commits_only_advancing_keys_and_completes_progress(monkeypatch) 
         row("a", 5, amount=50, event_date=date(2026, 1, 2)),
         row("b", 2, amount=20),
     ]
-    fs, catalog, silver, metrics, load_id = setup_run(monkeypatch, incoming, [row("a", 1, amount=10)])
+    fs, catalog, silver, metrics, load_id = setup_run(
+        monkeypatch, incoming, [row("a", 1, amount=10)]
+    )
 
     m.run_b2(catalog, metrics, fs)
 
@@ -323,7 +331,9 @@ def test_b2_crash_before_commit_retries(monkeypatch) -> None:
     monkeypatch.setattr(m, "SIMULATE_B2_CRASH_BEFORE_COMMIT", False)
     m.run_b2(catalog, metrics, fs)
     assert len(silver.rows) == 1
-    assert not json.loads(fs.objects["de-practicum/test-progress/progress.json"])["work"]
+    assert not json.loads(fs.objects["de-practicum/test-progress/progress.json"])[
+        "work"
+    ]
 
 
 def test_recovery_acknowledgement_can_leave_manifest_for_separate_cleanup(
@@ -386,7 +396,9 @@ def test_failed_b2_processing_does_not_write_success_receipt(monkeypatch) -> Non
 
 
 def test_completion_ledger_survives_bounded_progress_pruning(monkeypatch) -> None:
-    fs, catalog, _silver, metrics, load_id = setup_run(monkeypatch, [row("a", 1, amount=10)])
+    fs, catalog, _silver, metrics, load_id = setup_run(
+        monkeypatch, [row("a", 1, amount=10)]
+    )
     monkeypatch.setattr(m, "MAX_COMPLETED_PROGRESS", 1)
 
     m.run_b2(catalog, metrics, fs)
@@ -400,7 +412,9 @@ def test_completion_ledger_survives_bounded_progress_pruning(monkeypatch) -> Non
 
 
 def test_historical_progress_is_not_backfilled_into_ledger(monkeypatch) -> None:
-    fs, catalog, _silver, metrics, load_id = setup_run(monkeypatch, [row("a", 1, amount=10)])
+    fs, catalog, _silver, metrics, load_id = setup_run(
+        monkeypatch, [row("a", 1, amount=10)]
+    )
     fs.objects["de-practicum/test-progress/progress.json"] = json.dumps(
         {
             "version": 1,

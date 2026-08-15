@@ -25,9 +25,7 @@ from medallion.legacy_outbox_reconciliation import (  # noqa: E402
 )
 
 APPROVED_COUNT = 140
-APPROVED_DIGEST = (
-    "231cefaadc2a0ceb35dfc6a7dacd6f2f75512650d6e1345ead681c84171939bf"
-)
+APPROVED_DIGEST = "231cefaadc2a0ceb35dfc6a7dacd6f2f75512650d6e1345ead681c84171939bf"
 OUTBOX_ROOT = "de-practicum/streaming/bronze_outbox/"
 
 
@@ -77,10 +75,7 @@ def _pre_delete_gate(receipt: dict, records: list[dict]) -> list[dict]:
             "S1.2B gate failed: cleanup digest does not match explicit approval"
         )
 
-    by_path = {
-        record["_object_path"]: record
-        for record in records
-    }
+    by_path = {record["_object_path"]: record for record in records}
     cleanup_set = receipt["cleanup_set"]
     if len(cleanup_set) != APPROVED_COUNT:
         raise RuntimeError("S1.2B gate failed: cleanup set length mismatch")
@@ -144,9 +139,7 @@ def cleanup(evidence_path: Path) -> dict:
         "progress_unchanged": progress_after == progress_before,
     }
     if not all(post_checks.values()):
-        raise RuntimeError(
-            f"S1.2B post-cleanup verification failed: {post_checks}"
-        )
+        raise RuntimeError(f"S1.2B post-cleanup verification failed: {post_checks}")
 
     receipt = {
         "migration": "S1.2",

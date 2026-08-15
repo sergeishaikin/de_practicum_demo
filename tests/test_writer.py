@@ -14,7 +14,9 @@ from writer import iceberg_writer as w
 
 
 class FakeSnap:
-    def __init__(self, props: dict | None = None, snapshot_id: int | None = None) -> None:
+    def __init__(
+        self, props: dict | None = None, snapshot_id: int | None = None
+    ) -> None:
         self.snapshot_id = snapshot_id
         if props is None:
             self.summary = None
@@ -46,15 +48,16 @@ class FakeCatalog:
 
 
 class FakeFS:
-    def __init__(self, infos: list[FileInfo], metadata: dict[str, str] | None = None) -> None:
+    def __init__(
+        self, infos: list[FileInfo], metadata: dict[str, str] | None = None
+    ) -> None:
         self.infos = infos
         self.metadata = metadata or {}
 
     def get_file_info(self, selector) -> list[FileInfo]:
         if "_spark_metadata" in selector.base_dir:
             return [
-                FileInfo(path, type=FileType.File)
-                for path in sorted(self.metadata)
+                FileInfo(path, type=FileType.File) for path in sorted(self.metadata)
             ]
         return self.infos
 
@@ -65,10 +68,7 @@ class FakeFS:
 
 
 def spark_metadata(*paths: str) -> str:
-    entries = [
-        {"path": path, "action": "add"}
-        for path in paths
-    ]
+    entries = [{"path": path, "action": "add"} for path in paths]
     return "v1\n" + "\n".join(json.dumps(entry) for entry in entries) + "\n"
 
 
@@ -109,7 +109,9 @@ class TestState:
         monkeypatch.setattr(w, "STATE_FILE", tmp_path / "nope.json")
         assert w.load_state() == (set(), {})
 
-    def test_replace_failure_preserves_previous_valid_state(self, tmp_path, monkeypatch) -> None:
+    def test_replace_failure_preserves_previous_valid_state(
+        self, tmp_path, monkeypatch
+    ) -> None:
         state_file = tmp_path / "state.json"
         monkeypatch.setattr(w, "STATE_FILE", state_file)
         w.save_state({"old"}, {"load-old": ["old.parquet"]})

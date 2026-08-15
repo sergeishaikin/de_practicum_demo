@@ -142,11 +142,14 @@ def backfill_singleton_versions(table: pa.Table) -> tuple[pa.Table, LegacyProfil
     version_index = table.column_names.index("business_version")
     current = table.column("business_version").to_pylist()
     values = [LEGACY_VERSION if value is None else int(value) for value in current]
-    return table.set_column(
-        version_index,
-        "business_version",
-        pa.chunked_array([pa.array(values, type=pa.int64())]),
-    ), profile
+    return (
+        table.set_column(
+            version_index,
+            "business_version",
+            pa.chunked_array([pa.array(values, type=pa.int64())]),
+        ),
+        profile,
+    )
 
 
 def _row_key(row: dict) -> tuple:

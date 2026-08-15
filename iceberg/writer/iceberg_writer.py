@@ -47,9 +47,7 @@ SECRET_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "")
 POLL_INTERVAL = int(os.getenv("POLL_INTERVAL_SECONDS", "10"))
 STATE_FILE = Path(os.getenv("STATE_FILE", "/state/ingested.json"))
 MAX_APPEND_ATTEMPTS = int(os.getenv("MAX_APPEND_ATTEMPTS", "5"))
-BRONZE_OUTBOX_PREFIX = os.getenv(
-    "BRONZE_OUTBOX_PREFIX", "streaming/bronze_outbox"
-)
+BRONZE_OUTBOX_PREFIX = os.getenv("BRONZE_OUTBOX_PREFIX", "streaming/bronze_outbox")
 
 SIMULATE_CRASH_AFTER_COMMIT = os.getenv("SIMULATE_CRASH_AFTER_COMMIT", "0") == "1"
 SIMULATE_CRASH_BEFORE_COMMIT = os.getenv("SIMULATE_CRASH_BEFORE_COMMIT", "0") == "1"
@@ -145,10 +143,7 @@ def table_data_files(table) -> set[str]:
     """Return live Bronze data files, tolerating lightweight test doubles."""
 
     try:
-        return {
-            item["file_path"]
-            for item in table.inspect.data_files().to_pylist()
-        }
+        return {item["file_path"] for item in table.inspect.data_files().to_pylist()}
     except (AttributeError, TypeError):
         return set()
 

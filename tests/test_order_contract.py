@@ -12,7 +12,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_iceberg_contracts_declare_business_version() -> None:
-    assert isinstance(writer.TABLE_SCHEMA.find_field("business_version").field_type, LongType)
+    assert isinstance(
+        writer.TABLE_SCHEMA.find_field("business_version").field_type, LongType
+    )
     assert isinstance(
         medallion.SILVER_SCHEMA.find_field("business_version").field_type,
         LongType,
@@ -23,14 +25,16 @@ def test_producer_and_spark_contracts_emit_business_version() -> None:
     producer_source = (
         REPO_ROOT / "kafka" / "producer" / "orders_producer.py"
     ).read_text(encoding="utf-8")
-    spark_source = (
-        REPO_ROOT / "spark" / "jobs" / "orders_streaming.py"
-    ).read_text(encoding="utf-8")
+    spark_source = (REPO_ROOT / "spark" / "jobs" / "orders_streaming.py").read_text(
+        encoding="utf-8"
+    )
 
     assert '"business_version": 1' in producer_source
     assert 'StructField("business_version", LongType()' in spark_source
     assert "business_version bigint" in spark_source
-    assert "order by business_version desc nulls last, kafka_offset desc" in spark_source
+    assert (
+        "order by business_version desc nulls last, kafka_offset desc" in spark_source
+    )
 
 
 class EvolvingSchema:

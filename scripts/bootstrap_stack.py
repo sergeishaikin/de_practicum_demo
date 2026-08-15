@@ -62,7 +62,9 @@ def wait_for_stack(values: dict[str, str], deadline: float) -> None:
 
 def bootstrap(values: dict[str, str], deadline: float) -> None:
     wait_for_stack(values, deadline)
-    alias_deadline = time.monotonic() + min(120, max(1, int(deadline - time.monotonic())))
+    alias_deadline = time.monotonic() + min(
+        120, max(1, int(deadline - time.monotonic()))
+    )
     while time.monotonic() < alias_deadline:
         result = _run(
             "docker",
@@ -102,7 +104,10 @@ def main() -> int:
     parser.add_argument("--timeout", type=int, default=900)
     args = parser.parse_args()
     values = read_env_file(args.env_file)
-    values = {**values, **{key: value for key, value in os.environ.items() if key in values}}
+    values = {
+        **values,
+        **{key: value for key, value in os.environ.items() if key in values},
+    }
     bootstrap(values, time.monotonic() + args.timeout)
     return 0
 

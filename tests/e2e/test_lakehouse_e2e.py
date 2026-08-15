@@ -1005,7 +1005,9 @@ def test_deterministic_nightly_pipeline() -> None:
             logs=(lambda: _docker_logs(stream_name),),
         )
         landed_versions = landing_business_versions(_fs(), run_id)
-        assert landed_versions and all(version is not None for version in landed_versions)
+        assert landed_versions and all(
+            version is not None for version in landed_versions
+        )
         assert Counter(landed_versions) == Counter(
             event["business_version"]
             for event in fixture

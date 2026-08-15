@@ -49,7 +49,9 @@ def collapse_delta(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             by_version[int(candidate["business_version"])].add(
                 _payload_signature(candidate)
             )
-        conflicting = [version for version, payloads in by_version.items() if len(payloads) > 1]
+        conflicting = [
+            version for version, payloads in by_version.items() if len(payloads) > 1
+        ]
         if conflicting:
             versions = ", ".join(str(version) for version in sorted(conflicting))
             raise ValueError(

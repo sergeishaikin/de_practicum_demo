@@ -36,7 +36,9 @@ def _load_producer(monkeypatch: pytest.MonkeyPatch):
     previous = sys.modules.get("confluent_kafka")
     sys.modules["confluent_kafka"] = kafka_stub
     try:
-        spec = importlib.util.spec_from_file_location("_test_orders_producer", PRODUCER_PATH)
+        spec = importlib.util.spec_from_file_location(
+            "_test_orders_producer", PRODUCER_PATH
+        )
         assert spec is not None and spec.loader is not None
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
@@ -48,7 +50,9 @@ def _load_producer(monkeypatch: pytest.MonkeyPatch):
             sys.modules["confluent_kafka"] = previous
 
 
-def test_canonical_payload_is_sorted_compact_domain_json_and_hash_stable(monkeypatch) -> None:
+def test_canonical_payload_is_sorted_compact_domain_json_and_hash_stable(
+    monkeypatch,
+) -> None:
     producer = _load_producer(monkeypatch)
     domain = {
         "order_id": "order-1",
@@ -79,10 +83,15 @@ def test_canonical_payload_is_sorted_compact_domain_json_and_hash_stable(monkeyp
         sort_keys=True,
         separators=(",", ":"),
     ).encode("utf-8")
-    assert producer.canonical_payload_hash(canonical_a) == hashlib.sha256(canonical_a).hexdigest()
+    assert (
+        producer.canonical_payload_hash(canonical_a)
+        == hashlib.sha256(canonical_a).hexdigest()
+    )
 
 
-def test_new_epoch_events_have_non_null_epoch_unique_event_id_and_matching_lineage(monkeypatch) -> None:
+def test_new_epoch_events_have_non_null_epoch_unique_event_id_and_matching_lineage(
+    monkeypatch,
+) -> None:
     producer = _load_producer(monkeypatch)
     first = producer.create_event()
     second = producer.create_event()
@@ -92,39 +101,56 @@ def test_new_epoch_events_have_non_null_epoch_unique_event_id_and_matching_linea
     assert first["event_id"] and first["event_id"] != second["event_id"]
     uuid.UUID(first["event_id"])
     canonical = first["canonical_payload"]
-    canonical_bytes = canonical.encode("utf-8") if isinstance(canonical, str) else canonical
-    assert first["canonical_payload_hash"] == hashlib.sha256(canonical_bytes).hexdigest()
+    canonical_bytes = (
+        canonical.encode("utf-8") if isinstance(canonical, str) else canonical
+    )
+    assert (
+        first["canonical_payload_hash"] == hashlib.sha256(canonical_bytes).hexdigest()
+    )
     assert json.loads(canonical_bytes) == {
-        key: first[key]
-        for key in producer.DOMAIN_FIELDS
+        key: first[key] for key in producer.DOMAIN_FIELDS
     }
 
 
 def test_spark_rejects_wrong_epoch_hash_mismatch_and_duplicate_event_ids() -> None:
     source = SPARK_PATH.read_text(encoding="utf-8")
-    for field in ("source_epoch_id", "event_id", "canonical_payload", "canonical_payload_hash"):
+    for field in (
+        "source_epoch_id",
+        "event_id",
+        "canonical_payload",
+        "canonical_payload_hash",
+    ):
         assert field in source
         assert re.search(rf'StructField\("{field}"', source)
     assert "dropDuplicates" in source and re.search(
         r"dropDuplicates\s*\(\s*\[\s*[\"']event_id[\"']", source
     )
     assert re.search(r"sha2\s*\(.*canonical_payload", source, flags=re.DOTALL)
-    assert re.search(r"source_epoch_id.*SOURCE_EPOCH_ID|SOURCE_EPOCH_ID.*source_epoch_id", source)
+    assert re.search(
+        r"source_epoch_id.*SOURCE_EPOCH_ID|SOURCE_EPOCH_ID.*source_epoch_id", source
+    )
     assert "KAFKA_FAIL_ON_DATA_LOSS" in source
 
 
 def test_landing_and_bronze_declarations_preserve_all_lineage_fields() -> None:
     spark = SPARK_PATH.read_text(encoding="utf-8")
     writer = WRITER_PATH.read_text(encoding="utf-8")
-    lineage_fields = ("source_epoch_id", "event_id", "canonical_payload", "canonical_payload_hash")
+    lineage_fields = (
+        "source_epoch_id",
+        "event_id",
+        "canonical_payload",
+        "canonical_payload_hash",
+    )
     for field in lineage_fields:
         assert re.search(rf'StructField\("{field}"', spark)
         assert re.search(rf'NestedField\([^\n]*"{field}"', writer)
-    assert ".format(\"parquet\")" in spark or ".format('parquet')" in spark
+    assert '.format("parquet")' in spark or ".format('parquet')" in spark
     assert "canonical_payload_hash" in writer
 
 
-def test_named_kafka_volume_and_new_checkpoints_leave_historical_defaults_intact() -> None:
+def test_named_kafka_volume_and_new_checkpoints_leave_historical_defaults_intact() -> (
+    None
+):
     compose = COMPOSE_EXTENDED_PATH.read_text(encoding="utf-8")
     assert "de_demo_kafka_data:/var/lib/kafka/data" in compose
     assert re.search(r"KAFKA_LOG_DIRS:\s*/var/lib/kafka/data", compose)
@@ -177,9 +203,13 @@ def test_readiness_receipt_semantics_are_fail_closed_and_deterministic() -> None
     # Task 3 emits this artifact only after the stateful bounded epoch.  When
     # present, validate its persisted contract as well; absence is expected
     # during the read-only Task 1 test gate.
-    receipt_path = REPO_ROOT / "artifacts" / "b2-rollout" / "02b-new-baseline-readiness.json"
+    receipt_path = (
+        REPO_ROOT / "artifacts" / "b2-rollout" / "02b-new-baseline-readiness.json"
+    )
     if receipt_path.exists():
         receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
         assert receipt.get("historical_continuity_claimed") is False
         assert receipt.get("old_checkpoints_untouched") is True
-        assert receipt.get("ready_for_01_02c") is (receipt.get("disposition") == "READY")
+        assert receipt.get("ready_for_01_02c") is (
+            receipt.get("disposition") == "READY"
+        )

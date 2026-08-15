@@ -37,15 +37,15 @@ def test_prometheus_rules_are_actionable_and_not_arbitrary() -> None:
     assert "for: 1m" in rules
 
 
-def test_grafana_dashboard_has_four_required_sections_and_repository_provisioning() -> None:
+def test_grafana_dashboard_has_four_required_sections_and_repository_provisioning() -> (
+    None
+):
     dashboard_path = (
         ROOT / "observability" / "grafana" / "dashboards" / "lakehouse-runtime.json"
     )
     dashboard = json.loads(dashboard_path.read_text(encoding="utf-8"))
     rows = {
-        panel["title"]
-        for panel in dashboard["panels"]
-        if panel.get("type") == "row"
+        panel["title"] for panel in dashboard["panels"] if panel.get("type") == "row"
     }
     assert rows == {
         "Pipeline Health",
@@ -54,10 +54,20 @@ def test_grafana_dashboard_has_four_required_sections_and_repository_provisionin
         "Performance",
     }
     assert (
-        ROOT / "observability" / "grafana" / "provisioning" / "datasources" / "prometheus.yml"
+        ROOT
+        / "observability"
+        / "grafana"
+        / "provisioning"
+        / "datasources"
+        / "prometheus.yml"
     ).exists()
     assert (
-        ROOT / "observability" / "grafana" / "provisioning" / "dashboards" / "dashboards.yml"
+        ROOT
+        / "observability"
+        / "grafana"
+        / "provisioning"
+        / "dashboards"
+        / "dashboards.yml"
     ).exists()
 
 

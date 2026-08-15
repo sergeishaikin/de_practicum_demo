@@ -66,7 +66,9 @@ def make_row(order_id: str, version: int, amount: float, event_day: date) -> dic
     }
 
 
-def append_work(table, load_id: str, rows: list[dict], fs: S3FileSystem, prefix: str) -> None:
+def append_work(
+    table, load_id: str, rows: list[dict], fs: S3FileSystem, prefix: str
+) -> None:
     before = {item["file_path"] for item in table.inspect.data_files().to_pylist()}
     table.append(m._rows_to_silver(rows), snapshot_properties={"load-id": load_id})
     after = {item["file_path"] for item in table.inspect.data_files().to_pylist()}
@@ -261,7 +263,10 @@ def test_m4_persisted_silver_gold_shadow_and_rollback():
         wait_for_gold(cat, f"{namespace}.gold", 2)
         proc.terminate()
         proc.wait(timeout=10)
-        assert len(cat.load_table(f"{namespace}.silver").metadata.snapshots) == silver_snapshots
+        assert (
+            len(cat.load_table(f"{namespace}.silver").metadata.snapshots)
+            == silver_snapshots
+        )
 
         # Roll back only the Gold source. B2 Silver remains authoritative and unchanged.
         proc = start_medallion(
@@ -274,7 +279,10 @@ def test_m4_persisted_silver_gold_shadow_and_rollback():
         time.sleep(3)
         proc.terminate()
         proc.wait(timeout=10)
-        assert len(cat.load_table(f"{namespace}.silver").metadata.snapshots) == silver_snapshots
+        assert (
+            len(cat.load_table(f"{namespace}.silver").metadata.snapshots)
+            == silver_snapshots
+        )
         assert logical_gold(cat.load_table(f"{namespace}.gold")) == gold_rows
     finally:
         for identifier in (
