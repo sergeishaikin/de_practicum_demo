@@ -24,7 +24,7 @@ Compose images. Custom images pin their base images in their Dockerfiles:
 | PyIceberg writer/medallion | Python 3.12 slim + digest | `iceberg/requirements.txt` |
 | Observability exporter | Python 3.12 slim + digest | `observability/requirements.txt` |
 | Producer | Python 3.12 slim + digest | `kafka/producer/requirements.txt` |
-| Airflow | 2.9.3 / Python 3.12 + digest | `airflow.requirements.txt` |
+| Airflow | 3.3.1 / Python 3.12 + digest | `airflow.requirements.txt` |
 | dbt | dbt-core 1.12.0, dbt-trino 1.10.3 | `dbt/requirements.txt` |
 
 Python dependency inputs live in `pyproject.toml` (host development) and the
@@ -35,11 +35,10 @@ digest-pinned image and install with `--require-hashes`. The host and Iceberg
 inputs share the PyArrow/PyIceberg pins. CI uses `uv sync --locked` and surfaces
 runtime versions in the clean-stack evidence artifact.
 
-`airflow.constraints.txt` is the relevant subset of Airflow 2.9.3's official
+`airflow.constraints.txt` is the relevant subset of Airflow 3.3.1's official
 Python 3.12 constraints. It keeps the locked Trino client dependencies aligned
-with the environment already fixed by the Airflow base-image digest. The only
-documented deviation is Requests 2.32.4, the minimum required by the existing
-Trino 0.338.0 pin (Airflow's original constraint was 2.32.3).
+with the environment already fixed by the Airflow base-image digest. Trino
+0.338.0 matches the official Airflow 3.3.1 constraint.
 
 Regenerate every Python lock after changing an input:
 
@@ -73,8 +72,9 @@ values must be supplied through an ignored `.env` file. An existing pre-H1
 before running `scripts/stack-up.ps1`; the launcher intentionally rejects an
 incomplete configuration before starting Compose.
 
-Airflow and Superset no longer contain hardcoded runtime secret values in
-Compose. The Airflow admin password is injected through configuration.
+Airflow and Superset do not contain hardcoded runtime secret values in
+Compose. Airflow receives distinct API and JWT secrets from `.env`; its
+loopback-only local UI uses Simple Auth Manager all-admin mode without a login.
 
 ## Bootstrap and readiness
 

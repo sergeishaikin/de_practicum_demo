@@ -54,6 +54,25 @@ def test_custom_build_services_have_explicit_versioned_image_tags() -> None:
         assert image in compose
 
 
+def test_airflow_3_local_runtime_contract() -> None:
+    dockerfile = read("airflow.Dockerfile")
+    compose = read("docker-compose.yml")
+    local_compose = read("docker-compose.local-airflow.yml")
+
+    assert "apache/airflow:3.3.1-python3.12@sha256:" in dockerfile
+    for content in (compose, local_compose):
+        assert "AIRFLOW__CORE__EXECUTOR: LocalExecutor" in content
+        assert 'AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "True"' in content
+        assert "AIRFLOW__API__SECRET_KEY:" in content
+        assert "AIRFLOW__API_AUTH__JWT_SECRET:" in content
+        assert "127.0.0.1:${AIRFLOW_HOST_PORT:-18085}:8080" in content
+        assert "- standalone" in content
+        assert "SequentialExecutor" not in content
+        assert "AIRFLOW__WEBSERVER__" not in content
+        assert "airflow users create" not in content
+        assert "airflow webserver" not in content
+
+
 def test_e2e_ad_hoc_container_inherits_runtime_credentials() -> None:
     e2e = read("tests/e2e/test_lakehouse_e2e.py")
 
@@ -144,8 +163,8 @@ def test_config_validator_rejects_placeholders_and_unpinned_images() -> None:
         "MINIO_ROOT_USER": "minio",
         "MINIO_ROOT_PASSWORD": "secret",
         "SUPERSET_SECRET_KEY": "secret",
-        "AIRFLOW_SECRET_KEY": "secret",
-        "AIRFLOW_ADMIN_PASSWORD": "secret",
+        "AIRFLOW_API_SECRET_KEY": "secret",
+        "AIRFLOW_JWT_SECRET": "secret",
         **{
             key: "repo:latest"
             for key in (

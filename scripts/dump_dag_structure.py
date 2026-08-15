@@ -14,7 +14,7 @@ logging.disable(logging.CRITICAL)
 
 sys.path.insert(0, "/opt/airflow/dags")
 
-db = DagBag(dag_folder="/opt/airflow/dags", include_examples=False)
+db = DagBag(dag_folder="/opt/airflow/dags")
 
 out = {
     "import_errors": {k: str(v) for k, v in db.import_errors.items()},

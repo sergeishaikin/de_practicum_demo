@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import psycopg2
 import trino
 
-from airflow.decorators import dag, task
+from airflow.sdk import dag, task
 from recovery_contract import validate_retention_contract
 
 TRINO_HOST = os.getenv("TRINO_HOST", "trino")

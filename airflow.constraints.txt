@@ -1,17 +1,16 @@
-# Compatibility subset from Apache Airflow 2.9.3's Python 3.12 constraints.
+# Compatibility subset from Apache Airflow 3.3.1's Python 3.12 constraints.
 # The base image digest fixes the full Airflow environment; these are the
 # transitive dependencies introduced by trino==0.338.0.
-certifi==2024.7.4
-charset-normalizer==3.3.2
-idna==3.7
-lz4==4.3.3
+certifi==2026.7.22
+charset-normalizer==3.4.9
+idna==3.18
+lz4==4.4.5
+orjson==3.11.9
 python-dateutil==2.9.0.post0
-pytz==2024.1
-# trino 0.338.0 requires requests>=2.32.4; this is the sole intentional
-# deviation from Airflow 2.9.3's constraints (which pin 2.32.3).
-requests==2.32.4
-six==1.16.0
-tzdata==2024.1
-tzlocal==5.2
-urllib3==2.0.7
-zstandard==0.22.0
+pytz==2026.3.post1
+requests==2.34.2
+six==1.17.0
+tzdata==2026.3
+tzlocal==5.4.4
+urllib3==2.7.0
+zstandard==0.25.0

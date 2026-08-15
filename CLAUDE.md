@@ -70,7 +70,7 @@ Two parallel locking mechanisms, both generated — **never hand-edit a generate
 
 Three exceptions worth knowing before editing an image:
 
-- **Airflow** compiles with `--constraint airflow.constraints.txt`, a hand-maintained compatibility subset from Airflow 2.9.3's own constraints; the base image digest fixes the rest of that environment.
+- **Airflow** compiles with `--constraint airflow.constraints.txt`, a hand-maintained compatibility subset from Airflow 3.3.1's own Python 3.12 constraints; the base image digest fixes the rest of that environment.
 - **Jupyter** no longer uses conda — `uv venv --python 3.10.21` builds the `spark420` env at the old conda path.
 
 ## CI

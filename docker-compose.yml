@@ -51,14 +51,14 @@ services:
         condition: service_healthy
     environment:
       TZ: ${TZ:-Europe/Moscow}
-      AIRFLOW__CORE__EXECUTOR: SequentialExecutor
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
       AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "True"
       AIRFLOW__CORE__DEFAULT_TIMEZONE: ${TZ:-Europe/Moscow}
+      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "True"
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: sqlite:////opt/airflow/airflow.db
-      AIRFLOW__WEBSERVER__DEFAULT_UI_TIMEZONE: ${TZ:-Europe/Moscow}
-      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY:?AIRFLOW_SECRET_KEY is required}
-      AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:?AIRFLOW_ADMIN_PASSWORD is required}
+      AIRFLOW__API__SECRET_KEY: ${AIRFLOW_API_SECRET_KEY:?AIRFLOW_API_SECRET_KEY is required}
+      AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET:?AIRFLOW_JWT_SECRET is required}
       DWH_HOST: de-demo-postgres
       DWH_PORT: "5432"
       DWH_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
@@ -68,27 +68,15 @@ services:
       MAINTENANCE_RECOVERY_HORIZON: ${MAINTENANCE_RECOVERY_HORIZON:-1h}
       MAINTENANCE_RECOVERY_SAFETY_MARGIN: ${MAINTENANCE_RECOVERY_SAFETY_MARGIN:-15m}
     ports:
-      - "18085:8080"
+      - "127.0.0.1:${AIRFLOW_HOST_PORT:-18085}:8080"
     volumes:
       - ./dags:/opt/airflow/dags:ro
       - ./db:/opt/airflow/project/db:ro
       - ./data/raw:/opt/airflow/project/data/raw:ro
       - de_demo_airflow_logs:/opt/airflow/logs
     command:
-      - bash
-      - -lc
-      - |
-        set -euo pipefail
-        airflow db migrate
-        airflow users create \
-          --username admin \
-          --password "$${AIRFLOW_ADMIN_PASSWORD}" \
-          --firstname Demo \
-          --lastname Admin \
-          --role Admin \
-          --email admin@example.com || true
-        airflow scheduler &
-        exec airflow webserver --port 8080
+      - airflow
+      - standalone
     restart: unless-stopped
     networks:
       - de_demo_net

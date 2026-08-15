@@ -116,9 +116,11 @@ Open Airflow:
 http://localhost:18085
 ```
 
-Use `admin` as the login name. Use the `AIRFLOW_ADMIN_PASSWORD` value from `.env` as the password.
+No login is required. The local demo uses Airflow 3.3.1 Simple Auth Manager in
+all-admin mode, and Compose exposes the UI only on `127.0.0.1`.
 
-SQLite metadata and SequentialExecutor warnings are normal for this demo. The demo uses this configuration for a simple local start.
+SQLite metadata and LocalExecutor are intentional for this local practicum;
+do not use this deployment shape for production.
 
 In Airflow:
 

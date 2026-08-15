@@ -73,16 +73,16 @@ URL:
 http://localhost:18085
 ```
 
-Логин и пароль:
+Логин не требуется. Compose привязывает Airflow к `127.0.0.1`, а локальный
+Simple Auth Manager разрешает этому loopback-only UI работать в all-admin mode.
 
-- `admin`
-- `admin`
-
-## Airflow показывает предупреждения про SQLite и SequentialExecutor
+## Airflow показывает предупреждение про SQLite
 
 Это нормально для demo-стенда.
 
-В production Airflow не должен работать на SQLite metadata DB и SequentialExecutor. Здесь это сознательное упрощение, чтобы публичное demo запускалось в 2 контейнерах, а не превращалось в отдельный курс по эксплуатации Airflow.
+Airflow 3.3.1 использует здесь SQLite metadata DB, LocalExecutor и
+`airflow standalone`. Это сознательное локальное упрощение; такой deployment
+не предназначен для production.
 
 ## PowerShell блокирует `.ps1`
 

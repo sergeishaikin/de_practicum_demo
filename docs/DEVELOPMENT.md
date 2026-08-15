@@ -72,7 +72,7 @@ docker compose --env-file .\.env -f .\docker-compose.yml -f .\docker-compose.ext
 ## Code style
 
 - Python formatting and linting are pinned in the `dev` dependency group. Run `uv run --locked ruff check .` and `uv run --locked black --check .`.
-- The Airflow DAG uses TaskFlow decorators (`@dag`, `@task`) and `airflow.models.baseoperator.chain`.
+- The Airflow DAG uses the stable Airflow 3 Task SDK imports (`airflow.sdk`: `@dag`, `@task`, and `chain`).
 - A `dags/.mypy_cache` directory indicates mypy has been used; run it manually when changing the DAG.
 
 ## Branch conventions
@@ -91,14 +91,14 @@ No pull-request template or review workflow is defined. The default process appl
 
 ### Airflow orchestration
 
-The batch pipeline lives in `dags/demo_core_marts_pipeline.py` and is built on the Airflow 2.9.3 image from `airflow.Dockerfile` (Python 3.12, `psycopg2-binary==2.9.10`). The DAG `demo_core_marts_pipeline` runs `chain(load_stg, rebuild, payment_check, audit)`:
+The batch pipeline lives in `dags/demo_core_marts_pipeline.py` and is built on the Airflow 3.3.1 image from `airflow.Dockerfile` (Python 3.12, `psycopg2-binary==2.9.12`). The DAG `demo_core_marts_pipeline` runs `chain(load_stg, rebuild, payment_check, audit)`:
 
 - `load_raw_csv_to_stg` truncates `stg.*` and copies the CSV files from `data/raw/` via `COPY ... FROM stdin`.
 - `rebuild_core_and_marts` executes `db/pipeline_sql/10_rebuild_core.sql`.
 - `check_payment_reconcile` compares `sum(payment_value)` between `stg.order_payments` and `core.orders` and fails if the difference exceeds `0.01`.
 - `write_audit` inserts into `marts.pipeline_runs` with a `success`/`failed` status computed from duplicate-grain rows, null keys, and the reconcile diff.
 
-The base stack is defined in `docker-compose.yml`; the same service is available in `docker-compose.local-airflow.yml` using a pre-built local image (`local/airflow:2.9.3-lab`, `pull_policy: never`) as an offline fallback. The Airflow container uses SQLite metadata and the SequentialExecutor by design for the demo. Login is `admin` / `admin`.
+The base stack is defined in `docker-compose.yml`; the same service is available in `docker-compose.local-airflow.yml` using a pre-built local image (`local/airflow:3.3.1-lab`, `pull_policy: never`) as an offline fallback. The Airflow container uses `airflow standalone`, SQLite metadata, and LocalExecutor for the demo. Simple Auth Manager runs in all-admin mode with no login prompt, and the UI port is bound only to `127.0.0.1`.
 
 The SQL behind the layers (`stg` → `core` → `marts`) lives in `db/`, with `db/init/` executed only when the Postgres volume is first created.
 

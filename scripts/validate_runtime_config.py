@@ -26,8 +26,8 @@ REQUIRED_KEYS = (
     "MINIO_ROOT_USER",
     "MINIO_ROOT_PASSWORD",
     "SUPERSET_SECRET_KEY",
-    "AIRFLOW_SECRET_KEY",
-    "AIRFLOW_ADMIN_PASSWORD",
+    "AIRFLOW_API_SECRET_KEY",
+    "AIRFLOW_JWT_SECRET",
     "GRAFANA_ADMIN_PASSWORD",
 )
 PORT_KEYS = (
@@ -44,8 +44,8 @@ PORT_KEYS = (
 PLACEHOLDERS = {
     "change-me",
     "replace-with-a-random-deploy-secret",
-    "replace-with-a-random-airflow-secret",
-    "replace-with-a-random-admin-password",
+    "replace-with-a-random-airflow-api-secret",
+    "replace-with-a-random-airflow-jwt-secret",
     "replace-with-a-deploy-secret",
 }
 

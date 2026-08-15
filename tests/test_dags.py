@@ -1,6 +1,6 @@
 """Airflow DAG validation (marked `airflow`; requires the airflow container).
 
-These tests load the DagBag inside the de-demo-airflow container (Airflow 2.9.3)
+These tests load the DagBag inside the de-demo-airflow container (Airflow 3.3.1)
 via `docker exec -i ... python -`, then assert on the dumped structure here on
 the host. They are excluded from the default fast run (see pytest.ini); run with
 `pytest tests/test_dags.py -m airflow`.

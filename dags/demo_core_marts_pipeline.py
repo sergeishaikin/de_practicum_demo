@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import os
 from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
-from airflow.models.baseoperator import chain
 
 import psycopg2
-from airflow.decorators import dag, task
-from airflow.exceptions import AirflowException
-from decimal import Decimal
+
+from airflow.sdk import chain, dag, task
+from airflow.sdk.exceptions import AirflowException
 
 
 PROJECT_DIR = Path("/opt/airflow/project")

@@ -55,4 +55,4 @@ Docker Desktop не запущен или engine еще не поднялся.
 docker compose -f docker-compose.local-airflow.yml up -d
 ```
 
-Этот вариант работает только если локальный образ `local/airflow:2.9.3-lab` уже есть на машине.
+Этот вариант работает только если локальный образ `local/airflow:3.3.1-lab` уже есть на машине.

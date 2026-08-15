@@ -51,8 +51,8 @@ jobs:
           sed -i 's/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=h1-postgres-secret/' .env
           sed -i 's/^MINIO_ROOT_PASSWORD=.*/MINIO_ROOT_PASSWORD=h1-minio-secret/' .env
           sed -i 's/^SUPERSET_SECRET_KEY=.*/SUPERSET_SECRET_KEY=h1-superset-secret/' .env
-          sed -i 's/^AIRFLOW_SECRET_KEY=.*/AIRFLOW_SECRET_KEY=h1-airflow-secret/' .env
-          sed -i 's/^AIRFLOW_ADMIN_PASSWORD=.*/AIRFLOW_ADMIN_PASSWORD=h1-airflow-admin-secret/' .env
+          sed -i 's/^AIRFLOW_API_SECRET_KEY=.*/AIRFLOW_API_SECRET_KEY=h1-airflow-api-secret/' .env
+          sed -i 's/^AIRFLOW_JWT_SECRET=.*/AIRFLOW_JWT_SECRET=h1-airflow-jwt-secret/' .env
           sed -i 's/^GRAFANA_ADMIN_PASSWORD=.*/GRAFANA_ADMIN_PASSWORD=h1-grafana-secret/' .env
       - name: Validate configuration and Compose graph
         run: |

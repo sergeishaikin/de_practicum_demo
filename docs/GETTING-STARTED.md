@@ -67,7 +67,7 @@ Open the main UIs:
 
 | Component | URL |
 |---|---|
-| Airflow | `http://localhost:18085` (login `admin` / `admin`) |
+| Airflow | `http://localhost:18085` (local-only, no login) |
 | Jupyter | `http://localhost:18888` |
 | MinIO console | `http://localhost:19001` |
 | Trino | `http://localhost:18082` |

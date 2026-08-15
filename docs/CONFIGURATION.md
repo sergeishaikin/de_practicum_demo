@@ -13,7 +13,9 @@
 | `POSTGRES_PASSWORD` | Optional | `change-me` | Postgres password. |
 | `POSTGRES_DB` | Optional | `dwh` | Demo database name. |
 | `POSTGRES_HOST_PORT` | Optional | `15432` | Host port for Postgres. |
-| `AIRFLOW_HOST_PORT` | Optional | `18085` | Host port for the Airflow webserver. |
+| `AIRFLOW_HOST_PORT` | Optional | `18085` | Loopback-only host port for the Airflow API server and UI. |
+| `AIRFLOW_API_SECRET_KEY` | Required | none | Secret used by the Airflow API server. |
+| `AIRFLOW_JWT_SECRET` | Required | none | Shared JWT signing secret for Airflow components. |
 | `SPARK_MASTER_UI_PORT` | Optional | `18080` | Spark Master UI port. |
 | `SPARK_WORKER_UI_PORT` | Optional | `18081` | Spark Worker UI port. |
 | `SPARK_MASTER_PORT` | Optional | `17077` | Spark Master RPC port. |
@@ -74,7 +76,16 @@ Orders streaming (`spark/jobs/orders_streaming.py`): `KAFKA_BOOTSTRAP_SERVERS` (
 
 Orders producer (`kafka/producer/orders_producer.py`): `KAFKA_BOOTSTRAP_SERVERS` (`kafka:9092`), `KAFKA_TOPIC` (`orders`), `EVENTS_PER_SECOND` (`2`).
 
-Airflow (`docker-compose.yml`): `DWH_HOST`, `DWH_PORT`, `DWH_DB`, `DWH_USER`, `DWH_PASSWORD` (all defaulted in the DAGs), plus `TZ` (default `Europe/Moscow`) and `AIRFLOW__*` settings.
+Airflow (`docker-compose.yml`): Airflow 3.3.1 runs through `airflow standalone` with `LocalExecutor`, SQLite metadata, and Simple Auth Manager's local-only all-admin mode. The UI port is bound to `127.0.0.1`; there is no login prompt. `AIRFLOW_API_SECRET_KEY` and `AIRFLOW_JWT_SECRET` are distinct required values. DAG connections use `DWH_HOST`, `DWH_PORT`, `DWH_DB`, `DWH_USER`, and `DWH_PASSWORD`, while `TZ` defaults to `Europe/Moscow`.
+
+Existing checkouts must refresh `.env`: remove the Airflow 2 keys
+`AIRFLOW_SECRET_KEY` and `AIRFLOW_ADMIN_PASSWORD`, then add independent random
+values for `AIRFLOW_API_SECRET_KEY` and `AIRFLOW_JWT_SECRET`.
+
+The SQLite metadata file is intentionally not mounted as persistent state.
+Recreating the Airflow container creates a clean Airflow 3.3.1 environment and
+discards only Airflow run history; PostgreSQL DWH data and the lakehouse state
+are separate and remain untouched.
 
 Iceberg maintenance DAG (`dags/lakehouse_maintenance.py`): `TRINO_HOST` (`trino`), `TRINO_PORT` (`8080`), `TRINO_USER` (`admin`), `MAINTENANCE_RETENTION` (`2h`, retention threshold passed to `expire_snapshots`/`remove_orphan_files`), `MAINTENANCE_RECOVERY_HORIZON` (`1h`, maximum writer recovery period), `MAINTENANCE_RECOVERY_SAFETY_MARGIN` (`15m`, import-time validation requires retention to be strictly greater than horizon plus margin), `MAINTENANCE_RETAIN_LAST` (`5`, snapshots always kept by `expire_snapshots`), `MAINTENANCE_FILE_SIZE_THRESHOLD` (`10MB`, passed to `optimize`). The DAG runs hourly (`schedule="0 * * * *"`) and is also manually triggerable. The maintenance target tables are **hardcoded** (`bronze.orders`, `silver.orders_clean`, `gold.orders_daily_metrics`) — they are not configurable via environment variables.
 
@@ -84,7 +95,7 @@ The primary configuration is Docker Compose YAML:
 
 - `docker-compose.yml` — base stack: `de-demo-postgres` and `de-demo-airflow`.
 - `docker-compose.extended.yml` — the extended stack: MinIO, Spark, Jupyter, Kafka, Iceberg, Trino, Superset, Metabase, and the producer/streaming services. References the shared network and adds named volumes.
-- `docker-compose.local-airflow.yml` — offline fallback for the base stack using a pre-built local image (`local/airflow:2.9.3-lab`, `pull_policy: never`).
+- `docker-compose.local-airflow.yml` — offline fallback for the base stack using a pre-built local image (`local/airflow:3.3.1-lab`, `pull_policy: never`).
 
 Runtime config files:
 

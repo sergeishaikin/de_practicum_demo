@@ -39,7 +39,9 @@ jobs:
           docker compose --env-file .env.example
           -f docker-compose.yml -f docker-compose.extended.yml config --quiet
       - name: Ruff
-        run: uv run --locked ruff check .
+        run: |
+          uv run --locked ruff check .
+          uv run --locked ruff check dags --select AIR3 --preview
       - name: Black
         run: uv run --locked black --check .
 
@@ -99,7 +101,14 @@ jobs:
       - name: Wait for airflow container ready
         run: |
           for i in $(seq 1 60); do
-            if docker exec de-demo-airflow python -c 'import airflow' >/dev/null 2>&1; then
+            if docker exec de-demo-airflow python -c '
+          import json
+          import urllib.request
+          health = json.load(urllib.request.urlopen("http://127.0.0.1:8080/api/v2/monitor/health", timeout=3))
+          assert health["scheduler"]["status"] == "healthy"
+          assert health["dag_processor"]["status"] == "healthy"
+          assert health["triggerer"]["status"] == "healthy"
+          ' >/dev/null 2>&1; then
               echo "airflow ready"
               exit 0
             fi
