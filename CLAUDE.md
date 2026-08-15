@@ -36,26 +36,14 @@ Regenerate every committed dependency lock after intentionally changing
 `scripts/lock-python-dependencies.ps1` on Windows or
 `scripts/lock-python-dependencies.sh` on macOS/Linux.
 
-Tests — `pytest.ini` sets `addopts = -m "not integration and not e2e and not airflow"`, so the first command runs only the fast unit suite:
+Follow the canonical **Verification contract** in `AGENTS.md`. It defines the
+completion gate, change-specific checks, stateful-test boundary, and required
+verification evidence; do not maintain a separate gate in this file.
 
-```bash
-uv run --locked pytest                                      # fast unit suite (the PR gate)
-uv run --locked pytest tests/test_writer.py::test_name      # single test
-uv run --locked pytest tests --cov=iceberg --cov-fail-under=90   # exact CI gate
-uv run --locked pytest tests/integration -m integration     # needs live MinIO + iceberg-rest + trino
-uv run --locked pytest tests/e2e -m e2e                     # needs full stack (Kafka → Spark → lakehouse)
-uv run --locked pytest tests/test_dags.py -m airflow        # runs DagBag inside the de-demo-airflow container
-```
-
-Markers are declared in `pytest.ini`: `integration`, `iceberg`, `trino`, `e2e`, `airflow`, `spike2`, `architecture`. `tests/conftest.py` puts `iceberg/` on `sys.path`, so services import as `writer.iceberg_writer`, `medallion.iceberg_medallion`, `common.ops`.
-
-Lint (`pyproject.toml` pins the development tools; `.trunk/trunk.yaml` pins a broader set for `trunk check`):
-
-```bash
-uv run --locked ruff check .
-uv run --locked black --check .
-docker compose --env-file .env.example -f docker-compose.yml -f docker-compose.extended.yml config --quiet
-```
+Test markers are declared in `pytest.ini`: `integration`, `iceberg`, `trino`,
+`e2e`, `airflow`, `spike2`, and `architecture`. `tests/conftest.py` puts
+`iceberg/` on `sys.path`, so services import as `writer.iceberg_writer`,
+`medallion.iceberg_medallion`, and `common.ops`.
 
 Non-pytest checkable surfaces: `scripts/doctor.{cmd,sh}` (host/Docker diagnostics), `scripts/run_checks.{cmd,sh}` (numbered SQL gates in `db/demo_sql/`, executed in the Postgres container), `scripts/build_report.{cmd,sh}`, `scripts/verify_maintenance_dag.py`, `scripts/validate_runtime_config.py`, `scripts/bootstrap_stack.py`.
 
