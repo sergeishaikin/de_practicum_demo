@@ -13,6 +13,9 @@ from __future__ import annotations
 import os
 import subprocess
 import time
+import uuid
+from collections import Counter
+from datetime import datetime, timezone
 
 import psycopg2
 
@@ -31,7 +34,6 @@ EXPECTED_TABLES = {
     "silver.orders_clean",
     "gold.orders_daily_metrics",
 }
-LOOKBACK_MINUTES = 20
 POLL_SECONDS = 10
 TIMEOUT_SECONDS = int(os.getenv("VERIFY_TIMEOUT_SECONDS", "300"))
 DAG_READY_TIMEOUT_SECONDS = int(os.getenv("DAG_READY_TIMEOUT_SECONDS", "300"))
@@ -74,52 +76,115 @@ def ensure_dag_ready() -> None:
     print(f"{DAG_ID} is parsed and unpaused")
 
 
-def trigger() -> None:
-    proc = _airflow("dags", "trigger", DAG_ID)
+def make_run_id() -> str:
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    return f"maintenance_verify_{timestamp}_{uuid.uuid4().hex[:12]}"
+
+
+def trigger(run_id: str) -> None:
+    proc = _airflow("dags", "trigger", "-r", run_id, DAG_ID)
     if proc.returncode != 0:
-        raise RuntimeError(f"failed to trigger {DAG_ID}: {proc.stderr.strip()}")
+        detail = (proc.stderr or proc.stdout).strip()
+        raise RuntimeError(f"failed to trigger {DAG_ID} run_id={run_id}: {detail}")
 
 
-def recent_audit_rows() -> list[tuple[str, str]]:
+def audit_rows_for_run(run_id: str) -> list[tuple[str, str, str]]:
     with psycopg2.connect(**PG) as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                select table_name, status
+                select run_id, table_name, status
                 from marts.maintenance_runs
-                where run_ts > now() - interval '%s minutes'
+                where run_id = %s
                 """,
-                (LOOKBACK_MINUTES,),
+                (run_id,),
             )
             return list(cur.fetchall())
 
 
+def classify_audit_rows(
+    run_id: str, rows: list[tuple[str, str, str]]
+) -> tuple[bool, str]:
+    if len(rows) != len(EXPECTED_TABLES):
+        return False, f"expected 3 rows, found {len(rows)}"
+
+    row_run_ids = {row[0] for row in rows}
+    if row_run_ids != {run_id}:
+        return False, f"unexpected run IDs: {sorted(row_run_ids)}"
+
+    target_counts = Counter(row[1] for row in rows)
+    duplicates = sorted(table for table, count in target_counts.items() if count != 1)
+    missing = sorted(EXPECTED_TABLES - target_counts.keys())
+    extra = sorted(target_counts.keys() - EXPECTED_TABLES)
+    if duplicates or missing or extra:
+        return (
+            False,
+            f"target mismatch: duplicates={duplicates} missing={missing} extra={extra}",
+        )
+
+    failed = sorted(
+        (table, status) for _, table, status in rows if status not in {"ok", "noop"}
+    )
+    if failed:
+        return False, f"non-success statuses: {failed}"
+    return True, "exact audit rows are successful"
+
+
+def dag_run_state(run_id: str) -> str:
+    proc = _airflow("dags", "state", DAG_ID, run_id)
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout).strip()
+        raise RuntimeError(
+            f"could not read DagRun state for {run_id}: {detail or 'empty output'}"
+        )
+    lines = [line.strip().lower() for line in proc.stdout.splitlines() if line.strip()]
+    if not lines or lines[-1] not in {"queued", "running", "success", "failed"}:
+        raise RuntimeError(
+            f"malformed DagRun state output for {run_id}: {proc.stdout!r}"
+        )
+    return lines[-1]
+
+
 def main() -> int:
     ensure_dag_ready()
-    trigger()
-    print(f"triggered {DAG_ID}; waiting up to {TIMEOUT_SECONDS}s for audit rows")
+    run_id = make_run_id()
+    print(f"maintenance verification run_id={run_id}", flush=True)
+    trigger(run_id)
+    print(
+        f"triggered {DAG_ID} once; waiting up to {TIMEOUT_SECONDS}s for "
+        "the exact DagRun and audit key",
+        flush=True,
+    )
 
     deadline = time.time() + TIMEOUT_SECONDS
-    rows: list[tuple[str, str]] = []
+    rows: list[tuple[str, str, str]] = []
+    state = "queued"
+    audit_reason = "no rows yet"
     while time.time() < deadline:
-        try:
-            rows = recent_audit_rows()
-        except psycopg2.Error as exc:
-            print(f"db not ready yet: {exc.pgcode} {exc.pgerror.strip()[:120]}")
-        got = {row[0] for row in rows}
-        if EXPECTED_TABLES.issubset(got):
-            break
+        state = dag_run_state(run_id)
+        rows = audit_rows_for_run(run_id)
+        audit_ok, audit_reason = classify_audit_rows(run_id, rows)
+        if state == "failed":
+            print(f"FAIL: exact DagRun {run_id} failed; rows={rows}")
+            return 1
+        if state == "success":
+            if audit_ok:
+                break
+            print(
+                f"FAIL: exact DagRun {run_id} succeeded without an exact "
+                f"successful audit set: {audit_reason}; rows={rows}"
+            )
+            return 1
         time.sleep(POLL_SECONDS)
-
-    got = {row[0] for row in rows}
-    missing = sorted(EXPECTED_TABLES - got)
-    if missing:
-        print(f"FAIL: no fresh audit rows for {missing}")
-        print(f"  rows found: {rows}")
+    else:
+        print(
+            f"FAIL: timed out waiting for exact run {run_id}: "
+            f"state={state} audit={audit_reason} rows={rows}"
+        )
         return 1
 
-    print(f"OK: audit rows landed for all tables (lookback {LOOKBACK_MINUTES}m):")
-    for table, status in sorted(rows):
+    print(f"OK: exact DagRun {run_id} succeeded with one audit row per target:")
+    for _, table, status in sorted(rows):
         print(f"  {table}: {status}")
     return 0
 

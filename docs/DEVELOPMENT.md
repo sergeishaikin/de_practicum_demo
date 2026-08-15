@@ -91,9 +91,10 @@ No pull-request template or review workflow is defined. The default process appl
 
 ### Airflow orchestration
 
-The batch pipeline lives in `dags/demo_core_marts_pipeline.py` and is built on the Airflow 3.3.1 image from `airflow.Dockerfile` (Python 3.12, `psycopg2-binary==2.9.12`). The DAG `demo_core_marts_pipeline` runs `chain(load_stg, rebuild, payment_check, audit)`:
+The batch pipeline lives in `dags/demo_core_marts_pipeline.py` and is built on the Airflow 3.3.1 image from `airflow.Dockerfile` (Python 3.12, `psycopg2-binary==2.9.12`). The DAG allows one active run and executes `chain(load_stg, staging_check, rebuild, payment_check, audit)`:
 
 - `load_raw_csv_to_stg` truncates `stg.*` and copies the CSV files from `data/raw/` via `COPY ... FROM stdin`.
+- `validate_staging` parses the four CSVs with Python's `csv` module and requires each non-empty data-row count to exactly match the corresponding staging table before any core/marts mutation.
 - `rebuild_core_and_marts` executes `db/pipeline_sql/10_rebuild_core.sql`.
 - `check_payment_reconcile` compares `sum(payment_value)` between `stg.order_payments` and `core.orders` and fails if the difference exceeds `0.01`.
 - `write_audit` inserts into `marts.pipeline_runs` with a `success`/`failed` status computed from duplicate-grain rows, null keys, and the reconcile diff.
@@ -133,10 +134,10 @@ Both services share the `iceberg/Dockerfile` image (`python:3.12-slim` with `pyi
 `dags/lakehouse_maintenance.py` (`lakehouse_maintenance`, hourly schedule, also manually triggerable) runs the Trino Iceberg table procedures through the `iceberg` catalog:
 
 - `ALTER TABLE <schema>.<table> EXECUTE optimize (file_size_threshold => '10MB')`
-- `ALTER TABLE <schema>.<table> EXECUTE expire_snapshots (retention_threshold => '1h', retain_last => 5)`
+- `ALTER TABLE <schema>.<table> EXECUTE expire_snapshots (retention_threshold => '1h', retain_last => 5, clean_expired_metadata => false)`
 - `ALTER TABLE <schema>.<table> EXECUTE remove_orphan_files (retention_threshold => '1h')`
 
-Targets are `bronze.orders`, `silver.orders_clean`, `gold.orders_daily_metrics`. Airflow maps one `maintain_table` task instance per target; each instance runs the three procedures in order and returns its before/after snapshot counts to the shared audit task. Results are written to `marts.maintenance_runs`. Tuning knobs: `TRINO_HOST`/`TRINO_PORT`/`TRINO_USER`, `MAINTENANCE_RETENTION`, `MAINTENANCE_RETAIN_LAST`, `MAINTENANCE_FILE_SIZE_THRESHOLD`. The Trino catalog lowers `iceberg.expire-snapshots.min-retention`/`remove-orphan-files.min-retention` to `1h` (see [CONFIGURATION.md](CONFIGURATION.md)).
+Targets are `bronze.orders`, `silver.orders_clean`, `gold.orders_daily_metrics`. Airflow maps one `maintain_table` task instance per target and schedules at most one mapped instance per DagRun. Each instance runs the three procedures once in order and synchronously upserts its own before/after result to `marts.maintenance_runs`. Success is `ok`/`noop`; failure is `failed:<operation>` and the original exception is re-raised. `clean_expired_metadata=false` retains obsolete schema/spec metadata for REST compatibility but leaves snapshot/file retention active. Tuning knobs: `TRINO_HOST`/`TRINO_PORT`/`TRINO_USER`, `MAINTENANCE_RETENTION`, `MAINTENANCE_RETAIN_LAST`, `MAINTENANCE_FILE_SIZE_THRESHOLD`. The Trino catalog lowers `iceberg.expire-snapshots.min-retention`/`remove-orphan-files.min-retention` to `1h` (see [CONFIGURATION.md](CONFIGURATION.md)).
 
 Trigger a run: `docker exec de-demo-airflow airflow dags trigger lakehouse_maintenance` (unpause first if needed).
 

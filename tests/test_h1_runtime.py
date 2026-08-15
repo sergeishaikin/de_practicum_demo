@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import re
+import subprocess
 from pathlib import Path
 
+import pytest
+
+from scripts import verify_maintenance_dag as maintenance_verifier
 from scripts.validate_runtime_config import validate
 
 
@@ -231,3 +235,122 @@ def test_h1_bootstrap_ci_and_docs_are_present() -> None:
         assert marker in workflow
     for marker in ("baked", "bootstrap", "rollback", "D-3a", "Ivy"):
         assert marker in docs
+
+
+def test_maintenance_verifier_generates_unique_exact_run_ids() -> None:
+    first = maintenance_verifier.make_run_id()
+    second = maintenance_verifier.make_run_id()
+
+    assert first != second
+    assert re.fullmatch(r"maintenance_verify_\d{8}T\d{12}Z_[0-9a-f]{12}", first)
+
+
+def test_maintenance_verifier_passes_run_id_to_one_trigger(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = []
+
+    def fake_airflow(*args: str, timeout: int = 90) -> subprocess.CompletedProcess:
+        calls.append((args, timeout))
+        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(maintenance_verifier, "_airflow", fake_airflow)
+    run_id = "maintenance_verify_20260815T220000000000Z_0123456789ab"
+
+    maintenance_verifier.trigger(run_id)
+
+    assert calls == [(("dags", "trigger", "-r", run_id, "lakehouse_maintenance"), 90)]
+
+
+def test_maintenance_verifier_queries_only_the_exact_run_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured = {}
+    run_id = "maintenance_verify_exact"
+    expected_rows = [(run_id, "bronze.orders", "ok")]
+
+    class Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def execute(self, sql: str, params: tuple[str]) -> None:
+            captured["sql"] = sql
+            captured["params"] = params
+
+        def fetchall(self):
+            return expected_rows
+
+    class Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def cursor(self):
+            return Cursor()
+
+    monkeypatch.setattr(
+        maintenance_verifier.psycopg2, "connect", lambda **_kwargs: Connection()
+    )
+
+    rows = maintenance_verifier.audit_rows_for_run(run_id)
+
+    assert rows == expected_rows
+    assert "where run_id = %s" in captured["sql"]
+    assert captured["params"] == (run_id,)
+
+
+def test_maintenance_verifier_accepts_one_success_row_per_exact_target() -> None:
+    run_id = "exact_run"
+    rows = [
+        (run_id, table, "noop" if index == 0 else "ok")
+        for index, table in enumerate(sorted(maintenance_verifier.EXPECTED_TABLES))
+    ]
+
+    accepted, _ = maintenance_verifier.classify_audit_rows(run_id, rows)
+
+    assert accepted is True
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [
+        [
+            ("old_run", table, "ok")
+            for table in sorted(maintenance_verifier.EXPECTED_TABLES)
+        ],
+        [
+            ("exact_run", table, "ok")
+            for table in sorted(maintenance_verifier.EXPECTED_TABLES)[:2]
+        ],
+        [
+            ("exact_run", "bronze.orders", "ok"),
+            ("exact_run", "bronze.orders", "ok"),
+            ("exact_run", "silver.orders_clean", "ok"),
+        ],
+        [
+            ("exact_run", table, "ok")
+            for table in sorted(maintenance_verifier.EXPECTED_TABLES)
+        ]
+        + [("exact_run", "gold.unexpected", "ok")],
+        [
+            (
+                ("exact_run", table, "failed:expire_snapshots")
+                if table == "bronze.orders"
+                else ("exact_run", table, "ok")
+            )
+            for table in sorted(maintenance_verifier.EXPECTED_TABLES)
+        ],
+    ],
+    ids=["stale-equivalent", "missing", "duplicate", "extra", "failed"],
+)
+def test_maintenance_verifier_rejects_non_exact_rows(
+    rows: list[tuple[str, str, str]],
+) -> None:
+    accepted, _ = maintenance_verifier.classify_audit_rows("exact_run", rows)
+
+    assert accepted is False

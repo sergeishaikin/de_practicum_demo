@@ -259,11 +259,33 @@ order by 1, 2;
 
 PyIceberg 0.11.1 cannot expire snapshots or delete orphan files, so maintenance runs through **Trino 483** table procedures (`ALTER TABLE ... EXECUTE ...`), which operate directly on the warehouse via Trino's file IO:
 
-- `expire_snapshots(retention_threshold => '1h', retain_last => 5, clean_expired_metadata => true)`
+- `expire_snapshots(retention_threshold => '1h', retain_last => 5, clean_expired_metadata => false)`
 - `remove_orphan_files(retention_threshold => '1h')`
 - `optimize(file_size_threshold => '10MB')` (compaction)
 
-The catalog template lowers the built-in safety floor for these procedures to `1h` (`iceberg.expire-snapshots.min-retention`, `iceberg.remove-orphan-files.min-retention`), so the demo can actually demonstrate expiry instead of no-op. The Airflow DAG `lakehouse_maintenance` (`dags/lakehouse_maintenance.py`) runs all three procedures on `bronze.orders`, `silver.orders_clean`, and `gold.orders_daily_metrics` hourly (and on manual trigger), then records before/after snapshot counts into `marts.maintenance_runs`. The Iceberg writer retries on commit conflicts (`CommitFailedException`) that the concurrent maintenance can trigger.
+The explicit `clean_expired_metadata=false` setting retains obsolete schema and
+partition-spec definitions for compatibility with the persisted Iceberg REST
+catalog; snapshot expiry, expired-file cleanup, `retain_last=5`, and the
+existing retention threshold still run. The catalog template lowers the
+built-in safety floor for these procedures to `1h`
+(`iceberg.expire-snapshots.min-retention`,
+`iceberg.remove-orphan-files.min-retention`), so the demo can actually
+demonstrate expiry instead of no-op.
+
+The Airflow DAG `lakehouse_maintenance` (`dags/lakehouse_maintenance.py`) runs
+all three procedures on `bronze.orders`, `silver.orders_clean`, and
+`gold.orders_daily_metrics` hourly (and on manual trigger). Airflow allows one
+DagRun and one mapped table instance at a time. Each mapped instance commits
+its own before/after result to `marts.maintenance_runs`; failures are recorded
+as `failed:<operation>` and re-raised so the task and DagRun remain failed. The
+Iceberg writer retries its own commit conflicts (`CommitFailedException`), but
+maintenance procedures are never retried.
+
+The manual `demo_core_marts_pipeline` also allows one DagRun at a time. Its
+chain is `load_raw_csv_to_stg -> validate_staging -> rebuild_core_and_marts ->
+check_payment_reconcile -> write_audit`; `validate_staging` requires every one
+of the four CSV inputs and matching staging tables to be non-empty and to have
+exactly equal row counts before core or marts mutation begins.
 
 ```powershell
 # run maintenance now
@@ -273,6 +295,12 @@ docker exec de-demo-airflow airflow dags trigger lakehouse_maintenance
 docker exec de-demo-trino trino --execute "SELECT count(*) FROM iceberg.bronze.orders"
 docker exec de-demo-postgres psql -U app -d dwh -c "SELECT * FROM marts.maintenance_runs"
 ```
+
+For a fail-closed live check, run `uv run --locked python
+scripts/verify_maintenance_dag.py`. The verifier generates one unique
+`maintenance_verify_...` run ID, triggers it once, and accepts only that exact
+successful DagRun with exactly one `ok`/`noop` audit row for every configured
+target; it does not use a time lookback.
 
 Query Iceberg from Trino:
 
