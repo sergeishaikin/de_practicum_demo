@@ -108,7 +108,8 @@ jobs:
           export RUN_ID="phase03b-ci-${GITHUB_RUN_ID}"
           echo "RUN_ID=$RUN_ID" >> "$GITHUB_ENV"
           test "$(docker exec de-demo-airflow airflow dags list-import-errors -l -o json)" = "[]"
-          docker exec de-demo-airflow airflow dags unpause warehouse_orders_ingestion warehouse_marts_validation
+          docker exec de-demo-airflow airflow dags unpause warehouse_orders_ingestion
+          docker exec de-demo-airflow airflow dags unpause warehouse_marts_validation
           docker exec de-demo-airflow airflow dags trigger warehouse_orders_ingestion --run-id "$RUN_ID"
       - name: Wait for ingestion and Asset-triggered dbt workflow
         run: |
