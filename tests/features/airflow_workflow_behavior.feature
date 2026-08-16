@@ -54,3 +54,8 @@ Feature: Fail-closed Airflow workflow behavior
     Given marts readiness followed by a payment mismatch
     When the actual marts quality and publisher callables run in Airflow
     Then payment reconciliation fails and no mart metadata is published
+
+  Scenario: Payment match allows mart publication
+    Given marts readiness followed by matching payments
+    When the actual marts quality and publisher callables run in Airflow
+    Then payment reconciliation succeeds and all mart metadata is published

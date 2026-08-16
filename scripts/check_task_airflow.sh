@@ -5,16 +5,16 @@ set -eu
 export MSYS_NO_PATHCONV=1
 
 echo "Checking that Airflow sees task check_payment_reconcile ..."
-if ! docker compose exec -T de-demo-airflow airflow tasks list demo_core_marts_pipeline | grep -q "check_payment_reconcile"; then
-  echo "Task check_payment_reconcile was not found in demo_core_marts_pipeline."
-  echo "Add it to dags/demo_core_marts_pipeline.py and put it between rebuild_core_and_marts and write_audit."
+if ! docker compose exec -T de-demo-airflow airflow tasks list warehouse_marts_validation | grep -q "quality.check_payment_reconcile"; then
+  echo "Task quality.check_payment_reconcile was not found in warehouse_marts_validation."
+  echo "Add it to dags/warehouse_orders.py between validate_marts and publish_mart_assets."
   exit 1
 fi
 
 echo
-echo "Running DAG test. This executes the pipeline inside Airflow and fails on broken quality gates."
-LOGICAL_DATE="$(date '+%Y-%m-%dT%H:%M:%S')"
-docker compose exec -T de-demo-airflow airflow dags test demo_core_marts_pipeline "$LOGICAL_DATE"
+echo "Running the actual payment callable through its Gherkin feature test."
+uv run --locked pytest tests/features/test_airflow_workflow_behavior.py \
+  -m "bdd and airflow" -k "payment_match_allows_mart_publication" -q
 
 echo
-echo "Airflow task passed."
+echo "Airflow feature test passed."

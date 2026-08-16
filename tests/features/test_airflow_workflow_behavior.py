@@ -154,10 +154,14 @@ elif case == "marts_ambiguous_provenance":
     except Exception as exc:
         error = str(exc)
     result.update(error=error)
-elif case == "payment_mismatch":
+elif case in {"payment_mismatch", "payment_match"}:
     task_globals = payment.__globals__
     task_globals["_connect"] = lambda: Connection(
-        payment_values=(Decimal("10.00"), Decimal("9.00"))
+        payment_values=(
+            (Decimal("10.00"), Decimal("9.00"))
+            if case == "payment_mismatch"
+            else (Decimal("10.00"), Decimal("10.00"))
+        )
     )
     state = {
         "ingestion_run_id": "manual__bdd-ingestion",
@@ -233,6 +237,11 @@ def marts_ambiguous_provenance(context: dict) -> None:
 @given("marts readiness followed by a payment mismatch")
 def payment_mismatch(context: dict) -> None:
     _select_case(context, "payment_mismatch")
+
+
+@given("marts readiness followed by matching payments")
+def payment_match(context: dict) -> None:
+    _select_case(context, "payment_match")
 
 
 @when("the actual maintenance task callable runs in Airflow")
@@ -351,3 +360,10 @@ def payment_failure_not_published(context: dict) -> None:
     result = context["result"]
     assert "Payment reconciliation failed" in result["error"]
     assert result["metadata"] == []
+
+
+@then("payment reconciliation succeeds and all mart metadata is published")
+def payment_success_published(context: dict) -> None:
+    result = context["result"]
+    assert result["error"] is None
+    assert len(result["metadata"]) == 4
