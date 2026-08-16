@@ -110,14 +110,22 @@ jobs:
           docker exec de-demo-airflow airflow dags trigger warehouse_orders_ingestion --run-id "$RUN_ID"
       - name: Wait for ingestion and Asset-triggered dbt workflow
         run: |
+          dag_state() {
+            local dag_id="$1"
+            local run_id="$2"
+            docker exec de-demo-postgres psql -U airflow -d airflow_meta -Atc \
+              "select coalesce((select state from dag_run where dag_id = '$dag_id' and run_id = '$run_id' limit 1), 'missing')"
+          }
           for i in $(seq 1 120); do
-            ingestion_state=$(docker exec de-demo-airflow airflow dags list-runs warehouse_orders_ingestion -o json | python -c 'import json,sys; run_id=sys.argv[1]; runs=json.load(sys.stdin); print(next((r["state"] for r in runs if r["run_id"]==run_id), "missing"))' "$RUN_ID")
+            ingestion_state=$(dag_state warehouse_orders_ingestion "$RUN_ID")
             if [ "$ingestion_state" = "failed" ]; then echo "ingestion failed"; exit 1; fi
             if [ "$ingestion_state" = "success" ]; then break; fi
             sleep 5
           done
+          test "$ingestion_state" = "success"
           for i in $(seq 1 180); do
-            dbt_state=$(docker exec de-demo-airflow airflow dags list-runs warehouse_marts_validation -o json | python -c 'import json,sys; runs=json.load(sys.stdin); asset=[r for r in runs if r["run_id"].startswith("asset_triggered__")]; print(asset[0]["state"] if asset else "missing")')
+            dbt_state=$(docker exec de-demo-postgres psql -U airflow -d airflow_meta -Atc \
+              "select coalesce((select state from dag_run where dag_id = 'warehouse_marts_validation' and run_id like 'asset_triggered__%' order by start_date desc limit 1), 'missing')")
             if [ "$dbt_state" = "failed" ]; then echo "warehouse dbt DAG failed"; exit 1; fi
             if [ "$dbt_state" = "success" ]; then break; fi
             sleep 5
