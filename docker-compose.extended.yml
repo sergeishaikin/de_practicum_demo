@@ -1,3 +1,11 @@
+# Bounded json-file logs. Without this the driver keeps every line forever, so a
+# service in a restart loop writes unbounded log data into the Docker VM disk.
+x-bounded-logging: &bounded-logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
+
 services:
   minio:
     image: ${MINIO_IMAGE:?MINIO_IMAGE is required}
@@ -20,6 +28,7 @@ services:
       dockerfile: Dockerfile
     image: de-practicum-demo-spark:4.2.0-h1
     container_name: de-demo-spark-master
+    logging: *bounded-logging
     hostname: spark-master
     command:
       - /opt/spark/sbin/start-master.sh
@@ -47,6 +56,7 @@ services:
       dockerfile: Dockerfile
     image: de-practicum-demo-spark:4.2.0-h1
     container_name: de-demo-spark-worker
+    logging: *bounded-logging
     hostname: spark-worker
     command:
       - /opt/spark/sbin/start-worker.sh
@@ -55,6 +65,15 @@ services:
       SPARK_NO_DAEMONIZE: "true"
       SPARK_WORKER_CORES: "4"
       SPARK_WORKER_MEMORY: 4g
+      # Worker cleanup is already enabled by default in Spark 4.2.0, but its
+      # default 7-day appDataTtl never expires anything on a demo-length run.
+      # A 15-minute TTL is the guardrail; the real fix is the `local:` JAR
+      # scheme in spark/submit-with-runtime.sh, which stops the per-submission
+      # staging entirely.
+      SPARK_WORKER_OPTS: >-
+        -Dspark.worker.cleanup.enabled=true
+        -Dspark.worker.cleanup.interval=300
+        -Dspark.worker.cleanup.appDataTtl=900
       SPARK_MASTER_URL: spark://spark-master:7077
       PYSPARK_PYTHON: /usr/bin/python3
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
@@ -77,6 +96,7 @@ services:
       dockerfile: Dockerfile
     image: de-practicum-demo-spark:4.2.0-h1
     container_name: de-demo-spark-connect
+    logging: *bounded-logging
     hostname: spark-connect
     command:
       - /opt/spark/sbin/start-connect-server.sh
@@ -258,6 +278,7 @@ services:
       dockerfile: Dockerfile
     image: de-practicum-demo-iceberg:0.11.1-h1
     container_name: de-demo-iceberg-writer
+    logging: *bounded-logging
     working_dir: /app
     command:
       - python
@@ -301,6 +322,7 @@ services:
       dockerfile: Dockerfile
     image: de-practicum-demo-iceberg:0.11.1-h1
     container_name: de-demo-iceberg-medallion
+    logging: *bounded-logging
     working_dir: /app
     command:
       - python
@@ -474,6 +496,7 @@ services:
       dockerfile: Dockerfile
     image: de-practicum-demo-orders-producer:0.1.0
     container_name: de-demo-orders-producer
+    logging: *bounded-logging
     working_dir: /app
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
@@ -494,6 +517,7 @@ services:
       dockerfile: Dockerfile
     image: de-practicum-demo-spark:4.2.0-h1
     container_name: de-demo-orders-streaming
+    logging: *bounded-logging
     hostname: orders-streaming
 
     command:
@@ -562,7 +586,10 @@ services:
       spark-worker:
         condition: service_started
 
-    restart: unless-stopped
+    # Bounded, not unlimited. This job is deliberately fail-closed on unavailable
+    # Kafka history, so `unless-stopped` turned a permanent, deterministic failure
+    # into an infinite resubmission loop that filled the Docker disk.
+    restart: on-failure:3
 
     networks:
       - de_demo_net

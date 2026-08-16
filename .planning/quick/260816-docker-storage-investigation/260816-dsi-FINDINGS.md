@@ -1,180 +1,166 @@
 ---
-gsd_findings_version: 1.0
+gsd_findings_version: 1.1
 task: docker-storage-investigation
 mode: quick
 created: 2026-08-16
-status: investigation-complete-no-deletion
+status: incident-resolved-prevention-landed
 ---
 
-# Docker storage investigation — findings
+# Docker storage incident — investigation, recovery, prevention
 
-Investigation only. **Nothing was deleted as part of this task.** Removal is
-staged below and awaits authorization.
+Revision 1.1 corrects three errors in the first draft; each is marked
+**[corrected]** below. Corrections came from peer review and were then verified
+against the running stack rather than accepted on assertion.
 
-Prior context: under separate approval earlier the same day,
-`docker builder prune -af` (15.94 GB) and `docker image prune -a -f` (3.95 GB)
-were already run. Both categories are therefore near-empty here and are not a
-remaining source of reclaimable space.
+## Outcome
 
-## 1. The headline number is an accounting artifact
-
-`docker system df` reports:
-
-| Type | Total | Active | Size | Reclaimable |
-|---|---|---|---|---|
-| Images | 22 | 20 | 996.2 GB | 356.5 MB (0%) |
-| Containers | 27 | 20 | 966.2 GB | 2.245 MB (0%) |
-| Local Volumes | 26 | 16 | 28.08 GB | 24.87 GB (88%) |
-| Build Cache | 0 | 0 | 0 B | 0 B |
-
-"996 GB of images" is not real. The per-container breakdown shows
-`de-demo-spark-worker` at **965 GB writable / 967 GB virtual**, and the Images
-row double-counts container writable layers.
-
-**Actual unique image storage ≈ 996.2 − 966.2 ≈ 30 GB**, spread over 22 images
-whose individual virtual sizes are 0.15–3.5 GB. Images are not the problem and
-do not need pruning.
-
-## 2. Where the space actually is
-
-| Consumer | Size | Share |
+| Measure | Before | After |
 |---|---|---|
-| `de-demo-spark-worker` → `/opt/spark/work` | **900 GB** | ~90% of the VM disk |
-| Real image layers | ~30 GB | 3% |
-| Orphan volume `b420157…` | 22.5 GB | 2% |
-| All project data volumes combined | ~4.3 GB | <1% |
-| `de_demo_pg_data` (the warehouse itself) | 138 MB | 0.01% |
+| Docker VM disk used | ~938 GB / 1006.9 GB (98%) | **56.7 GB (6%)**, 899 GB free |
+| `de-demo-spark-worker` writable layer | 965 GB | ~1 GB |
+| `/opt/spark/work` | 900 GB, 681 app dirs | 56 KB, 1 app dir |
+| `docker system df` Images | 996.2 GB (anomalous) | **30.86 GB** |
+| `de-demo-postgres` | ENOSPC crash loop | healthy |
+| Warehouse data | — | unchanged: 8 pipeline runs, 1000 stg orders, 1000 core orders, 1149 core items |
 
-`/opt/spark/work` holds **681 application directories** at ~1.4 GB each. It is
-on the container writable layer — no volume, no size bound.
+## 1. The 996 GB "images" figure **[corrected]**
 
-### Root cause: a self-reinforcing loop
+The first draft derived real image storage as
+`996.2 GB Images − 966.2 GB Containers ≈ 30 GB`. **That is not a valid Docker
+accounting identity.** Image layers and container writable layers are distinct
+concepts, and `docker system df` totals have had their own accounting bugs.
 
-1. `spark/submit-with-runtime.sh:10` passes every jar under `/opt/spark/h1-jars`
-   via `--jars` — 678 MB, of which `bundle-2.29.52.jar` (AWS SDK v2 fat bundle)
-   is 612 MB. Spark stages the whole set into a fresh
-   `/opt/spark/work/app-*/<executor>/` directory **on every submission**.
-2. `orders-streaming` carries `restart: unless-stopped`
-   (`docker-compose.extended.yml:565`) and is failing, so it resubmits every
-   ~22 seconds. App IDs run `app-…-0000` → `app-…-1339` inside ~24 hours.
-3. `spark-worker` sets no `SPARK_WORKER_OPTS`, so `spark.worker.cleanup.enabled`
-   is off and nothing ever reclaims those directories.
-4. The disk fills, and the job then fails *because of it* —
+The load-bearing evidence is the direct measurement instead: the Spark worker
+held ~965 GB of writable data, of which `/opt/spark/work` was ~900 GB.
+
+The ~30 GB estimate did turn out to be right — after the cleanup
+`docker system df` reports Images at **30.86 GB** — but that is corroboration
+after the fact, not a derivation. Do not compute image storage by subtraction.
+
+## 2. Root cause: unbounded per-submission JAR staging
+
+1. `spark/submit-with-runtime.sh` passed every JAR under `/opt/spark/h1-jars`
+   to `--jars` as an ordinary filesystem path — 678 MB, of which
+   `bundle-2.29.52.jar` (AWS SDK v2) is 612 MB. Spark therefore treated them as
+   files needing distribution and copied the whole set into a fresh
+   `/opt/spark/work/app-*/<executor>/` directory on **every** submission.
+2. `orders-streaming` carried `restart: unless-stopped` against a job that is
+   *deliberately* fail-closed on unavailable Kafka history, so it resubmitted
+   every ~22 seconds — app IDs `app-…-0000` → `app-…-1339` within ~24 hours.
+3. **[corrected]** The first draft claimed worker cleanup was disabled because
+   no `SPARK_WORKER_OPTS` was set. It was not. The worker log is explicit:
+
+   ```
+   26/08/16 10:09:43 INFO Worker: Worker cleanup enabled;
+     old application directories will be deleted in: /opt/spark/work
+   ```
+
+   Cleanup is **enabled by default** in Spark 4.2.0. The defect is its default
+   `appDataTtl` of 7 days: every one of the 681 directories was under 24 hours
+   old, so Spark correctly considered all of them too young to remove.
+4. The disk filled, and the job then failed *because of it* —
    `java.io.IOException: Failed to create a temp directory (under /tmp) after 10 attempts!`
-   — which makes it fail faster and resubmit sooner.
+   — shortening each cycle and accelerating the loop.
 
 Measured burn rate: **~1.4 GB / 22 s ≈ 230 GB per hour.**
 
-Collateral: `de-demo-postgres` is in a crash loop with
-`PANIC: could not write to file "pg_logical/replorigin_checkpoint.tmp": No space left on device`.
-About 20 GB freed earlier lasted roughly 15 minutes.
+Only 681 work directories existed for 1339 submissions because the later
+submissions failed at `spark-submit` before an executor was ever launched.
 
-Neither compose file sets a `logging:` block, so json-file container logs are
-also unbounded. Secondary today, but the same class of defect.
+## 3. A time-based retention policy was never the fix
 
-## 3. A time-based retention policy does not address this
+`find /opt/spark/work -maxdepth 1 -type d -mtime +3` returned **0**. A 3-day
+policy would have freed nothing, and the disk refilled in ~4 hours.
 
-`find /opt/spark/work -maxdepth 1 -type d -mtime +3` returns **0 directories**.
-All 681 were created within the last 24 hours. A 3-day retention job would free
-zero bytes and the disk would refill in about 4 hours.
+A TTL is a guardrail, not the fix. Even 2 hours permits ~460 GB at the measured
+burn rate. The fix is to stop staging the JARs at all.
 
-The useful horizon for Spark scratch is **hours**, and the durable fix is
-configuration, not a scheduled cleanup.
+## 4. Recovery, as executed
 
-## 4. Classification
+Every step was verified before the next.
 
-### REQUIRED — protect, not reproducible
+1. **Stopped the growth source** — `docker stop de-demo-orders-streaming`.
+   Stopping preserves the Spark checkpoints; it is not a reset, and it matches
+   the fail-closed decision already recorded in `STATE.md`.
+2. **Checked for live applications before deleting anything.** This mattered:
+   the Spark master reported one `RUNNING` app,
+   `app-20260815191948-0000` — the **Spark Connect server** — and it owned the
+   *oldest* directory in the work dir. A blind `rm -rf /opt/spark/work/app-*`
+   would have deleted a running application's directory.
+3. **Deleted only the 680 terminated directories**, preserving that one.
+4. **Verified**: VM disk 6% used, `docker system df` sane, Postgres exited the
+   crash loop and returned to healthy on its own, warehouse row counts identical
+   to pre-incident.
 
-| Volume | Size | Why |
-|---|---|---|
-| `de_demo_pg_data` | 138.4 MB | `dwh` + `airflow_meta`: stg/core/marts, `marts.pipeline_runs` (8 rows) |
-| `de-practicum-demo_de_demo_minio_data` | 1.501 GB | landing Parquet + all Iceberg data and metadata |
-| `de_demo_kafka_data` | 1.153 GB | Kafka log dirs; offsets matter given the recorded fail-closed state |
-| `de-practicum-demo_de_demo_iceberg_writer_state` | 1.367 MB | `/state/ingested.json` — the writer's `done`/`pending` load-ids |
-| `de-practicum-demo_de_demo_superset_home` | 326.7 MB | Superset metadata and dashboards |
-| `de-practicum-demo_de_demo_metabase_data` | 5.525 MB | Metabase dashboards |
-| `de-practicum-demo_de_demo_prometheus_data` | 5.226 MB | metrics history |
-| `de_demo_airflow_logs` | 25.99 MB | task logs used as phase evidence |
-| `de-practicum-demo_de_demo_grafana_data` | 1.04 MB | dashboards |
-| `de-practicum-demo_de_demo_iceberg_catalog` | 20.48 kB | Iceberg REST catalog |
-| `de_demo_iceberg_catalog_backup_02a` | 20.48 kB | **explicit rollback artifact** — `STATE.md`: "SQLite remains preserved for rollback" |
+The 22.5 GB orphan volume `b420157…` (a stale Docker engine data root,
+`engine-id 591dda73-…`, 21 container dirs matching no live container) was
+**not** removed. With 899 GB free it is no longer urgent, and it is an
+irreversible deletion.
 
-### REPRODUCIBLE — safe to remove, regenerated on demand
+## 5. Host disk versus VM disk **[corrected]**
 
-| Item | Size | Regeneration cost |
-|---|---|---|
-| `/opt/spark/work/app-*` in `de-demo-spark-worker` | **~900 GB** | none — recreated on the next submit |
-| `de_demo_spark_ivy_cache` (no container) | 1.424 GB | re-downloaded; needs network |
-| `de-practicum-demo_de_demo_spark_ivy_cache` (no container) | 0 B | none |
+`C:\Users\serge\AppData\Local\Docker\wsl\disk\docker_data.vhdx` is **991.3 GB**
+and does not shrink when data inside the VM is deleted.
 
-Project images are technically reproducible but rebuilding is expensive; they
-are ~30 GB total and are **not** recommended for removal.
+The first draft listed Docker Desktop → *Troubleshoot → Clean / Purge data* as
+a compaction option. **That is wrong and dangerous — it resets Docker data**,
+which would have destroyed every volume classified as REQUIRED in this same
+document, including `de_demo_pg_data` and the MinIO/Iceberg state. It has been
+removed.
 
-### ORPHANED — no owner in this project
+Compaction is a separate, Docker-Desktop-version-specific operation to perform
+only on a healthy stack (`wsl --manage docker-desktop-data --set-sparse true`,
+`Optimize-VHD`, or the built-in reclamation in Docker Desktop ≥ 4.34). With
+2.3 TB free on `C:` it is not urgent.
 
-| Item | Size | Evidence |
-|---|---|---|
-| Volume `b420157…042f` | **22.5 GB** | a *stale Docker engine data root* (`containerd/`, `containers/`, `image/`, `engine-id 591dda73-…`). Its 21 container dirs match no live container; the live root is `/var/lib/docker` inside the VM. Dated Aug 9, no references. |
-| `03-orchestration_kestra_postgres_data` | 69.45 MB | project `03-orchestration`, container exited 7 weeks ago |
-| `03-orchestration_kestra_data` | 1.765 MB | same project |
-| Containers `op-rabbitmq`, `op-redis` + volumes | ~2.4 MB | different project, exited 7–8 weeks ago |
-| Container `cranky_newton` | 4.1 kB | anonymous leftover |
-| ~6 small unlabeled dangling volumes | 0 B – 2.3 MB | no container, no compose labels |
+## 6. Prevention landed
 
-Orphaned total ≈ **22.6 GB**, almost entirely the one stale engine root.
-
-### UNKNOWN — decide before touching
-
-- **`de-demo-kafka` is `exited`.** The broker is down, which is not explained by
-  this investigation and matters for the streaming checkpoint story. Its two
-  anonymous volumes are 0 B.
-- **Four containers carry hash-prefixed duplicate names**
-  (`7a18cc079146_de-demo-spark-connect`, `ff8f77f41bc2_de-demo-orders-producer`,
-  `661e2fdcf3d3_de-demo-kafka-ui`,
-  `e31fb53765ba_de-demo-observability-exporter`) — leftovers of a previous
-  compose run that got renamed rather than replaced. Small, but it means the
-  running stack does not match a clean `compose up`.
-- `de-demo-airflow-db-init` exited one-shot; its volume is 0 B.
-
-## 5. Host disk versus VM disk — the part that bites later
-
-| Measure | Value |
+| Change | File |
 |---|---|
-| `C:\Users\serge\AppData\Local\Docker\wsl\disk\docker_data.vhdx` | **991.3 GB** |
-| VM filesystem total / used | 1006.9 GB / ~938 GB |
-| Host `C:` free | 2.3 TB |
+| JARs referenced as `local:/opt/spark/h1-jars/…` so Spark does not distribute what is already baked into every image | `spark/submit-with-runtime.sh` |
+| `SPARK_WORKER_OPTS` with `cleanup.interval=300`, `appDataTtl=900` (15 min) as a guardrail | `docker-compose.extended.yml` |
+| `restart: on-failure:3` instead of `unless-stopped` for a deliberately fail-closed job | `docker-compose.extended.yml` |
+| `x-bounded-logging` anchor (`max-size: 50m`, `max-file: 3`) applied to the seven Spark/streaming/iceberg services | `docker-compose.extended.yml` |
 
-**Deleting the 900 GB inside the VM will not shrink the vhdx.** It grows on
-demand and never contracts on its own. Returning that space to `C:` needs an
-explicit compaction — Docker Desktop → *Troubleshoot → Clean / Purge data*, or
-`wsl --manage docker-desktop-data --set-sparse true`, or `Optimize-VHD`. Until
-then `C:` keeps ~991 GB allocated even after a successful cleanup.
+`local:` was chosen over `spark.executor.extraClassPath` because it preserves
+normal driver/executor dependency semantics instead of requiring the two
+classpaths to be managed separately.
 
-## 6. Recommended sequence (not executed)
+Verified: `docker compose config --quiet` passes; the rendered config shows
+`restart: on-failure:3`, the logging options, and the three worker cleanup
+properties; `bash -n` passes on the wrapper; the wrapper's find/sed pipeline
+emits `local:/opt/spark/h1-jars/…` correctly.
 
-1. `docker stop de-demo-orders-streaming` — halts 230 GB/h. Stopping preserves
-   the Spark checkpoints; it is not a reset, and it matches the recorded
-   fail-closed decision in `STATE.md`.
-2. Delete `/opt/spark/work/app-*` → ~900 GB inside the VM.
-3. Remove orphan volume `b420157…` → 22.5 GB. Verify `engine-id` differs from
-   the live engine first (it does, as of this run).
-4. Remove the `03-orchestration` and `op-*` volumes/containers if those projects
-   are dead → ~71 MB.
-5. Compact the vhdx to return space to `C:`.
-6. Land the config fixes so it cannot recur:
-   - `SPARK_WORKER_OPTS: "-Dspark.worker.cleanup.enabled=true -Dspark.worker.cleanup.interval=1800 -Dspark.worker.cleanup.appDataTtl=7200"`
-   - stop re-staging 612 MB per submit — the jars are already baked into the
-     image at `/opt/spark/h1-jars`, so a `spark.executor.extraClassPath` or a
-     shared mount removes the `--jars` copy entirely
-   - a `logging:` block with `max-size` / `max-file` on every service
-   - bound the restart loop for a job that is deliberately fail-closed
-7. Re-measure and record reclaimed host space.
+Not yet applied to the live stack — that needs a `compose up` and an image
+rebuild for the wrapper change, which is a separate authorized action.
 
-## 7. Still open
+## 7. The original retention question, now measurable
 
-The original request — a retention job for old *records* — is unanswered. The
-candidate tables (`marts.lakehouse_metrics`, which `Metrics.record()` writes one
-row per writer batch and medallion cycle, plus `marts.maintenance_runs` and
-`marts.pipeline_runs`) could not be measured because Postgres is down. That
-sizing should be redone once the stack is healthy; on current evidence it is a
-correctness/tidiness concern, not a disk-space one.
+| Table | Rows | Range | Older than 3 days | Size |
+|---|---|---|---|---|
+| `marts.lakehouse_metrics` | 8,804 | Aug 7 → Aug 16 | 8,306 (94%) | 1,664 kB |
+| `marts.maintenance_runs` | 103 | Aug 7 → Aug 16 | 69 | 64 kB |
+| `marts.pipeline_runs` | 8 | Aug 5 → Aug 16 | 3 | 48 kB |
+
+`lakehouse_metrics` grows ~970 rows/day and is the only real retention
+candidate — but it would take a year to reach ~65 MB. A 3-day policy there is
+defensible for query tidiness; it is not a disk-space measure.
+
+`maintenance_runs` and `pipeline_runs` are **audit/evidence** tables referenced
+by `STATE.md` phase records. They should not get a blanket time-based delete.
+
+Separately: `marts.streaming_orders` occupies **46 MB while holding 0 rows** —
+dead-tuple bloat from the upsert path. That wants a `VACUUM FULL`, not
+retention.
+
+## 8. Still open
+
+- Orphan volume `b420157…` (22.5 GB) and the dead `03-orchestration` / `op-*`
+  volumes (~71 MB) — classified safe, awaiting authorization.
+- **`de-demo-kafka` is `exited`** and this investigation does not explain why.
+  It matters for the streaming checkpoint story.
+- Four containers carry hash-prefixed duplicate names, so the running stack does
+  not match a clean `compose up`.
+- VHDX compaction, once the stack is healthy.
+- A disk-space guard/alert, and restart/failure behaviour as a case in the
+  upcoming orchestration/idempotency testing work.
