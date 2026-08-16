@@ -136,6 +136,16 @@ def _sync_cosmos_artifacts() -> None:
             shutil.copy2(source / name, destination / name)
 
 
+def _persist_dbt_artifacts(project_dir: str, **_: object) -> None:
+    source = Path(project_dir) / "target"
+    destination = DBT_PROJECT_PATH / "target"
+    destination.mkdir(parents=True, exist_ok=True)
+    for name in ("manifest.json", "run_results.json", "catalog.json", "index.html"):
+        artifact = source / name
+        if artifact.is_file():
+            shutil.copy2(artifact, destination / name)
+
+
 def _source_ingestion_run_id(triggering_asset_events) -> str:
     if not triggering_asset_events:
         raise AirflowException("Missing triggering core.orders Asset event")
@@ -412,7 +422,10 @@ def warehouse_marts_validation():
             dbt_executable_path=DBT_EXECUTABLE,
         ),
         render_config=RenderConfig(emit_datasets=False),
-        operator_args={"install_deps": False},
+        operator_args={
+            "install_deps": False,
+            "callback": _persist_dbt_artifacts,
+        },
     )
 
     generate_docs = DbtDocsOperator(
@@ -421,6 +434,7 @@ def warehouse_marts_validation():
         profile_config=_profile_config(),
         dbt_executable_path=DBT_EXECUTABLE,
         env=DBT_ENV,
+        callback=_persist_dbt_artifacts,
         trigger_rule=TriggerRule.NONE_FAILED_MIN_ONE_SUCCESS,
     )
     dbt_producer = next(
