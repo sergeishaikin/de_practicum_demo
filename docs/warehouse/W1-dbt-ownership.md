@@ -38,9 +38,10 @@ Selectors:
 - `warehouse_contracts` — tier-1 mart contracts and descendants.
 - `warehouse_reconciliation` — reconciliation models and tests.
 
-After each successful build, Cosmos generates and the DAG validates:
-`manifest.json`, `run_results.json`, `catalog.json`, and `index.html` under
-`dbt/warehouse/target/`.
+After each successful build, Cosmos callbacks persist and the DAG validates:
+`manifest.json`, `run_results.json`, `catalog.json`, and `index.html` under the
+writable runtime sink `/tmp/warehouse_dbt_artifacts`, which also backs the Cosmos
+warehouse docs endpoint.
 
 ## Reproduction
 

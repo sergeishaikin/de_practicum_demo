@@ -113,7 +113,7 @@ def _metadata_task_state(dag_id: str, run_id: str, task_id: str) -> str | None:
 def _sync_cosmos_artifacts() -> None:
     required = ("manifest.json", "run_results.json", "catalog.json", "index.html")
     dbt_required = ("manifest.json", "run_results.json", "catalog.json")
-    destination = DBT_PROJECT_PATH / "target"
+    destination = DBT_ARTIFACT_PATH
     candidates = [
         destination,
         *Path("/tmp/cosmos").glob("warehouse_marts_validation__dbt_warehouse*/target"),
@@ -138,7 +138,7 @@ def _sync_cosmos_artifacts() -> None:
 
 def _persist_dbt_artifacts(project_dir: str, **_: object) -> None:
     source = Path(project_dir) / "target"
-    destination = DBT_PROJECT_PATH / "target"
+    destination = DBT_ARTIFACT_PATH
     destination.mkdir(parents=True, exist_ok=True)
     for name in ("manifest.json", "run_results.json", "catalog.json", "index.html"):
         artifact = source / name
@@ -172,6 +172,9 @@ def _source_ingestion_run_id(triggering_asset_events) -> str:
 
 DBT_PROJECT_PATH = Path(
     os.getenv("DBT_WAREHOUSE_PROJECT_PATH", "/opt/airflow/project/dbt/warehouse")
+).resolve()
+DBT_ARTIFACT_PATH = Path(
+    os.getenv("DBT_WAREHOUSE_ARTIFACT_PATH", "/tmp/warehouse_dbt_artifacts")
 ).resolve()
 DBT_PROFILE_PATH = DBT_PROJECT_PATH / "profiles.yml"
 DBT_EXECUTABLE = os.getenv("DBT_EXECUTABLE_PATH", "dbt")
@@ -359,17 +362,13 @@ def warehouse_marts_validation():
         _sync_cosmos_artifacts()
         required = ("manifest.json", "run_results.json", "catalog.json", "index.html")
         missing = [
-            name
-            for name in required
-            if not (DBT_PROJECT_PATH / "target" / name).is_file()
+            name for name in required if not (DBT_ARTIFACT_PATH / name).is_file()
         ]
         if missing:
             raise AirflowException(
                 f"Warehouse dbt artifacts missing: {', '.join(missing)}"
             )
-        run_results = json.loads(
-            (DBT_PROJECT_PATH / "target" / "run_results.json").read_text()
-        )
+        run_results = json.loads((DBT_ARTIFACT_PATH / "run_results.json").read_text())
         results = run_results.get("results", [])
         failed = [
             result

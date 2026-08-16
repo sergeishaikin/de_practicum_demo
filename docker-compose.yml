@@ -10,8 +10,6 @@ volumes:
     name: de_demo_pg_data
   de_demo_airflow_logs:
     name: de_demo_airflow_logs
-  de_demo_warehouse_dbt_target:
-    name: de_demo_warehouse_dbt_target
 
 services:
   de-demo-postgres:
@@ -106,7 +104,7 @@ services:
       DBT_POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       DBT_POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
       AIRFLOW__COSMOS__ENABLE_TELEMETRY: "False"
-      AIRFLOW__COSMOS__DBT_DOCS_PROJECTS: '{"lakehouse":{"dir":"/opt/airflow/project/dbt/target","index":"index.html","name":"Lakehouse dbt docs"},"warehouse":{"dir":"/opt/airflow/project/dbt/warehouse/target","index":"index.html","name":"Warehouse dbt docs"}}'
+      AIRFLOW__COSMOS__DBT_DOCS_PROJECTS: '{"lakehouse":{"dir":"/opt/airflow/project/dbt/target","index":"index.html","name":"Lakehouse dbt docs"},"warehouse":{"dir":"/tmp/warehouse_dbt_artifacts","index":"index.html","name":"Warehouse dbt docs"}}'
       MAINTENANCE_RETENTION: ${MAINTENANCE_RETENTION:-2h}
       MAINTENANCE_RECOVERY_HORIZON: ${MAINTENANCE_RECOVERY_HORIZON:-1h}
       MAINTENANCE_RECOVERY_SAFETY_MARGIN: ${MAINTENANCE_RECOVERY_SAFETY_MARGIN:-15m}
@@ -116,7 +114,6 @@ services:
       - ./dags:/opt/airflow/dags:ro
       - ./db:/opt/airflow/project/db:ro
       - ./dbt:/opt/airflow/project/dbt:rw
-      - de_demo_warehouse_dbt_target:/opt/airflow/project/dbt/warehouse/target
       - ./dbt/profiles.yml.example:/opt/airflow/project/dbt/profiles.yml:ro
       - ./dbt/warehouse/profiles.yml.example:/opt/airflow/project/dbt/warehouse/profiles.yml:ro
       - ./data/raw:/opt/airflow/project/data/raw:ro
