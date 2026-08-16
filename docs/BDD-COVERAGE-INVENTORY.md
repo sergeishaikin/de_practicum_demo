@@ -6,7 +6,7 @@ This document is the input for deciding **which** `.feature` files to write. It 
 not itself a contract: the contracts live in `tests/features/*.feature`, and in the
 pytest suites listed below until a feature covers them.
 
-Status: **7 feature files, 38 scenarios (44 cases)** against ~180 pytest tests
+Status: **8 feature files, 45 scenarios (54 cases)** against ~180 pytest tests
 across unit / integration / e2e.
 
 | Feature | Tier | Scenarios | Runs |
@@ -15,6 +15,7 @@ across unit / integration / e2e.
 | `data_quality_modes.feature` | T1 | 6 (12 cases) | default fast suite, every PR |
 | `legacy_cleanup_safety.feature` | T1 | 7 | default fast suite, every PR |
 | `retention_recovery.feature` | T1 | 3 | default fast suite, every PR |
+| `shadow_cutover.feature` | T1 | 7 (10 cases) | default fast suite, every PR |
 | `iceberg_writer.feature` | T2 | 3 | live MinIO + REST catalog; PR gate + integration |
 | `writer_crash_recovery.feature` | T2 | 2 | live MinIO + REST catalog; PR gate + integration |
 | `airflow_workflow_behavior.feature` | T3 | 9 | dedicated Airflow job, every PR |
@@ -93,8 +94,8 @@ are the scenarios that keep the contract honest during refactoring.
 | Silver B2 incremental | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Gold aggregation | ✓ | ✓ | ✓ | — | ✓ | ✓ |
 | **Quality checks (strict vs permissive)** | **G** | **G** | **G** | — | — | **G** |
-| Shadow compare | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Gold source cutover / rollout matrix | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| **Shadow compare** | **G** | **G** | **G** | ✓ | ✓ | **G** |
+| **Gold source cutover / rollout matrix** | **G** | **G** | ✓ | **G** | ✓ | ✓ |
 | Legacy business-version migration | ✓ | ✓ | ✓ | ! | ✓ | ✓ |
 | **Legacy outbox reconciliation / cleanup** | **G** | **G** | **G** | — | **G** | ✓ |
 | Lakehouse maintenance | G | ✓ | G | ✓ | — | G |
@@ -216,14 +217,16 @@ listed scenarios · `KEEP-PYTEST` = do not Gherkin-ify · `DONE` = specified.
 | Still pytest | `tests/test_medallion.py::TestRunQualityChecks` (per-counter naming and Arrow edges), `TestRun` (bronze-missing skip, metric field detail) |
 | Verdict | `DONE` — the fail-open/fail-closed pair is now specified on both sides, including proof that no downstream table exists after a strict abort |
 
-### 4.12 Shadow compare & Gold cutover
+### 4.12 Shadow compare & Gold cutover — **T1 DONE**
 
 | Field | Value |
 |---|---|
 | Contract | Comparison is independent of row order and transport ordering; the Bronze boundary is pinned before B2 runs; a mismatch fails closed **before** any Gold write and records `shadow_failed`; switching `GOLD_SOURCE` never mutates persisted Silver; `persisted_silver` + shadow off is an invalid runtime state |
-| Existing | `tests/test_m4_gold.py` (7 tests), `tests/test_m5_fitness_functions.py::test_runtime_rollout_*`, `::test_m5_cutover_gate_*`, `tests/integration/test_m4_gold_cutover.py` |
-| Gap | Whole capability. The rollout matrix is a state machine — ideal `Scenario Outline` over the four legal combinations plus the rejected one |
-| Verdict | `FEATURE` → `shadow_cutover.feature` (T1 for the matrix, T2 for the cutover run) |
+| Specified by | `tests/features/shadow_cutover.feature` (7 scenarios / 10 cases, T1). The four legal stages are one `Scenario Outline`; steps bind to `validate_runtime_config` for the state machine and to `run` for the cycle, over the shared `tests/support/fakes.py` doubles |
+| Notes | Env var names stay out of the scenario text — the contract is the *stage* (`legacy`, `rollback`, `shadow`, `cutover`), not the spelling of the switch. Mismatch **taxonomy** (missing key / duplicate key / version vs payload) is deliberately not specified: it is comparator internals |
+| Still pytest | `tests/test_m4_gold.py` — order/transport independence of the comparator, deterministic mismatch classification, and the no-rebuild optimisation (see §6.8) |
+| Remaining | The live cutover-then-rollback run against a real catalog — backlog item 10, `gold_cutover.feature` (T2) |
+| Verdict | `T1 DONE` — the state machine and the fail-closed cutover behavior are specified; the live run is not |
 
 ### 4.13 Legacy business-version migration
 
@@ -330,7 +333,7 @@ design can be reassessed after the first few T1 features.
 | 3 | `legacy_cleanup_safety.feature` | T1 | 7 | **done** |
 | 4 | `retention_recovery.feature` | T1 | 3 | **done** |
 | 5 | `business_version_migration.feature` | T1 | ~5 | blocked on §6.3 |
-| 6 | `shadow_cutover.feature` (T1 portion) | T1 | ~4 | decide after reassess |
+| 6 | `shadow_cutover.feature` (T1 portion) | T1 | 7 (10 cases) | **done** |
 | 7 | `gold_aggregation.feature` | T1 | ~4 | |
 
 **Reassess the inventory after item 4**, before committing to `shadow_cutover`.
@@ -341,7 +344,7 @@ design can be reassessed after the first few T1 features.
 |---|---|:--:|:--:|---|
 | 8 | `writer_crash_recovery.feature` | T2 | 2 | **done** — replaced `test_crash_recovery.py` |
 | 9 | `iceberg_writer.feature` | T2 | 3 | **done** |
-| 10 | `shadow_cutover.feature` (T2 portion) | T2 | ~3 | next |
+| 10 | `gold_cutover.feature` (T2 portion) | T2 | ~3 | next — split into its own file, since the T1 portion is one `scenarios()` binding |
 
 ### Wave 3 — orchestrated behavior
 
@@ -408,6 +411,22 @@ design can be reassessed after the first few T1 features.
    `legacy_outbox_reconciliation.py` 57%, `ops.py` 62%,
    `legacy_business_version_migration.py` 66%. Worth a separate fix — adding
    scenarios will not close a 10-point gap.
+
+8. **One M4 test exercises a runtime state the rollout matrix forbids.**
+   `tests/test_m4_gold.py::test_persisted_silver_gold_does_not_rebuild_silver_from_bronze`
+   runs with `GOLD_SOURCE=persisted_silver` and `SHADOW_COMPARE` off. That
+   combination is absent from `RUNTIME_ROLLOUT_MATRIX`, so `main()` refuses to
+   start in it — the test reaches the state only by bypassing
+   `validate_runtime_config`. The skip-the-rebuild optimisation it proves is
+   therefore unreachable today: in the `cutover` stage
+   (`persisted_silver` + shadow **on**) `_run_m4` still pins Bronze and builds
+   the legacy candidate for the comparison. This is why `shadow_cutover.feature`
+   specifies "metrics served from the incremental state do not **rewrite** it"
+   and says nothing about avoiding the rebuild. Two readings are open, and it is
+   a **decision**, not a test defect: either the matrix eventually gains a
+   post-cutover `("b2", "persisted_silver", "0")` terminal state, or the
+   optimisation is dead code and the test documents an intent that will never
+   run. Decide before writing `gold_cutover.feature`.
 
 ---
 

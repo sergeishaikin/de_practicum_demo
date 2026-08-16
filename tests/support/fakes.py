@@ -27,16 +27,20 @@ class FakeScan:
 class FakeTable:
     def __init__(self, df: pa.Table | None = None) -> None:
         self.df = df
+        # Rewrite count, so a specification can assert that a table was left
+        # untouched — not merely that its contents happen to look the same.
+        self.overwrite_calls = 0
 
     @property
     def num_rows(self) -> int:
         return 0 if self.df is None else self.df.num_rows
 
-    def scan(self) -> FakeScan:
+    def scan(self, row_filter=None) -> FakeScan:
         return FakeScan(self.df)
 
-    def overwrite(self, df: pa.Table) -> None:
+    def overwrite(self, df: pa.Table, **kwargs) -> None:
         self.df = df
+        self.overwrite_calls += 1
 
 
 class FakeCatalog:
