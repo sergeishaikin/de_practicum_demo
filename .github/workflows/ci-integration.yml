@@ -135,7 +135,6 @@ jobs:
               sleep 5
             done
             test "$publish_state" = "success"
-            echo "ASSET_RUN_ID=$asset_run_id" >> "$GITHUB_ENV"
           REMOTE
       - name: Verify exact pipeline provenance and dbt artifacts
         run: |
