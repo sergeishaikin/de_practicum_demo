@@ -108,6 +108,7 @@ authorized.
 | # | Description | Date | Commit | Status | Directory |
 |---|-------------|------|--------|--------|-----------|
 | 260815-ulp | Harden Airflow maintenance and batch workflows with exact live verification | 2026-08-15 | `2187c5e` | Verified | [260815-ulp-improve-airflow-workflows-resolve-the-pr](./quick/260815-ulp-improve-airflow-workflows-resolve-the-pr/) |
+| 260816-dbt | Add a dbt/SQL testing layer: unit tests, cross-model invariant, staging-to-reconciliation integration fixture | 2026-08-16 | `2b91dc1` | Verified | [260816-dbt-sql-testing-layer](./quick/260816-dbt-sql-testing-layer/) |
 
 ## Deferred Items
 
