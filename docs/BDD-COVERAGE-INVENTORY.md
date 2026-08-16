@@ -6,7 +6,7 @@ This document is the input for deciding **which** `.feature` files to write. It 
 not itself a contract: the contracts live in `tests/features/*.feature`, and in the
 pytest suites listed below until a feature covers them.
 
-Status: **8 feature files, 45 scenarios (54 cases)** against ~180 pytest tests
+Status: **9 feature files, 47 scenarios (56 cases)** against ~180 pytest tests
 across unit / integration / e2e.
 
 | Feature | Tier | Scenarios | Runs |
@@ -18,6 +18,7 @@ across unit / integration / e2e.
 | `shadow_cutover.feature` | T1 | 7 (10 cases) | default fast suite, every PR |
 | `iceberg_writer.feature` | T2 | 3 | live MinIO + REST catalog; PR gate + integration |
 | `writer_crash_recovery.feature` | T2 | 2 | live MinIO + REST catalog; PR gate + integration |
+| `gold_cutover.feature` | T2 | 2 | live MinIO + REST catalog; PR gate + integration |
 | `airflow_workflow_behavior.feature` | T3 | 9 | dedicated Airflow job, every PR |
 
 ---
@@ -95,7 +96,7 @@ are the scenarios that keep the contract honest during refactoring.
 | Gold aggregation | ✓ | ✓ | ✓ | — | ✓ | ✓ |
 | **Quality checks (strict vs permissive)** | **G** | **G** | **G** | — | — | **G** |
 | **Shadow compare** | **G** | **G** | **G** | ✓ | ✓ | **G** |
-| **Gold source cutover / rollout matrix** | **G** | **G** | ✓ | **G** | ✓ | ✓ |
+| **Gold source cutover / rollout matrix** | **G** | **G** | **G** | **G** | ✓ | ✓ |
 | Legacy business-version migration | ✓ | ✓ | ✓ | ! | ✓ | ✓ |
 | **Legacy outbox reconciliation / cleanup** | **G** | **G** | **G** | — | **G** | ✓ |
 | Lakehouse maintenance | G | ✓ | G | ✓ | — | G |
@@ -225,8 +226,8 @@ listed scenarios · `KEEP-PYTEST` = do not Gherkin-ify · `DONE` = specified.
 | Specified by | `tests/features/shadow_cutover.feature` (7 scenarios / 10 cases, T1). The four legal stages are one `Scenario Outline`; steps bind to `validate_runtime_config` for the state machine and to `run` for the cycle, over the shared `tests/support/fakes.py` doubles |
 | Notes | Env var names stay out of the scenario text — the contract is the *stage* (`legacy`, `rollback`, `shadow`, `cutover`), not the spelling of the switch. Mismatch **taxonomy** (missing key / duplicate key / version vs payload) is deliberately not specified: it is comparator internals |
 | Still pytest | `tests/test_m4_gold.py` — order/transport independence of the comparator, deterministic mismatch classification, and that Gold is fed from persisted Silver at `cutover` (see §6.8) |
-| Remaining | The live cutover-then-rollback run against a real catalog — backlog item 10, `gold_cutover.feature` (T2) |
-| Verdict | `T1 DONE` — the state machine and the fail-closed cutover behavior are specified; the live run is not |
+| Also specified by | `tests/features/gold_cutover.feature` (2 scenarios, T2). Adds only what a live catalog can show: the accepted stages survive real deployments, persisted Silver keeps the same Iceberg snapshots across a Gold-source switch and its rollback, and an unaccepted stage never reaches a running service |
+| Verdict | `DONE` — T1 owns what a comparison decides, T2 owns what a real deployment sequence does |
 
 ### 4.13 Legacy business-version migration
 
@@ -344,7 +345,7 @@ design can be reassessed after the first few T1 features.
 |---|---|:--:|:--:|---|
 | 8 | `writer_crash_recovery.feature` | T2 | 2 | **done** — replaced `test_crash_recovery.py` |
 | 9 | `iceberg_writer.feature` | T2 | 3 | **done** |
-| 10 | `gold_cutover.feature` (T2 portion) | T2 | ~3 | next — split into its own file, since the T1 portion is one `scenarios()` binding |
+| 10 | `gold_cutover.feature` (T2 portion) | T2 | 2 | **done** |
 
 ### Wave 3 — orchestrated behavior
 
