@@ -90,7 +90,7 @@ Trino (iceberg catalog, REST) → Superset / Metabase
 Airflow lakehouse_maintenance → Trino ALTER TABLE ... EXECUTE {optimize, expire_snapshots, remove_orphan_files}
 ```
 
-**Batch Olist**: `data/raw/*.csv` → Airflow `demo_core_marts_pipeline` → Postgres `stg` → `core` → `marts` → HTML report.
+**Batch Olist**: `data/raw/*.csv` → manual Airflow `warehouse_orders_ingestion` → Postgres `stg`/`core` → `core.orders` Asset → automatic `warehouse_marts_validation` → marts views/audit → HTML report.
 
 Spark writes Iceberg *indirectly*: there is no `iceberg-spark-runtime-4.2` JAR, so Spark lands raw Parquet and PyIceberg ingests it. Do not "fix" this by adding a Spark Iceberg sink without checking runtime availability (rationale in `README.md`).
 

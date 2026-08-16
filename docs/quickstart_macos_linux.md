@@ -72,13 +72,13 @@ The script reports the state of Docker, Compose, CSV files, and ports `15432` an
 ## 5. Start the demo
 
 ```bash
-docker compose up -d
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml up -d
 ```
 
 Display the container state:
 
 ```bash
-docker compose ps
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml ps
 ```
 
 The expected state is:
@@ -111,10 +111,11 @@ deployment shape for production.
 
 In Airflow:
 
-1. Find `demo_core_marts_pipeline`.
-2. Enable the DAG.
-3. Select **Trigger DAG**.
-4. Wait for the `success` state.
+1. Find and enable `warehouse_marts_validation`.
+2. Find `warehouse_orders_ingestion` and select **Trigger DAG**.
+3. Wait for ingestion to succeed and publish the `core.orders` Asset.
+4. Confirm that `warehouse_marts_validation` starts automatically and succeeds.
+5. Do not manually trigger the downstream DAG.
 
 ## 8. Run the data checks
 
@@ -165,11 +166,11 @@ bash scripts/check_task_airflow.sh
 ## 11. Stop the demo
 
 ```bash
-docker compose down
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml down
 ```
 
 CAUTION: The next command deletes all demo data.
 
 ```bash
-docker compose down -v
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml down -v
 ```

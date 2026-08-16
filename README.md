@@ -281,11 +281,27 @@ as `failed:<operation>` and re-raised so the task and DagRun remain failed. The
 Iceberg writer retries its own commit conflicts (`CommitFailedException`), but
 maintenance procedures are never retried.
 
-The manual `demo_core_marts_pipeline` also allows one DagRun at a time. Its
-chain is `load_raw_csv_to_stg -> validate_staging -> rebuild_core_and_marts ->
-check_payment_reconcile -> write_audit`; `validate_staging` requires every one
-of the four CSV inputs and matching staging tables to be non-empty and to have
-exactly equal row counts before core or marts mutation begins.
+The warehouse batch is split across two single-active-run DAGs in
+`dags/warehouse_orders.py`. Manually trigger `warehouse_orders_ingestion`; it
+loads and validates staging, runs the unchanged core rebuild SQL, and performs
+a read-only core query/count readiness check. Only its terminal
+`core.publish_core_assets` task emits `core.orders` and `core.order_items`
+events, with integer `row_count` metadata. A failed or partial ingestion emits
+no scheduling event. The successful `core.orders` event automatically starts
+`warehouse_marts_validation`, which validates the existing marts views, runs
+the unchanged payment reconciliation, publishes mart Assets, and writes the
+audit. `marts.pipeline_runs.run_id` remains the downstream DagRun primary key;
+nullable `ingestion_run_id` records the native Asset event source DagRun.
+
+Run the exact one-shot proof only against a healthy stack:
+
+```powershell
+uv run --locked python scripts/verify_warehouse_asset_flow.py
+```
+
+The verifier triggers ingestion once and never triggers the downstream DAG
+directly. Its JSON receipt proves the source run, Asset events, automatic
+consumer run, and audit provenance.
 
 ```powershell
 # run maintenance now

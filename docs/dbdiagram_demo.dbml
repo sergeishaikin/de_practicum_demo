@@ -161,6 +161,7 @@ Table marts.v_reconcile_sales_daily {
 
 Table marts.pipeline_runs {
   run_id varchar [pk]
+  ingestion_run_id varchar
   run_ts timestamptz
   status varchar
   stg_orders int
@@ -171,7 +172,11 @@ Table marts.pipeline_runs {
   null_key_rows int
   max_reconcile_diff numeric(12,2)
 
-  Note: 'Audit table written by the Airflow DAG after each successful run.'
+  indexes {
+    ingestion_run_id
+  }
+
+  Note: 'Audit written by asset-triggered warehouse_marts_validation. run_id is its DagRun; ingestion_run_id is nullable source provenance.'
 }
 
 Table marts.v_smoke_last_run {
@@ -185,6 +190,7 @@ Table marts.v_smoke_last_run {
   duplicate_grain_rows int
   null_key_rows int
   max_reconcile_diff numeric(12,2)
+  ingestion_run_id varchar
 
   Note: 'View. Latest row from marts.pipeline_runs.'
 }

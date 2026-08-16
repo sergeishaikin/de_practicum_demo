@@ -80,7 +80,7 @@ The script reports the state of Docker, Compose, CSV files, and ports `15432` an
 ## 5. Start the demo
 
 ```powershell
-docker compose up -d
+.\stack.ps1 up
 ```
 
 If Docker Hub returns an `EOF` error, use the local Airflow fallback:
@@ -94,7 +94,7 @@ Use this fallback only when the local Airflow image already exists.
 Display the container state:
 
 ```powershell
-docker compose ps
+.\stack.ps1 status
 ```
 
 The expected state is:
@@ -127,10 +127,11 @@ deployment shape for production.
 
 In Airflow:
 
-1. Find `demo_core_marts_pipeline`.
-2. Enable the DAG.
-3. Select **Trigger DAG**.
-4. Wait for the `success` state.
+1. Find and enable `warehouse_marts_validation`.
+2. Find `warehouse_orders_ingestion` and select **Trigger DAG**.
+3. Wait for ingestion to succeed and publish the `core.orders` Asset.
+4. Confirm that `warehouse_marts_validation` starts automatically and succeeds.
+5. Do not manually trigger the downstream DAG.
 
 ## 8. Run the data checks
 
@@ -181,11 +182,11 @@ scripts\check_task_airflow.cmd
 ## 11. Stop the demo
 
 ```powershell
-docker compose down
+.\stack.ps1 down
 ```
 
 CAUTION: The next command deletes all demo data.
 
 ```powershell
-docker compose down -v
+.\stack.ps1 reset
 ```

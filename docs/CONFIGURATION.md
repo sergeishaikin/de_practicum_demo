@@ -94,11 +94,22 @@ Airflow metadata is stored in the dedicated `airflow_meta` PostgreSQL database
 inside the existing persistent Postgres volume. Recreating the Airflow
 container therefore preserves DAG run history, variables, and other metadata.
 
+For the warehouse audit schema, `db/init/004_smoke_objects.sql` includes the
+nullable `marts.pipeline_runs.ingestion_run_id` column for new volumes.
+`scripts/bootstrap_stack.py` also applies the idempotent
+`db/init/007_pipeline_runs_ingestion_provenance.sql` migration to existing
+volumes. It preserves `run_id` as the primary key, keeps historical source IDs
+as `NULL`, creates a non-unique lookup index, and leaves marts as views.
+
 Iceberg maintenance DAG (`dags/lakehouse_maintenance.py`): `TRINO_HOST` (`trino`), `TRINO_PORT` (`8080`), `TRINO_USER` (`admin`), `MAINTENANCE_RETENTION` (`2h`, retention threshold passed to `expire_snapshots`/`remove_orphan_files`), `MAINTENANCE_RECOVERY_HORIZON` (`1h`, maximum writer recovery period), `MAINTENANCE_RECOVERY_SAFETY_MARGIN` (`15m`, import-time validation requires retention to be strictly greater than horizon plus margin), `MAINTENANCE_RETAIN_LAST` (`5`, snapshots always kept by `expire_snapshots`), `MAINTENANCE_FILE_SIZE_THRESHOLD` (`10MB`, passed to `optimize`). The DAG runs hourly (`schedule="0 * * * *"`), allows one active run, and is also manually triggerable. Each hardcoded target (`bronze.orders`, `silver.orders_clean`, `gold.orders_daily_metrics`) becomes a separately visible mapped task instance; Airflow schedules at most one such instance per DagRun and the three non-retried maintenance procedures remain sequential inside it. Snapshot expiry explicitly uses `clean_expired_metadata=false`: obsolete schema/spec definitions remain, while the existing snapshot/file retention, recovery horizon, and `retain_last` contracts are unchanged. Each mapped task commits its own audit result, including `failed:<operation>` before re-raising failures.
 
-The manual batch DAG `demo_core_marts_pipeline` also allows one active run. Its
-`validate_staging` task has the four fixed staging Assets as inlets and requires
-exact, non-empty CSV/staging row-count parity before core or marts SQL runs.
+The warehouse flow has two single-active-run DAGs in `dags/warehouse_orders.py`.
+`warehouse_orders_ingestion` has no schedule and must be triggered manually. It
+requires exact, non-empty CSV/staging parity before the unchanged core rebuild,
+then performs queryability/count readiness and publishes integer `row_count`
+metadata. `warehouse_marts_validation` is scheduled only by the successful
+`core.orders` Asset event. There are no additional schedule or environment
+variables for this Phase 02 boundary.
 
 ## Config file format
 

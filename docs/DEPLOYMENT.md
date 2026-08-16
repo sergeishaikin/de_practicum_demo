@@ -24,7 +24,7 @@ Images referenced by tag (`postgres:15`, `apache/kafka:4.0.0`, `trinodb/trino:48
 
 CI is provided by GitHub Actions (`.github/workflows/`):
 
-- `ci-pr.yml` runs on every pull request: compose validation, `ruff`, `black --check`, the fast unit suite with a 90% coverage gate, and Airflow DagBag validation.
+- `ci-pr.yml` runs on every pull request: compose validation, `ruff`, `black --check`, the fast unit suite, the existing 90% coverage check, and Airflow DagBag validation. The coverage command has a documented 79.80% baseline and is not currently a passing completion gate.
 - `ci-integration.yml` (manual or on push to `main`) brings up the live Iceberg/Trino stack and runs the integration layer.
 - `ci-nightly.yml` (02:15 UTC) builds the full stack, runs the integration layer, the deterministic Kafka/Spark E2E, and the maintenance DAG end-to-end check.
 
@@ -75,7 +75,7 @@ There is no external monitoring (no Sentry, Datadog, OpenTelemetry, or alerting 
 - Container health: `.\stack.ps1 status` / `docker compose ps`; healthchecks are defined for `de-demo-kafka`, `de-demo-spark-connect`, `de-demo-iceberg-rest`, and `de-demo-postgres`.
 - Logs: `.\stack.ps1 logs -Service <name>`.
 - Diagnostics: `scripts\doctor.cmd` (environment) and `scripts\run_checks.cmd` (SQL quality gates).
-- Pipeline audit: the `marts.pipeline_runs` table records the status of every Airflow DAG run.
+- Pipeline audit: `marts.pipeline_runs.run_id` records each downstream warehouse validation DagRun, while nullable `ingestion_run_id` records its source ingestion DagRun.
 - UIs: Spark Master UI (`http://localhost:18080`), Kafka UI (`http://localhost:18090`), MinIO console (`http://localhost:19001`), Trino (`http://localhost:18082`).
 
 <!-- VERIFY: the host ports above are the defaults from .env.example; they change if *_HOST_PORT variables are overridden in .env -->

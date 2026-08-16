@@ -3,13 +3,13 @@
 
 ## Test framework and setup
 
-Testing uses pytest and pytest-bdd (`pytest.ini`, `pyproject.toml`, `uv.lock`, `tests/`). It is split by marker into a fast unit suite and stack-dependent suites: `integration` (live MinIO/REST catalog/Trino), `e2e` (full Kafka/Spark chain), `airflow` (DagBag validation), and `bdd` (Gherkin workflow behavior). Run `uv sync --locked` once to create the host environment. The fast suite is the PR gate, with a 90% coverage floor on `iceberg/`; the marked suites run against the live Compose stack. See [Running tests](#running-tests) and [CI integration](#ci-integration) below.
+Testing uses pytest and pytest-bdd (`pytest.ini`, `pyproject.toml`, `uv.lock`, `tests/`). It is split by marker into a fast unit suite and stack-dependent suites: `integration` (live stack boundaries), `e2e` (full runtime flows), `airflow` (DagBag/runtime validation), and `bdd` (Gherkin workflow behavior). Run `uv sync --locked` once to create the host environment. The repository completion gate is `ruff`, `black --check`, and the fast pytest suite; marked suites run only against their live dependencies. The CI workflow additionally defines a 90% `iceberg/` coverage check whose recorded baseline is 79.80%, so it is a known failing check rather than a passing completion gate. See [Running tests](#running-tests) and [CI integration](#ci-integration) below.
 
 Alongside the pytest suites, the stack itself carries these checkable surfaces:
 
 - **SQL quality gates** — SQL files in `db/demo_sql/` executed inside the Postgres container by `scripts/run_checks.cmd` / `scripts/run_checks.sh`.
 - **Environment diagnostics** — `scripts/doctor.cmd` / `scripts/doctor.sh` validate Docker, Compose, raw CSV files, and host ports.
-- **In-DAG quality gates** — the single-active-run `demo_core_marts_pipeline` first requires exact non-empty parity across all four CSV/staging pairs, then runs `check_payment_reconcile` and `write_audit`, which raise `AirflowException` on failure and record results in `marts.pipeline_runs`.
+- **Warehouse quality gates** — manual `warehouse_orders_ingestion` requires exact non-empty parity across all four CSV/staging pairs and read-only core readiness before its terminal task emits core events. Asset-triggered `warehouse_marts_validation` then runs marts readiness, payment reconciliation, publication, and the provenance audit. Any upstream failure emits no triggering event and creates no downstream run.
 - **Iceberg verification job** — `spark/jobs/verify_bronze_orders.py` inspects the bronze table, snapshot history, and time travel.
 - **Lakehouse observability** — `marts.lakehouse_metrics` is written by the iceberg writer (per batch) and medallion (per cycle); query it to verify ingestion and transformation runs.
 - **Lakehouse maintenance** — scheduler-serialized mapped tasks run the Trino `optimize`/`expire_snapshots(clean_expired_metadata=false)`/`remove_orphan_files` procedures once and write their own `ok`/`noop` or `failed:<operation>` rows to `marts.maintenance_runs`; failures remain failed.
@@ -57,12 +57,22 @@ scripts/check_task_airflow.cmd  # Windows
 bash scripts/check_task_airflow.sh  # macOS/Linux
 ```
 
-There is no single "run all tests" command; `scripts/run_checks.cmd` is the closest to a full suite for the batch pipeline.
+The canonical host completion commands are documented in `AGENTS.md`:
+
+```bash
+uv run --locked ruff check .
+uv run --locked black --check .
+uv run --locked pytest
+```
+
+Stack-dependent checks are intentionally explicit rather than hidden behind a new task runner.
 
 ### Airflow BDD features
 
 The Gherkin specification in `tests/features/airflow_workflow_behavior.feature`
-covers maintenance success/failure auditing and exact staging-parity behavior.
+covers maintenance success/failure auditing, exact staging parity, zero-row
+readiness, event publication/failure behavior, native source provenance, and
+the downstream payment/publication boundary.
 Its pytest-bdd step definitions execute the actual Airflow task callables in
 the running Airflow container with controlled fake database and Trino
 boundaries; they do not trigger a DAG or mutate live data:
@@ -72,6 +82,26 @@ uv run --locked pytest tests/features/test_airflow_workflow_behavior.py -m "bdd 
 ```
 
 ### Deterministic E2E
+
+The Phase 02 warehouse proof triggers ingestion exactly once and follows the
+native Airflow metadata association to the automatic consumer. Run it only
+after the base+extended stack is healthy:
+
+```bash
+uv run --locked python scripts/verify_warehouse_asset_flow.py
+```
+
+It writes `artifacts/phase-02/warehouse-asset-flow.json`. Replay the proof
+without triggering or mutating a DagRun:
+
+```bash
+AIRFLOW_ASSET_RECEIPT_E2E=1 uv run --locked pytest tests/e2e/test_airflow_run_receipts.py -m "e2e and airflow" -k warehouse_asset_flow -q
+```
+
+The proof requires a manual source run, two source-owned core events with only
+integer `row_count` extras, one `asset_triggered` downstream run, one-attempt
+task success, and the exact downstream/source audit pair. The verifier never
+manually triggers `warehouse_marts_validation` and fails closed on ambiguity.
 
 `tests/e2e/test_lakehouse_e2e.py` drives the whole chain (Kafka → Spark → landing → bronze → silver → gold → Trino → metrics) from a fixed 100-event fixture and asserts exact counts. It is excluded from the fast suite; the full stack must be up:
 
@@ -130,17 +160,17 @@ Verify quality checks are active: the medallion logs a "quality checks" line eac
 
 - **New SQL check.** Add a file to `db/demo_sql/` following the existing numbering, then append its container path (e.g. `/demo_sql/06_my_check.sql`) to the array in `scripts/run_checks.cmd` and the list in `scripts/run_checks.sh`.
 - **New Iceberg verification.** Add a Spark job under `spark/jobs/` mirroring `verify_bronze_orders.py`, then submit it from the `spark-worker` container.
-- **New DAG quality gate.** Add a `@task` inside `dags/demo_core_marts_pipeline.py` and insert it into the `chain(...)` call, following the pattern of `check_payment_reconcile` and `write_audit`.
+- **New DAG quality gate.** Add a `@task` to the appropriate TaskGroup in `dags/warehouse_orders.py`. Keep ingestion gates before `core.publish_core_assets`; keep downstream validation before mart publication/audit. Do not add outlets to a predecessor that can still fail.
 
 ## Coverage requirements
 
-The PR CI workflow gates on **>= 90%** statement coverage of the `iceberg/` package (`pytest --cov=iceberg --cov-fail-under=90`, fast unit suite).
+The PR workflow contains a **>= 90%** statement coverage check for the `iceberg/` package (`pytest --cov=iceberg --cov-fail-under=90`). The documented baseline is 79.80%, so report that existing failure; do not lower the threshold or add unrelated tests unless coverage remediation is the explicit task.
 
 ## CI integration
 
 GitHub Actions workflows under `.github/workflows/`:
 
-- `ci-pr.yml` — PR gate (and pushes to `main`): compose validation, `ruff`, `black --check`, fast unit suite with the 90% coverage gate, Airflow DagBag validation, and Gherkin workflow features (the Airflow checks run against `de-demo-airflow`).
+- `ci-pr.yml` — pull requests and pushes to `main`: compose validation, `ruff`, `black --check`, the currently failing 90% coverage check, Airflow DagBag validation, and Gherkin workflow features (the Airflow checks run against `de-demo-airflow`).
 - `ci-integration.yml` — live Iceberg/Trino integration layer (9 tests), manual trigger and on push to `main`. Kept out of the PR gate: it needs the real MinIO/REST-catalog/Trino stack.
 - `ci-nightly.yml` — scheduled (02:15 UTC): full stack, integration layer, deterministic Kafka/Spark E2E (when `tests/e2e/` exists), and the maintenance DAG end-to-end check (`scripts/verify_maintenance_dag.py`).
 

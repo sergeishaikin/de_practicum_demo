@@ -25,7 +25,7 @@ docker compose up -d
 scripts\show_layers.cmd
 ```
 
-Запусти DAG `demo_core_marts_pipeline` в Airflow и убедись, что проверки проходят:
+Запусти вручную DAG `warehouse_orders_ingestion` в Airflow и убедись, что после его успеха `warehouse_marts_validation` запустился автоматически через Asset:
 
 ```powershell
 scripts\run_checks.cmd
@@ -43,7 +43,7 @@ bash scripts/run_checks.sh
 
 ```powershell
 git restore db/tasks/01_create_payment_type_daily.sql
-git restore dags/demo_core_marts_pipeline.py
+git restore dags/warehouse_orders.py
 ```
 
 Если git-команды пока не знакомы, проще скачать репозиторий заново в отдельную папку. Не надо руками чинить десятки строк, если цель была пройти первое demo.
@@ -172,9 +172,9 @@ group by order_purchase_date, main_payment_type;
 Уровень: простой Airflow + Python.
 
 > **Внимание: в текущем репозитории это задание уже решено.** Task
-> `check_payment_reconcile` включён в цепочку `dags/demo_core_marts_pipeline.py`,
+> `quality.check_payment_reconcile` включён в downstream DAG в `dags/warehouse_orders.py`,
 > поэтому `scripts\check_task_airflow.cmd` проходит сразу. Чтобы выполнить
-> задание самостоятельно, сначала убери задачу из вызова `chain(...)` —
+> задание самостоятельно, временно соедини `validate_marts` напрямую с `publish_mart_assets`, минуя payment task —
 > получится описанное ниже исходное состояние. Готовую реализацию можно
 > использовать как эталон для сверки.
 
@@ -187,19 +187,19 @@ check_payment_reconcile
 Файл для работы:
 
 ```text
-dags/demo_core_marts_pipeline.py
+dags/warehouse_orders.py
 ```
 
 Сейчас цепочка задач такая:
 
 ```text
-load_raw_csv_to_stg -> rebuild_core_and_marts -> write_audit
+validate_marts -> publish_mart_assets -> write_audit
 ```
 
 Должно стать так:
 
 ```text
-load_raw_csv_to_stg -> rebuild_core_and_marts -> check_payment_reconcile -> write_audit
+validate_marts -> check_payment_reconcile -> publish_mart_assets -> write_audit
 ```
 
 Что должна делать новая задача:
@@ -212,8 +212,8 @@ load_raw_csv_to_stg -> rebuild_core_and_marts -> check_payment_reconcile -> writ
 
 - DAG открывается в Airflow без import error.
 - В списке tasks появился `check_payment_reconcile`.
-- Новый task стоит между `rebuild_core_and_marts` и `write_audit`.
-- Если суммы совпадают, DAG test проходит.
+- Новый task стоит между `validate_marts` и `publish_mart_assets`.
+- Если суммы совпадают, feature test проходит.
 - Если quality gate падает, ошибка должна быть понятной: stg sum, core sum, diff.
 
 В файле DAG есть TODO-комментарии рядом с `write_audit`. Это не готовое решение, а рельсы, чтобы не искать точку входа вслепую.
@@ -233,7 +233,7 @@ bash scripts/check_task_airflow.sh
 Что проверяется:
 
 - Airflow видит task `check_payment_reconcile`
-- DAG test проходит успешно
+- feature test проходит успешно
 - quality gate не ломает основной pipeline
 
 <details>
@@ -284,7 +284,7 @@ if diff > 0.01:
 Не забудь изменить цепочку задач в конце DAG:
 
 ```python
-load_raw_csv_to_stg() >> rebuild_core_and_marts() >> check_payment_reconcile() >> write_audit("{{ run_id }}")
+mart_state >> check_payment_reconcile() >> publish_mart_assets(mart_state)
 ```
 
 </details>

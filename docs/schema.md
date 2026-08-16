@@ -8,7 +8,8 @@
 flowchart LR
   raw["data/raw/*.csv"] --> stg["stg: приемные таблицы"]
   stg --> core["core: очищенные таблицы"]
-  core --> marts["marts: витрины и проверки"]
+  core --> event["Airflow AssetEvent: core.orders<br/>row_count + source DagRun"]
+  event --> marts["marts: views, проверки и audit provenance"]
   marts --> report["reports/demo_quality_report.html"]
 ```
 
@@ -49,6 +50,11 @@ flowchart LR
 - `marts.v_reconcile_sales_daily`
 - `marts.v_smoke_last_run`
 - `marts.pipeline_runs`
+
+`marts.pipeline_runs.run_id` остается primary key downstream DagRun. Nullable
+`ingestion_run_id` хранит исходный manual ingestion DagRun и имеет обычный
+неуникальный индекс `idx_pipeline_runs_ingestion_run_id`; исторические строки
+совместимы через `NULL`.
 
 Важно: объекты `marts.v_*` являются view. В dbdiagram.io они описаны как `Table`, потому что DBML так удобнее рисует структуру.
 

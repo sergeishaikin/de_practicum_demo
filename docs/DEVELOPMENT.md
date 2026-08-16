@@ -72,7 +72,7 @@ docker compose --env-file .\.env -f .\docker-compose.yml -f .\docker-compose.ext
 ## Code style
 
 - Python formatting and linting are pinned in the `dev` dependency group. Run `uv run --locked ruff check .` and `uv run --locked black --check .`.
-- The Airflow DAG uses the stable Airflow 3 Task SDK imports (`airflow.sdk`: `@dag`, `@task`, and `chain`).
+- The Airflow DAGs use the stable Airflow 3 Task SDK imports (`airflow.sdk`: `Asset`, `Metadata`, `@dag`, `@task`, and `TaskGroup`).
 - A `dags/.mypy_cache` directory indicates mypy has been used; run it manually when changing the DAG.
 
 ## Branch conventions
@@ -91,21 +91,27 @@ No pull-request template or review workflow is defined. The default process appl
 
 ### Airflow orchestration
 
-The batch pipeline lives in `dags/demo_core_marts_pipeline.py` and is built on the Airflow 3.3.1 image from `airflow.Dockerfile` (Python 3.12, `psycopg2-binary==2.9.12`). The DAG allows one active run and executes `chain(load_stg, staging_check, rebuild, payment_check, audit)`:
+The batch pipeline lives in `dags/warehouse_orders.py` and is built on the Airflow 3.3.1 image from `airflow.Dockerfile` (Python 3.12, `psycopg2-binary==2.9.12`). Both DAGs allow one active run and have explicit task timeouts, zero retries, owners, structured tags, descriptions, display names, and `doc_md`:
 
 - `load_raw_csv_to_stg` truncates `stg.*` and copies the CSV files from `data/raw/` via `COPY ... FROM stdin`.
 - `validate_staging` parses the four CSVs with Python's `csv` module and requires each non-empty data-row count to exactly match the corresponding staging table before any core/marts mutation.
-- `rebuild_core_and_marts` executes `db/pipeline_sql/10_rebuild_core.sql`.
-- `check_payment_reconcile` compares `sum(payment_value)` between `stg.order_payments` and `core.orders` and fails if the difference exceeds `0.01`.
-- `write_audit` inserts into `marts.pipeline_runs` with a `success`/`failed` status computed from duplicate-grain rows, null keys, and the reconcile diff.
+- `core.rebuild_core` executes the unchanged `db/pipeline_sql/10_rebuild_core.sql`, which still owns core tables and marts views in one transaction.
+- `core.validate_core` only checks queryability and collects row counts. The terminal publisher emits `core.orders`/`core.order_items` events only after all ingestion predecessors succeed.
+- The successful `core.orders` event automatically schedules `warehouse_marts_validation`; no code manually triggers it.
+- `quality.check_payment_reconcile` preserves the `0.01` payment rule. `publication.write_audit` keeps the downstream DagRun ID as `marts.pipeline_runs.run_id` and stores the source event's `source_dag_run.run_id` in nullable `ingestion_run_id`.
 
 The tasks publish Airflow Assets for the managed raw CSV, `stg`, `core`,
 `marts`, and audit objects. These Assets document the batch lineage only; they
-do not claim ownership of external streaming or Iceberg events.
+do not claim ownership of external streaming or Iceberg events. The
+`core.orders` Asset additionally provides the real orchestration boundary.
 
 The base stack is defined in `docker-compose.yml`; the same service is available in `docker-compose.local-airflow.yml` using a pre-built local image (`local/airflow:3.3.1-lab`, `pull_policy: never`) as an offline fallback. The Airflow container uses `airflow standalone`, LocalExecutor with parallelism `4`, and the dedicated `airflow_meta` database in PostgreSQL. The idempotent `airflow-db-init` service provisions the database before Airflow starts, so metadata survives container recreation. Simple Auth Manager runs in all-admin mode with no login prompt, and the named UI is bound only to `127.0.0.1`.
 
-The SQL behind the layers (`stg` → `core` → `marts`) lives in `db/`. PostgreSQL runs `db/init/` when its volume is first created; `airflow-db-init` also reruns only the idempotent Airflow metadata bootstrap for existing volumes.
+The SQL behind the layers (`stg` → `core` → `marts`) lives in `db/`. PostgreSQL
+runs `db/init/` when its volume is first created. For an existing volume,
+`scripts/bootstrap_stack.py` applies the idempotent warehouse provenance
+migration as well as the Airflow metadata bootstrap; no volume reset is
+required for `ingestion_run_id`.
 
 ### Spark jobs
 

@@ -88,6 +88,7 @@ Table marts.v_sales_daily {
 
 Table marts.pipeline_runs {
   run_id varchar [pk]
+  ingestion_run_id varchar
   run_ts timestamptz
   status varchar
   stg_orders int
@@ -95,7 +96,11 @@ Table marts.pipeline_runs {
   mart_sales_days int
   max_reconcile_diff numeric(12,2)
 
-  Note: 'Audit row written by Airflow after each DAG run.'
+  indexes {
+    ingestion_run_id
+  }
+
+  Note: 'Downstream DagRun audit with nullable source ingestion provenance.'
 }
 
 Ref: stg.order_items.order_id > stg.orders.order_id

@@ -109,7 +109,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\run_checks.ps1
 
 `scripts\check_task_sql.cmd` должен падать, пока ты не переписал `db/tasks/01_create_payment_type_daily.sql`.
 
-`scripts\check_task_airflow.cmd` в текущем репозитории **проходит**: task `check_payment_reconcile` уже включён в цепочку `dags/demo_core_marts_pipeline.py`. Чтобы выполнить Задание 2 самостоятельно, сначала убери его из вызова `chain(...)` — тогда проверка снова начнёт падать.
+`scripts\check_task_airflow.cmd` в текущем репозитории **проходит**: task `quality.check_payment_reconcile` уже включён в downstream DAG в `dags/warehouse_orders.py`. Чтобы выполнить Задание 2 самостоятельно, временно соедини `validate_marts` напрямую с `publish_mart_assets`, минуя payment task — тогда проверка снова начнёт падать.
 
 Если базовые проверки проходят, а task-check падает, значит проблема именно в задании:
 
@@ -123,7 +123,7 @@ scripts\check_task_airflow.cmd
 
 ```powershell
 git restore db/tasks/01_create_payment_type_daily.sql
-git restore dags/demo_core_marts_pipeline.py
+git restore dags/warehouse_orders.py
 ```
 
 ## Нужно применить init SQL заново

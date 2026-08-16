@@ -87,7 +87,10 @@ docker exec de-demo-trino trino --execute "SELECT count(*) FROM iceberg.silver.o
 docker exec de-demo-trino trino --execute "SELECT event_date, country, status, orders_count, total_amount FROM iceberg.gold.orders_daily_metrics LIMIT 10"
 ```
 
-The counts grow over time because `orders-producer` publishes continuously. For the batch pipeline, enable and trigger the `demo_core_marts_pipeline` DAG in Airflow.
+The counts grow over time because `orders-producer` publishes continuously. For
+the batch pipeline, unpause `warehouse_marts_validation`, then manually trigger
+`warehouse_orders_ingestion`. Do not trigger the downstream DAG: a successful
+`core.orders` Asset event schedules it automatically.
 
 ## Common setup issues
 
