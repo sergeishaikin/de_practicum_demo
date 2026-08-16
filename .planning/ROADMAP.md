@@ -108,7 +108,7 @@ failures, and no in-flight work. 01-07 is the next plan and was not executed.
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 1. B2 Controlled Rollout | Current | 8/12 | In Progress|  |
-| 2. Warehouse Asset-Orchestrated Batch Split | Airflow Orchestration Boundaries | 0/TBD | Planned |  |
+| 2. Warehouse Asset-Orchestrated Batch Split | Airflow Orchestration Boundaries | 1/1 | Complete   | 2026-08-16 |
 
 Historical milestones are intentionally summarized above rather than
 replayed as unfinished GSD phases.
@@ -122,10 +122,10 @@ the current SQL, quality, audit, and storage semantics.
 **Requirements**: [ORCH-01, ORCH-02, ORCH-03, ORCH-04, ORCH-05, ORCH-06, ORCH-07, ORCH-08]
 **Depends on:** Phase 1 reaching its terminal rollout decision; Quick Task
 260815-ulp verified Airflow 3.3.1 runtime and workflow baseline.
-**Plans:** 0 plans
+**Plans:** 1/1 plans complete
 Plans:
 
-- [ ] TBD (run /gsd-plan-phase 2 to break down)
+- [x] 02-01-PLAN.md — Split warehouse batch orchestration at the core Asset boundary (completed 2026-08-16)
 
 **Scope contract:**
 

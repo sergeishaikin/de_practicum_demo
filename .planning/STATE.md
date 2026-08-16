@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: PASS; `ready_for_01_07=true`; live Gold remains on persisted Silver under shadow
+status: executing
 stopped_at: 01-06 PASS; 01-07 authorized but not executed
-last_updated: "2026-08-16T09:57:26.780Z"
-last_activity: 2026-08-16 -- Phase 2 warehouse Asset-orchestration boundary added to the roadmap
+last_updated: "2026-08-16T11:18:00.000Z"
+last_activity: 2026-08-16 -- Phase 2 verified complete and ready to merge
 progress:
   total_phases: 2
-  completed_phases: 0
-  total_plans: 13
-  completed_plans: 11
-  percent: 85
+  completed_phases: 1
+  total_plans: 14
+  completed_plans: 13
+  percent: 50
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-08-09)
 
 **Core value:** Business-key current state must remain correct and recoverable while the pipeline processes only committed incremental work.
-**Current focus:** Phase 01 — b2-controlled-rollout
+**Current focus:** Phase 2 complete — Warehouse Asset-Orchestrated Batch Split
 
 ## Current Position
 
-Phase: 01 (b2-controlled-rollout) — EXECUTING
-Plan: 01-06 of 13 complete; next is 01-07
-Status: PASS; `ready_for_01_07=true`; live Gold remains on persisted Silver under shadow
-Last activity: 2026-08-16 -- Phase 2 warehouse Asset-orchestration boundary added to the roadmap
+Phase: 2 (Warehouse Asset-Orchestrated Batch Split) — COMPLETE
+Plan: 1 of 1
+Status: Verified complete; ready to merge. Airflow roadmap scope is stopped.
+Last activity: 2026-08-16 -- Phase 2 verified complete and ready to merge
 
-Progress: ▓▓▓▓▓▓▓░░░ 67% of current rollout phase
+Progress: ▓▓▓▓▓▓▓▓▓▓ 100% of Phase 2
 
 ## Performance Metrics
 
@@ -42,6 +42,7 @@ Progress: ▓▓▓▓▓▓▓░░░ 67% of current rollout phase
 | Phase 01 P01 | 25min | 2 tasks | 5 files |
 | Phase 01 P02 | 10min | 2 tasks | 4 files |
 | Phase 01 P02C | 30m | 2 tasks | 4 files |
+| Phase 02 P01 | 1h 12m | 3 tasks | 30 files |
 
 ## Accumulated Context
 
@@ -53,6 +54,8 @@ Progress: ▓▓▓▓▓▓▓░░░ 67% of current rollout phase
 
 - B2 canary keeps Gold on legacy until M5 is green.
 - Persisted-Silver Gold cutover must keep shadow comparison enabled.
+- Phase 2 keeps ingestion manual, uses `core.orders` as the sole scheduling Asset, and records native source DagRun provenance in nullable `ingestion_run_id`.
+- Airflow-owned medallion remains a future evaluation seed, not an approved requirement or continuation of Phase 2.
 - D-3a and O2 remain conditional, not active work.
 - [Phase 01]: Keep the runtime contract at legacy/legacy/0 until a guarded canary is authorized.
 - [Phase 01]: Use the installed dbt CLI because `python -m dbt` is unavailable; preserve documented arguments and record the launcher deviation.
@@ -116,6 +119,6 @@ authorized.
 
 ## Session Continuity
 
-Last session: 2026-08-10T19:58:28.129461Z
+Last session: 2026-08-16T11:14:47.418Z
 Stopped at: 01-06 PASS; 01-07 authorized but not executed
 Resume file: None

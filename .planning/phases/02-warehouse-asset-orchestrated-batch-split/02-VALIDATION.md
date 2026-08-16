@@ -45,3 +45,19 @@ docker compose --env-file .env.example -f docker-compose.yml -f docker-compose.e
 The live verifier command and receipt identifiers are recorded in the phase
 summary and verification report. The pre-existing coverage threshold gap is
 reported but is not remediated by this phase.
+
+## Validation Audit 2026-08-16
+
+| Metric | Count |
+|--------|-------|
+| Requirements audited | 8/8 COVERED |
+| Recorded decisions audited | 14/14 COVERED |
+| Gaps found | 0 |
+| Tests added by audit | 0 |
+| Manual-only behaviors | 0 |
+
+The GSD Nyquist auditor cross-referenced ORCH-01 through ORCH-08 and D-01
+through D-14 against DagBag, unit, Gherkin, migration integration, verifier,
+live receipt, and read-only receipt-replay evidence. The later code review
+hardening added ambiguity and matching-payment scenarios, increasing rather
+than weakening this coverage. Phase 02 is Nyquist-compliant.

@@ -34,17 +34,17 @@
 
 ### Warehouse ingestion boundary
 
-- [ ] **ORCH-01**: Replace `demo_core_marts_pipeline` with two honestly named Airflow 3.3.1 DAGs: manual `warehouse_orders_ingestion` and Asset-triggered `warehouse_marts_validation`, each with human-readable display name, description, structured tags, owner/criticality metadata, `doc_md`, one active run, bounded timeouts, and an explicit fail-closed retry policy.
-- [ ] **ORCH-02**: `warehouse_orders_ingestion` preserves the existing staging load, exact four-table non-empty staging parity, and the complete transactional `db/pipeline_sql/10_rebuild_core.sql` without changing SQL expressions, schemas, counts, transformations, or scheduling frequency.
-- [ ] **ORCH-03**: After core rebuild, a read-only readiness task proves `core.orders` and `core.order_items` are queryable and captures both row counts without minimum, non-empty, null, grain, or other new business rules. Asset events are published only after this task and every prior ingestion task succeeds; failed or skipped ingestion publishes no event.
-- [ ] **ORCH-04**: The final ingestion publisher emits `core.orders` and `core.order_items` events with JSON-serializable row-count metadata. `core.orders` is the scheduling boundary for `warehouse_marts_validation`; `core.order_items` remains explicit lineage. The downstream DAG obtains the source ingestion DagRun ID from `triggering_asset_events` / `AssetEvent.source_dag_run.run_id`, not duplicated Asset `extra` metadata.
+- [x] **ORCH-01**: Replace `demo_core_marts_pipeline` with two honestly named Airflow 3.3.1 DAGs: manual `warehouse_orders_ingestion` and Asset-triggered `warehouse_marts_validation`, each with human-readable display name, description, structured tags, owner/criticality metadata, `doc_md`, one active run, bounded timeouts, and an explicit fail-closed retry policy.
+- [x] **ORCH-02**: `warehouse_orders_ingestion` preserves the existing staging load, exact four-table non-empty staging parity, and the complete transactional `db/pipeline_sql/10_rebuild_core.sql` without changing SQL expressions, schemas, counts, transformations, or scheduling frequency.
+- [x] **ORCH-03**: After core rebuild, a read-only readiness task proves `core.orders` and `core.order_items` are queryable and captures both row counts without minimum, non-empty, null, grain, or other new business rules. Asset events are published only after this task and every prior ingestion task succeeds; failed or skipped ingestion publishes no event.
+- [x] **ORCH-04**: The final ingestion publisher emits `core.orders` and `core.order_items` events with JSON-serializable row-count metadata. `core.orders` is the scheduling boundary for `warehouse_marts_validation`; `core.order_items` remains explicit lineage. The downstream DAG obtains the source ingestion DagRun ID from `triggering_asset_events` / `AssetEvent.source_dag_run.run_id`, not duplicated Asset `extra` metadata.
 
 ### Marts validation and provenance
 
-- [ ] **ORCH-05**: Apply an additive migration to `marts.pipeline_runs`: preserve `run_id` unchanged as the downstream/marts DagRun primary key, add nullable `ingestion_run_id`, keep historical rows `NULL`, and add a non-unique index on `ingestion_run_id`.
-- [ ] **ORCH-06**: `warehouse_marts_validation` performs read-only marts validation, the existing payment reconciliation, successful mart Asset publication, and the existing idempotent audit. Marts remain views; Phase 2 introduces no physical mart build, refresh, or materialization.
-- [ ] **ORCH-07**: New TaskGroups improve UI readability without hiding the operational boundary or creating decorative tasks. The audit records current downstream `run_id` plus source `ingestion_run_id`, and failure at validation or reconciliation prevents successful publication/audit certification.
-- [ ] **ORCH-08**: Automated unit, Gherkin BDD, DagBag, migration, Asset-trigger/provenance, and read-only E2E receipt tests prove the split and its failure semantics. `lakehouse_maintenance`, `iceberg-medallion`, Kafka/Spark streaming ownership, recovery/idempotency, checkpoints, and Bronze/Silver/Gold publication remain unchanged.
+- [x] **ORCH-05**: Apply an additive migration to `marts.pipeline_runs`: preserve `run_id` unchanged as the downstream/marts DagRun primary key, add nullable `ingestion_run_id`, keep historical rows `NULL`, and add a non-unique index on `ingestion_run_id`.
+- [x] **ORCH-06**: `warehouse_marts_validation` performs read-only marts validation, the existing payment reconciliation, successful mart Asset publication, and the existing idempotent audit. Marts remain views; Phase 2 introduces no physical mart build, refresh, or materialization.
+- [x] **ORCH-07**: New TaskGroups improve UI readability without hiding the operational boundary or creating decorative tasks. The audit records current downstream `run_id` plus source `ingestion_run_id`, and failure at validation or reconciliation prevents successful publication/audit certification.
+- [x] **ORCH-08**: Automated unit, Gherkin BDD, DagBag, migration, Asset-trigger/provenance, and read-only E2E receipt tests prove the split and its failure semantics. `lakehouse_maintenance`, `iceberg-medallion`, Kafka/Spark streaming ownership, recovery/idempotency, checkpoints, and Bronze/Silver/Gold publication remain unchanged.
 
 ## Deferred requirements
 
@@ -75,14 +75,14 @@
 | CUT-02 | Phase 1 | Pending |
 | TEL-01 | Phase 1 | Complete |
 | DEC-01 | Phase 1 | Pending |
-| ORCH-01 | Phase 2 | Pending |
-| ORCH-02 | Phase 2 | Pending |
-| ORCH-03 | Phase 2 | Pending |
-| ORCH-04 | Phase 2 | Pending |
-| ORCH-05 | Phase 2 | Pending |
-| ORCH-06 | Phase 2 | Pending |
-| ORCH-07 | Phase 2 | Pending |
-| ORCH-08 | Phase 2 | Pending |
+| ORCH-01 | Phase 2 | Complete |
+| ORCH-02 | Phase 2 | Complete |
+| ORCH-03 | Phase 2 | Complete |
+| ORCH-04 | Phase 2 | Complete |
+| ORCH-05 | Phase 2 | Complete |
+| ORCH-06 | Phase 2 | Complete |
+| ORCH-07 | Phase 2 | Complete |
+| ORCH-08 | Phase 2 | Complete |
 
 **Coverage:**
 
