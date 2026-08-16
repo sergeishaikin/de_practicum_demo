@@ -21,10 +21,28 @@ out = {
     "dags": {},
 }
 
+
+def asset_uris(expression):
+    if expression is None:
+        return []
+    uri = getattr(expression, "uri", None)
+    if uri is not None:
+        return [uri]
+    return [
+        uri
+        for nested in getattr(expression, "objects", ())
+        for uri in asset_uris(nested)
+    ]
+
+
 for dag_id, dag in db.dags.items():
     schedule = getattr(dag, "schedule", None)
     if schedule is None:
         schedule = getattr(dag, "schedule_interval", None)
+    asset_expression = getattr(dag, "asset_expression", None) or getattr(
+        dag.timetable, "asset_condition", None
+    )
+    scheduled_asset_uris = sorted(asset_uris(asset_expression))
     out["dags"][dag_id] = {
         "display_name": getattr(dag, "dag_display_name", None),
         "description": dag.description,
@@ -32,6 +50,10 @@ for dag_id, dag in db.dags.items():
         "schedule": str(schedule),
         "catchup": bool(dag.catchup),
         "max_active_runs": dag.max_active_runs,
+        "dagrun_timeout": str(dag.dagrun_timeout),
+        "tags": sorted(dag.tags),
+        "owner": dag.default_args.get("owner"),
+        "scheduled_asset_uris": scheduled_asset_uris,
         "tasks": {
             tid: sorted(t.get_direct_relative_ids(upstream=True))
             for tid, t in dag.task_dict.items()
@@ -55,6 +77,10 @@ for dag_id, dag in db.dags.items():
                 "inlets": len(task_instance.inlets or []),
                 "outlets": len(task_instance.outlets or []),
             }
+            for tid, task_instance in dag.task_dict.items()
+        },
+        "task_groups": {
+            tid: task_instance.task_group.group_id
             for tid, task_instance in dag.task_dict.items()
         },
         "default_retries": dag.default_args.get("retries"),

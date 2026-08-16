@@ -29,13 +29,27 @@ EXPECTED_TABLES = [
     ["silver", "orders_clean"],
     ["gold", "orders_daily_metrics"],
 ]
-BATCH_DAG = "demo_core_marts_pipeline"
-BATCH_UPSTREAM = {
-    "load_raw_csv_to_stg": [],
-    "validate_staging": ["load_raw_csv_to_stg"],
-    "rebuild_core_and_marts": ["validate_staging"],
-    "check_payment_reconcile": ["rebuild_core_and_marts"],
-    "write_audit": ["check_payment_reconcile"],
+INGESTION_DAG = "warehouse_orders_ingestion"
+MARTS_DAG = "warehouse_marts_validation"
+CORE_ORDERS_URI = "postgres://de-demo-postgres:5432/dwh/core/orders"
+INGESTION_UPSTREAM = {
+    "staging.load_raw_csv_to_stg": [],
+    "staging.validate_staging": ["staging.load_raw_csv_to_stg"],
+    "core.rebuild_core": ["staging.validate_staging"],
+    "core.validate_core": ["core.rebuild_core"],
+    "core.publish_core_assets": ["core.validate_core"],
+}
+MARTS_UPSTREAM = {
+    "quality.validate_marts": [],
+    "quality.check_payment_reconcile": ["quality.validate_marts"],
+    "publication.publish_mart_assets": [
+        "quality.check_payment_reconcile",
+        "quality.validate_marts",
+    ],
+    "publication.write_audit": [
+        "publication.publish_mart_assets",
+        "quality.validate_marts",
+    ],
 }
 
 pytestmark = pytest.mark.airflow
@@ -113,17 +127,82 @@ def test_maintenance_tables_config_is_sane(dag_structure: dict) -> None:
     assert cfg["FILE_SIZE_THRESHOLD"].strip()
 
 
-def test_demo_core_marts_pipeline_present(dag_structure: dict) -> None:
-    dag = dag_structure["dags"][BATCH_DAG]
-    assert dag["display_name"] == "Core & Marts Batch Pipeline"
+def test_warehouse_split_replaces_combined_dag(dag_structure: dict) -> None:
+    dags = dag_structure["dags"]
+    assert "demo_core_marts_pipeline" not in dags
+    assert {INGESTION_DAG, MARTS_DAG} <= dags.keys()
+
+
+def test_orders_ingestion_contract(dag_structure: dict) -> None:
+    dag = dag_structure["dags"][INGESTION_DAG]
+    assert dag["display_name"] == "Warehouse · Orders Ingestion"
     assert dag["description"]
     assert dag["has_doc_md"] is True
+    assert dag["schedule"] == "None"
+    assert dag["scheduled_asset_uris"] == []
     assert dag["max_active_runs"] == 1
-    assert dag["tasks"] == BATCH_UPSTREAM
+    assert dag["dagrun_timeout"] == "0:30:00"
+    assert dag["default_retries"] == 0
+    assert dag["execution_timeout"] == "0:15:00"
+    assert dag["owner"] == "data-platform"
+    assert dag["tags"] == sorted(
+        [
+            "domain:orders",
+            "layer:core",
+            "type:batch",
+            "trigger:manual",
+            "owner:data-platform",
+            "criticality:high",
+        ]
+    )
+    assert dag["tasks"] == INGESTION_UPSTREAM
+    assert dag["task_groups"] == {
+        "staging.load_raw_csv_to_stg": "staging",
+        "staging.validate_staging": "staging",
+        "core.rebuild_core": "core",
+        "core.validate_core": "core",
+        "core.publish_core_assets": "core",
+    }
     assert dag["task_assets"] == {
-        "load_raw_csv_to_stg": {"inlets": 4, "outlets": 4},
-        "validate_staging": {"inlets": 4, "outlets": 0},
-        "rebuild_core_and_marts": {"inlets": 4, "outlets": 6},
-        "check_payment_reconcile": {"inlets": 2, "outlets": 0},
-        "write_audit": {"inlets": 4, "outlets": 1},
+        "staging.load_raw_csv_to_stg": {"inlets": 4, "outlets": 4},
+        "staging.validate_staging": {"inlets": 4, "outlets": 0},
+        "core.rebuild_core": {"inlets": 4, "outlets": 0},
+        "core.validate_core": {"inlets": 0, "outlets": 0},
+        "core.publish_core_assets": {"inlets": 0, "outlets": 2},
+    }
+
+
+def test_marts_validation_contract(dag_structure: dict) -> None:
+    dag = dag_structure["dags"][MARTS_DAG]
+    assert dag["display_name"] == "Warehouse · Marts Validation & Publication"
+    assert dag["description"]
+    assert dag["has_doc_md"] is True
+    assert dag["scheduled_asset_uris"] == [CORE_ORDERS_URI]
+    assert dag["max_active_runs"] == 1
+    assert dag["dagrun_timeout"] == "0:30:00"
+    assert dag["default_retries"] == 0
+    assert dag["execution_timeout"] == "0:15:00"
+    assert dag["owner"] == "data-platform"
+    assert dag["tags"] == sorted(
+        [
+            "domain:orders",
+            "layer:marts",
+            "type:batch",
+            "trigger:asset",
+            "owner:data-platform",
+            "criticality:high",
+        ]
+    )
+    assert dag["tasks"] == MARTS_UPSTREAM
+    assert dag["task_groups"] == {
+        "quality.validate_marts": "quality",
+        "quality.check_payment_reconcile": "quality",
+        "publication.publish_mart_assets": "publication",
+        "publication.write_audit": "publication",
+    }
+    assert dag["task_assets"] == {
+        "quality.validate_marts": {"inlets": 1, "outlets": 0},
+        "quality.check_payment_reconcile": {"inlets": 2, "outlets": 0},
+        "publication.publish_mart_assets": {"inlets": 0, "outlets": 4},
+        "publication.write_audit": {"inlets": 4, "outlets": 1},
     }

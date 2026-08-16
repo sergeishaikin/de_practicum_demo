@@ -1,5 +1,6 @@
 create table if not exists marts.pipeline_runs (
   run_id varchar primary key,
+  ingestion_run_id varchar,
   run_ts timestamptz not null default now(),
   status varchar not null,
   stg_orders int not null,
@@ -11,9 +12,13 @@ create table if not exists marts.pipeline_runs (
   max_reconcile_diff numeric(12, 2) not null
 );
 
+create index if not exists idx_pipeline_runs_ingestion_run_id
+  on marts.pipeline_runs (ingestion_run_id);
+
 create or replace view marts.v_smoke_last_run as
 select
   run_id,
+  ingestion_run_id,
   run_ts,
   status,
   stg_orders,

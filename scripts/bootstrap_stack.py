@@ -12,6 +12,11 @@ from pathlib import Path
 from validate_runtime_config import read_env_file
 
 
+PIPELINE_PROVENANCE_MIGRATION = (
+    "/docker-entrypoint-initdb.d/007_pipeline_runs_ingestion_provenance.sql"
+)
+
+
 def _run(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(args, capture_output=True, text=True, check=False)
 
@@ -95,7 +100,22 @@ def bootstrap(values: dict[str, str], deadline: float) -> None:
         "CREATE SCHEMA IF NOT EXISTS iceberg.gold; "
         "CREATE SCHEMA IF NOT EXISTS iceberg.semantic",
     )
-    print("[OK] H1 bootstrap: network, MinIO bucket, catalog schemas, and readiness")
+    _docker_exec(
+        "de-demo-postgres",
+        "psql",
+        "-X",
+        "--set=ON_ERROR_STOP=1",
+        "--username",
+        values["POSTGRES_USER"],
+        "--dbname",
+        values["POSTGRES_DB"],
+        "--file",
+        PIPELINE_PROVENANCE_MIGRATION,
+    )
+    print(
+        "[OK] H1 bootstrap: network, MinIO bucket, catalog schemas, "
+        "warehouse migrations, and readiness"
+    )
 
 
 def main() -> int:
