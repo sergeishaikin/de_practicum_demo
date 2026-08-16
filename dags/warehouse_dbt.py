@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -107,6 +108,32 @@ def _metadata_task_state(dag_id: str, run_id: str, task_id: str) -> str | None:
             )
             row = cur.fetchone()
     return row[0] if row else None
+
+
+def _sync_cosmos_artifacts() -> None:
+    required = ("manifest.json", "run_results.json", "catalog.json", "index.html")
+    dbt_required = ("manifest.json", "run_results.json", "catalog.json")
+    destination = DBT_PROJECT_PATH / "target"
+    candidates = [
+        destination,
+        *Path("/tmp/cosmos").glob("warehouse_marts_validation__dbt_warehouse*/target"),
+    ]
+    source = next(
+        (
+            candidate
+            for candidate in candidates
+            if all((candidate / name).is_file() for name in dbt_required)
+        ),
+        None,
+    )
+    if source is None:
+        return
+    destination.mkdir(parents=True, exist_ok=True)
+    if source == destination:
+        return
+    for name in required:
+        if (source / name).is_file():
+            shutil.copy2(source / name, destination / name)
 
 
 def _source_ingestion_run_id(triggering_asset_events) -> str:
@@ -319,6 +346,7 @@ def warehouse_marts_validation():
             if all(state == "success" for state in states.values()):
                 break
             time.sleep(5)
+        _sync_cosmos_artifacts()
         required = ("manifest.json", "run_results.json", "catalog.json", "index.html")
         missing = [
             name
