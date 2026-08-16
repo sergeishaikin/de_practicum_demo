@@ -78,6 +78,80 @@ def test_quality_contracts_and_selectors_are_present() -> None:
     assert "warehouse_reconciliation" in selectors
 
 
+def test_unit_tests_pin_the_mart_transformation_semantics() -> None:
+    """The mart SQL must be covered by fixture-driven unit tests, not only by
+    data tests that need a populated warehouse."""
+
+    definitions = (PROJECT / "models" / "marts" / "unit_tests.yml").read_text(
+        encoding="utf-8"
+    )
+    expected_models = {
+        "order_items_wide_keeps_items_without_a_matching_order": "v_order_items_wide",
+        "order_items_wide_enriches_every_item_of_its_order": "v_order_items_wide",
+        "sales_daily_counts_orders_distinctly_and_sums_money_per_day": "v_sales_daily",
+        "reconcile_sales_daily_reports_both_sides_of_the_full_join": "v_reconcile_sales_daily",
+        "reconcile_sales_daily_ignores_cross_batch_ingest_dates": "v_reconcile_sales_daily",
+    }
+    cases = definitions.split("  - name: ")[1:]
+    assert len(cases) == len(expected_models)
+    for case in cases:
+        name = case.splitlines()[0].strip()
+        assert name in expected_models, f"unknown unit test: {name}"
+        assert f"model: {expected_models[name]}" in case
+        assert "expect:" in case and "rows:" in case
+
+    by_name = {case.splitlines()[0].strip(): case for case in cases}
+
+    # The LEFT JOIN guard is only a guard if core.orders is mocked empty and the
+    # payment columns are asserted NULL rather than merely absent.
+    orphan = by_name["order_items_wide_keeps_items_without_a_matching_order"]
+    assert "input: source('core', 'orders')\n        rows: []" in orphan
+    assert "order_payment_value: null" in orphan.split("expect:")[1]
+
+    # The cross-batch guard is only a guard if the ingest dates actually differ
+    # between the mocked staging header and its item.
+    cross_batch = by_name["reconcile_sales_daily_ignores_cross_batch_ingest_dates"]
+    given, expected = cross_batch.split("expect:")
+    assert {"'2026-01-01'", "'2026-01-02'"} <= set(
+        line.split("ingest_date: ")[1].strip()
+        for line in given.splitlines()
+        if "ingest_date: " in line
+    )
+    assert "source_gross_sales: 0.00" in expected
+
+
+def test_integration_fixture_runs_the_production_core_rebuild() -> None:
+    """The staging -> core -> marts -> reconciliation check must go through the
+    real rebuild transform, not a hand-written core insert."""
+
+    seed = (ROOT / "tests" / "fixtures" / "warehouse" / "seed_staging.sql").read_text(
+        encoding="utf-8"
+    )
+    assert "marts.pipeline_runs" in seed, "destructive seed is missing its guard"
+    assert "insert into core." not in seed.lower()
+
+    assertions = (
+        ROOT / "tests" / "fixtures" / "warehouse" / "assert_marts.sql"
+    ).read_text(encoding="utf-8")
+    for relation in (
+        "core.orders",
+        "marts.v_sales_daily",
+        "marts.v_customer_state_daily",
+        "marts.v_order_items_wide",
+        "marts.v_reconcile_sales_daily",
+    ):
+        assert relation in assertions
+
+    workflow = read(".github/workflows/ci-pr.yml")
+    assert "tests/fixtures/warehouse/seed_staging.sql" in workflow
+    assert "db/pipeline_sql/10_rebuild_core.sql" in workflow
+    assert "tests/fixtures/warehouse/assert_marts.sql" in workflow
+    assert "insert into core.orders values" not in workflow
+
+    invariant = PROJECT / "tests" / "customer_state_rolls_up_to_sales_daily.sql"
+    assert "v_customer_state_daily" in invariant.read_text(encoding="utf-8")
+
+
 def test_core_rebuild_transaction_remains_airflow_owned() -> None:
     source = read("dags/warehouse_orders.py")
     assert '_execute_sql_file(conn, SQL_DIR / "10_rebuild_core.sql")' in source

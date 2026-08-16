@@ -97,14 +97,12 @@ jobs:
             docker exec de-demo-postgres pg_isready -U app -d dwh >/dev/null 2>&1 && break
             sleep 2
           done
-          docker exec de-demo-postgres psql -U app -d dwh -v ON_ERROR_STOP=1 -c "
-            insert into stg.orders values ('ci-order', 'ci-customer', 'paid', timestamp '2026-01-01 10:00:00', null, null, null, null, date '2026-01-01');
-            insert into stg.customers values ('ci-customer', 'ci-customer', '10115', 'Berlin', 'BE', date '2026-01-01');
-            insert into stg.order_items values ('ci-order', 1, 'ci-product', 'ci-seller', timestamp '2026-01-01 11:00:00', 10.00, 1.00, date '2026-01-01');
-            insert into stg.order_payments values ('ci-order', 1, 'credit_card', 1, 10.00, date '2026-01-01');
-            insert into core.orders values ('ci-order', 'ci-customer', 'BE', 'paid', date '2026-01-01', 10.00, 'credit_card', 1, date '2026-01-01');
-            insert into core.order_items values ('ci-order', 1, date '2026-01-01', 'paid', 'ci-customer', 'BE', 'ci-product', 'ci-seller', 10.00, 1.00, date '2026-01-01');
-          "
+      - name: Seed staging and rebuild core with the production transform
+        run: |
+          docker exec -i de-demo-postgres psql -U app -d dwh -v ON_ERROR_STOP=1 \
+            < tests/fixtures/warehouse/seed_staging.sql
+          docker exec -i de-demo-postgres psql -U app -d dwh -v ON_ERROR_STOP=1 \
+            < db/pipeline_sql/10_rebuild_core.sql
       - name: Run warehouse dbt build and docs
         run: |
           .venv-dbt-warehouse/bin/dbt parse --project-dir dbt/warehouse --profiles-dir dbt/warehouse
@@ -114,6 +112,15 @@ jobs:
           test -s dbt/warehouse/target/run_results.json
           test -s dbt/warehouse/target/catalog.json
           test -s dbt/warehouse/target/index.html
+      - name: Assert staging to reconciliation expectations
+        run: |
+          violations=$(docker exec -i de-demo-postgres psql -U app -d dwh \
+            -v ON_ERROR_STOP=1 -At -F '|' < tests/fixtures/warehouse/assert_marts.sql)
+          if [ -n "$violations" ]; then
+            echo "Warehouse integration expectations failed:"
+            echo "$violations"
+            exit 1
+          fi
       - name: Verify repository contracts
         run: uv run --locked pytest -q tests/test_warehouse_dbt.py
       - name: Upload warehouse dbt artifacts
