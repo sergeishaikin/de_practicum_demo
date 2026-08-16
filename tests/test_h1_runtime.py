@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from scripts import verify_maintenance_dag as maintenance_verifier
+from scripts import verify_warehouse_asset_flow as asset_verifier
 from scripts.validate_runtime_config import validate
 
 
@@ -235,6 +236,190 @@ def test_h1_bootstrap_ci_and_docs_are_present() -> None:
         assert marker in workflow
     for marker in ("baked", "bootstrap", "rollback", "D-3a", "Ivy"):
         assert marker in docs
+
+
+def test_pipeline_provenance_migration_is_additive_and_bootstrapped() -> None:
+    base = read("db/init/004_smoke_objects.sql")
+    migration = read("db/init/007_pipeline_runs_ingestion_provenance.sql")
+    bootstrap = read("scripts/bootstrap_stack.py")
+
+    assert "run_id varchar primary key" in base
+    assert "ingestion_run_id varchar" in base
+    assert "marts_run_id" not in base + migration
+    assert "add column if not exists ingestion_run_id varchar" in migration
+    assert "create index if not exists idx_pipeline_runs_ingestion_run_id" in migration
+    assert "create unique index" not in migration.lower()
+    assert "007_pipeline_runs_ingestion_provenance.sql" in bootstrap
+    assert 'values["POSTGRES_DB"]' in bootstrap
+
+
+def test_warehouse_asset_verifier_generates_unique_source_run_ids() -> None:
+    first = asset_verifier.make_run_id()
+    second = asset_verifier.make_run_id()
+
+    assert first != second
+    assert re.fullmatch(r"warehouse_ingestion_verify_\d{8}T\d{12}Z_[0-9a-f]{12}", first)
+
+
+def test_warehouse_asset_verifier_triggers_only_ingestion_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = []
+
+    def fake_airflow(*args: str, timeout: int = 90) -> str:
+        calls.append((args, timeout))
+        return ""
+
+    monkeypatch.setattr(asset_verifier, "_airflow", fake_airflow)
+    run_id = "warehouse_ingestion_verify_exact"
+
+    asset_verifier.trigger_ingestion(run_id)
+
+    assert calls == [
+        (("dags", "trigger", "-r", run_id, "warehouse_orders_ingestion"), 90)
+    ]
+    assert all("warehouse_marts_validation" not in args for args, _ in calls)
+
+
+def _valid_core_event_rows(source_run_id: str) -> list[list[str]]:
+    return [
+        [
+            "101",
+            asset_verifier.CORE_ORDER_ITEMS_URI,
+            '{"row_count": 1149}',
+            asset_verifier.INGESTION_DAG,
+            asset_verifier.CORE_PUBLISH_TASK,
+            source_run_id,
+        ],
+        [
+            "102",
+            asset_verifier.CORE_ORDERS_URI,
+            '{"row_count": 1000}',
+            asset_verifier.INGESTION_DAG,
+            asset_verifier.CORE_PUBLISH_TASK,
+            source_run_id,
+        ],
+    ]
+
+
+def test_warehouse_asset_verifier_accepts_exact_core_events() -> None:
+    source = "warehouse_ingestion_verify_exact"
+
+    accepted, _, events = asset_verifier.classify_core_events(
+        source, _valid_core_event_rows(source)
+    )
+
+    assert accepted is True
+    assert events[asset_verifier.CORE_ORDERS_URI] == {
+        "event_id": 102,
+        "extra": {"row_count": 1000},
+    }
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda rows: rows[:1],
+        lambda rows: rows + [rows[0]],
+        lambda rows: [rows[0], [*rows[1][:-1], "wrong-run"]],
+        lambda rows: [rows[0], [*rows[1][:2], '{"run_id":"bad"}', *rows[1][3:]]],
+        lambda rows: [rows[0], [*rows[1][:4], "wrong.task", rows[1][5]]],
+    ],
+    ids=["missing", "duplicate", "wrong-source", "run-id-extra", "wrong-task"],
+)
+def test_warehouse_asset_verifier_rejects_invalid_core_events(mutate) -> None:
+    source = "warehouse_ingestion_verify_exact"
+    rows = mutate(_valid_core_event_rows(source))
+
+    accepted, _, events = asset_verifier.classify_core_events(source, rows)
+
+    assert accepted is False
+    assert events == {}
+
+
+def test_warehouse_asset_verifier_accepts_only_one_asset_triggered_downstream() -> None:
+    rows = [["asset_triggered__exact", "success", "asset_triggered", "ASSET", "102"]]
+
+    accepted, _, run_id, state = asset_verifier.classify_downstream(102, rows)
+
+    assert accepted is True
+    assert run_id == "asset_triggered__exact"
+    assert state == "success"
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [
+        [
+            ["asset_triggered__a", "success", "asset_triggered", "ASSET", "102"],
+            ["asset_triggered__b", "success", "asset_triggered", "ASSET", "102"],
+        ],
+        [["manual__fake", "success", "manual", "CLI", "102"]],
+        [["asset_triggered__wrong", "success", "asset_triggered", "ASSET", "999"]],
+    ],
+    ids=["duplicate", "manual-substitute", "wrong-event"],
+)
+def test_warehouse_asset_verifier_rejects_downstream_substitutes(rows) -> None:
+    accepted, _, run_id, state = asset_verifier.classify_downstream(102, rows)
+
+    assert accepted is False
+    assert run_id is None
+    assert state is None
+
+
+def test_warehouse_asset_verifier_requires_exact_audit_provenance() -> None:
+    source = "warehouse_ingestion_verify_exact"
+    downstream = "asset_triggered__exact"
+    valid = [
+        [downstream, source, "success", "1000", "1149", "1149", "463", "0", "0", "0.00"]
+    ]
+
+    accepted, _ = asset_verifier.classify_audit(source, downstream, valid)
+    wrong_source = [valid[0].copy()]
+    wrong_source[0][1] = "wrong-source"
+    rejected, _ = asset_verifier.classify_audit(source, downstream, wrong_source)
+
+    assert accepted is True
+    assert rejected is False
+
+
+def test_warehouse_asset_verifier_stops_on_failed_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(asset_verifier, "dag_run_state", lambda *_: "failed")
+
+    with pytest.raises(asset_verifier.VerificationError, match="failed"):
+        asset_verifier.wait_for_success("warehouse_orders_ingestion", "manual__failed")
+
+
+def test_warehouse_asset_verifier_times_out_without_retriggering(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = []
+    monkeypatch.setattr(asset_verifier, "TIMEOUT_SECONDS", 0)
+    monkeypatch.setattr(
+        asset_verifier, "trigger_ingestion", lambda run_id: calls.append(run_id)
+    )
+
+    with pytest.raises(asset_verifier.VerificationError, match="timed out"):
+        asset_verifier.wait_for_success("warehouse_orders_ingestion", "manual__missing")
+
+    assert calls == []
+
+
+def test_warehouse_asset_verifier_stops_on_failed_downstream(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        asset_verifier,
+        "downstream_rows",
+        lambda *_: [
+            ["asset_triggered__failed", "failed", "asset_triggered", "ASSET", "102"]
+        ],
+    )
+
+    with pytest.raises(asset_verifier.VerificationError, match="failed"):
+        asset_verifier.wait_for_downstream(102)
 
 
 def test_maintenance_verifier_generates_unique_exact_run_ids() -> None:

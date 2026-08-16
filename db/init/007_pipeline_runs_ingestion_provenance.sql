@@ -7,7 +7,6 @@ create index if not exists idx_pipeline_runs_ingestion_run_id
 create or replace view marts.v_smoke_last_run as
 select
   run_id,
-  ingestion_run_id,
   run_ts,
   status,
   stg_orders,
@@ -16,7 +15,8 @@ select
   mart_sales_days,
   duplicate_grain_rows,
   null_key_rows,
-  max_reconcile_diff
+  max_reconcile_diff,
+  ingestion_run_id
 from marts.pipeline_runs
 order by run_ts desc
 limit 1;

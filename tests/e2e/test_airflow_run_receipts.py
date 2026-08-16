@@ -1,14 +1,17 @@
-"""Read-only verification of the completed Quick 260815-ulp Airflow receipts.
+"""Read-only verification of immutable Airflow runtime receipts.
 
 Opt in with ``AIRFLOW_RECEIPT_E2E=1``. Run IDs default to the immutable receipt
 recorded on 2026-08-15 and may be overridden with ``MAINTENANCE_RECEIPT_RUN_ID``
-and ``BATCH_RECEIPT_RUN_ID``. This test never triggers or changes a DagRun.
+and ``BATCH_RECEIPT_RUN_ID``. Phase 02 additionally reads its generated Asset
+receipt. These tests never trigger or change a DagRun.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -21,6 +24,13 @@ BATCH_RUN_ID = os.getenv(
 )
 
 pytestmark = [pytest.mark.e2e, pytest.mark.airflow]
+ROOT = Path(__file__).resolve().parents[2]
+ASSET_RECEIPT = Path(
+    os.getenv(
+        "WAREHOUSE_ASSET_RECEIPT_PATH",
+        ROOT / "artifacts" / "phase-02" / "warehouse-asset-flow.json",
+    )
+)
 
 
 def _docker(*args: str) -> str:
@@ -143,3 +153,103 @@ def test_exact_dwh_audits_and_persisted_runtime_mode() -> None:
         'printf \'%s|%s|%s\' "$SILVER_MODE" "$GOLD_SOURCE" "$SHADOW_COMPARE"',
     )
     assert runtime == "b2|persisted_silver|1"
+
+
+def test_exact_warehouse_asset_flow_receipt_is_reproducible_read_only() -> None:
+    if os.getenv("AIRFLOW_ASSET_RECEIPT_E2E") != "1":
+        pytest.skip("set AIRFLOW_ASSET_RECEIPT_E2E=1 for Phase 02 receipt verification")
+    receipt = json.loads(ASSET_RECEIPT.read_text(encoding="utf-8"))
+    source_run_id = receipt["source"]["run_id"]
+    downstream_run_id = receipt["downstream"]["run_id"]
+
+    dag_runs = _psql(
+        "airflow_meta",
+        "airflow",
+        "select dag_id, run_id, state, run_type from dag_run "
+        f"where (dag_id='warehouse_orders_ingestion' and run_id='{_quote(source_run_id)}') "
+        f"or (dag_id='warehouse_marts_validation' and run_id='{_quote(downstream_run_id)}') "
+        "order by dag_id;",
+    )
+    assert dag_runs == [
+        ["warehouse_marts_validation", downstream_run_id, "success", "asset_triggered"],
+        ["warehouse_orders_ingestion", source_run_id, "success", "manual"],
+    ]
+
+    events = _psql(
+        "airflow_meta",
+        "airflow",
+        "select a.uri, ae.extra::text, ae.source_dag_id, ae.source_task_id, ae.source_run_id "
+        "from asset_event ae join asset a on a.id=ae.asset_id "
+        f"where ae.source_run_id='{_quote(source_run_id)}' and a.uri like '%/core/%' "
+        "order by a.uri;",
+    )
+    assert len(events) == 2
+    assert {row[2] for row in events} == {"warehouse_orders_ingestion"}
+    assert {row[3] for row in events} == {"core.publish_core_assets"}
+    assert {row[4] for row in events} == {source_run_id}
+    assert all(set(json.loads(row[1])) == {"row_count"} for row in events)
+
+    association = _psql(
+        "airflow_meta",
+        "airflow",
+        "select dr.run_id, ae.source_run_id from dagrun_asset_event dae "
+        "join dag_run dr on dr.id=dae.dag_run_id "
+        "join asset_event ae on ae.id=dae.event_id "
+        f"where dr.dag_id='warehouse_marts_validation' and dr.run_id='{_quote(downstream_run_id)}';",
+    )
+    assert association == [[downstream_run_id, source_run_id]]
+
+    tasks = _psql(
+        "airflow_meta",
+        "airflow",
+        "select dag_id, task_id, state, try_number, max_tries from task_instance "
+        f"where (dag_id='warehouse_orders_ingestion' and run_id='{_quote(source_run_id)}') "
+        f"or (dag_id='warehouse_marts_validation' and run_id='{_quote(downstream_run_id)}') "
+        "order by dag_id, task_id;",
+    )
+    assert {row[0] for row in tasks} == {
+        "warehouse_orders_ingestion",
+        "warehouse_marts_validation",
+    }
+    assert len(tasks) == 9
+    assert all(row[2:] == ["success", "1", "0"] for row in tasks)
+
+    audit = _psql(
+        "dwh",
+        "app",
+        "select run_id, ingestion_run_id, status from marts.pipeline_runs "
+        f"where run_id='{_quote(downstream_run_id)}';",
+    )
+    assert audit == [[downstream_run_id, source_run_id, "success"]]
+
+    schema = _psql(
+        "dwh",
+        "app",
+        "select column_name, is_nullable from information_schema.columns "
+        "where table_schema='marts' and table_name='pipeline_runs' "
+        "and column_name='ingestion_run_id';",
+    )
+    assert schema == [["ingestion_run_id", "YES"]]
+
+    index_and_history = _psql(
+        "dwh",
+        "app",
+        "select (select count(*) from pg_indexes where schemaname='marts' "
+        "and tablename='pipeline_runs' and indexname='idx_pipeline_runs_ingestion_run_id' "
+        "and indexdef not like 'CREATE UNIQUE INDEX%'), "
+        "(select count(*) from marts.pipeline_runs where ingestion_run_id is null);",
+    )
+    assert index_and_history and index_and_history[0][0] == "1"
+    assert int(index_and_history[0][1]) >= 0
+
+    views = _psql(
+        "dwh",
+        "app",
+        "select c.relname, c.relkind from pg_class c "
+        "join pg_namespace n on n.oid=c.relnamespace "
+        "where n.nspname='marts' and c.relname in "
+        "('v_order_items_wide','v_sales_daily','v_customer_state_daily','v_reconcile_sales_daily') "
+        "order by c.relname;",
+    )
+    assert len(views) == 4
+    assert {row[1] for row in views} == {"v"}
