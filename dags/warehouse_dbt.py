@@ -15,7 +15,7 @@ from typing import Iterator
 
 import psycopg2
 
-from airflow.sdk import Asset, Metadata, dag, get_current_context, task
+from airflow.sdk import Asset, Metadata, TriggerRule, dag, get_current_context, task
 from airflow.sdk.exceptions import AirflowException
 from cosmos import DbtTaskGroup
 from cosmos.config import ExecutionConfig, ProfileConfig, ProjectConfig, RenderConfig
@@ -285,8 +285,8 @@ def warehouse_marts_validation():
         profile_config=_profile_config(),
         dbt_executable_path=DBT_EXECUTABLE,
         env=DBT_ENV,
+        trigger_rule=TriggerRule.NONE_FAILED_MIN_ONE_SUCCESS,
     )
-    dbt_producer_done = dbt_group.children["dbt_producer_watcher_done"]
 
     @task
     def validate_dbt_artifacts() -> None:
@@ -315,12 +315,7 @@ def warehouse_marts_validation():
             },
         )
 
-    (
-        dbt_producer_done
-        >> generate_docs
-        >> validate_dbt_artifacts()
-        >> publish_mart_assets()
-    )
+    dbt_group >> generate_docs >> validate_dbt_artifacts() >> publish_mart_assets()
 
 
 warehouse_marts_validation()
