@@ -1,0 +1,233 @@
+version: 2
+
+# Unit tests pin the *transformation semantics* of the mart SQL against fixed
+# inputs. They complement — they do not replace — the singular data tests in
+# `tests/`, which assert that real production rows reconcile. `dbt build` runs
+# both, so CI covers these without a workflow change.
+
+unit_tests:
+  - name: order_items_wide_keeps_items_without_a_matching_order
+    description: >
+      The join to core.orders must stay a LEFT JOIN. Turning it into an inner
+      join would silently drop order items whose header is missing and quietly
+      shrink every downstream mart.
+    model: v_order_items_wide
+    given:
+      - input: source('core', 'order_items')
+        rows:
+          - order_id: orphan-1
+            order_item_id: 1
+            order_purchase_date: '2026-01-01'
+            order_status: paid
+            customer_id: cust-1
+            customer_state: BE
+            product_id: prod-1
+            seller_id: sell-1
+            price: 50.00
+            freight_value: 5.00
+            ingest_date: '2026-01-01'
+      - input: source('core', 'orders')
+        rows: []
+    expect:
+      rows:
+        - order_id: orphan-1
+          order_item_id: 1
+          price: 50.00
+          freight_value: 5.00
+          order_payment_value: null
+          main_payment_type: null
+
+  - name: order_items_wide_enriches_every_item_of_its_order
+    description: >
+      Every item of a multi-item order carries that order's payment columns,
+      and a NULL payment on the header propagates rather than dropping the row.
+    model: v_order_items_wide
+    given:
+      - input: source('core', 'order_items')
+        rows:
+          - order_id: order-1
+            order_item_id: 1
+            order_purchase_date: '2026-01-01'
+            order_status: paid
+            customer_id: cust-1
+            customer_state: BE
+            product_id: prod-1
+            seller_id: sell-1
+            price: 20.00
+            freight_value: 2.00
+            ingest_date: '2026-01-01'
+          - order_id: order-1
+            order_item_id: 2
+            order_purchase_date: '2026-01-01'
+            order_status: paid
+            customer_id: cust-1
+            customer_state: BE
+            product_id: prod-2
+            seller_id: sell-1
+            price: 30.00
+            freight_value: 3.00
+            ingest_date: '2026-01-01'
+          - order_id: order-2
+            order_item_id: 1
+            order_purchase_date: '2026-01-01'
+            order_status: paid
+            customer_id: cust-2
+            customer_state: NL
+            product_id: prod-3
+            seller_id: sell-2
+            price: 100.00
+            freight_value: 5.00
+            ingest_date: '2026-01-01'
+      - input: source('core', 'orders')
+        rows:
+          - order_id: order-1
+            customer_id: cust-1
+            payment_value: 55.00
+            main_payment_type: credit_card
+          - order_id: order-2
+            customer_id: cust-2
+            payment_value: null
+            main_payment_type: null
+    expect:
+      rows:
+        - order_id: order-1
+          order_item_id: 1
+          order_payment_value: 55.00
+          main_payment_type: credit_card
+        - order_id: order-1
+          order_item_id: 2
+          order_payment_value: 55.00
+          main_payment_type: credit_card
+        - order_id: order-2
+          order_item_id: 1
+          order_payment_value: null
+          main_payment_type: null
+
+  - name: sales_daily_counts_orders_distinctly_and_sums_money_per_day
+    description: >
+      orders_cnt is COUNT(DISTINCT order_id) while items_cnt is COUNT(*); the
+      two must not collapse into each other. Two days prove the grouping.
+    model: v_sales_daily
+    given:
+      - input: source('core', 'order_items')
+        rows:
+          - order_id: order-1
+            order_item_id: 1
+            order_purchase_date: '2026-01-01'
+            price: 20.00
+            freight_value: 2.00
+          - order_id: order-1
+            order_item_id: 2
+            order_purchase_date: '2026-01-01'
+            price: 30.00
+            freight_value: 3.00
+          - order_id: order-2
+            order_item_id: 1
+            order_purchase_date: '2026-01-01'
+            price: 100.00
+            freight_value: 5.00
+          - order_id: order-3
+            order_item_id: 1
+            order_purchase_date: '2026-01-02'
+            price: 40.00
+            freight_value: 4.00
+    expect:
+      rows:
+        - sales_date: '2026-01-01'
+          orders_cnt: 2
+          items_cnt: 3
+          gross_sales: 150.00
+          freight_sum: 10.00
+        - sales_date: '2026-01-02'
+          orders_cnt: 1
+          items_cnt: 1
+          gross_sales: 40.00
+          freight_sum: 4.00
+
+  - name: reconcile_sales_daily_reports_both_sides_of_the_full_join
+    description: >
+      Four dates cover every branch of the FULL JOIN and its COALESCEs -
+      agreeing, disagreeing, mart-only (source coalesced to 0) and source-only
+      (mart coalesced to 0) - including the sign of diff_amount.
+    model: v_reconcile_sales_daily
+    given:
+      - input: ref('v_sales_daily')
+        rows:
+          - sales_date: '2026-01-01'
+            gross_sales: 100.00
+          - sales_date: '2026-01-02'
+            gross_sales: 90.00
+          - sales_date: '2026-01-03'
+            gross_sales: 100.00
+      - input: source('staging', 'orders')
+        rows:
+          - order_id: order-1
+            order_purchase_timestamp: '2026-01-01 10:00:00'
+            ingest_date: '2026-01-01'
+          - order_id: order-2
+            order_purchase_timestamp: '2026-01-02 10:00:00'
+            ingest_date: '2026-01-01'
+          - order_id: order-4
+            order_purchase_timestamp: '2026-01-04 10:00:00'
+            ingest_date: '2026-01-01'
+      - input: source('staging', 'order_items')
+        rows:
+          - order_id: order-1
+            order_item_id: 1
+            price: 100.00
+            ingest_date: '2026-01-01'
+          - order_id: order-2
+            order_item_id: 1
+            price: 100.00
+            ingest_date: '2026-01-01'
+          - order_id: order-4
+            order_item_id: 1
+            price: 70.00
+            ingest_date: '2026-01-01'
+    expect:
+      rows:
+        - sales_date: '2026-01-01'
+          mart_gross_sales: 100.00
+          source_gross_sales: 100.00
+          diff_amount: 0.00
+        - sales_date: '2026-01-02'
+          mart_gross_sales: 90.00
+          source_gross_sales: 100.00
+          diff_amount: -10.00
+        - sales_date: '2026-01-03'
+          mart_gross_sales: 100.00
+          source_gross_sales: 0.00
+          diff_amount: 100.00
+        - sales_date: '2026-01-04'
+          mart_gross_sales: 0.00
+          source_gross_sales: 70.00
+          diff_amount: -70.00
+
+  - name: reconcile_sales_daily_ignores_cross_batch_ingest_dates
+    description: >
+      The source side joins on ingest_date as well as order_id. Dropping that
+      predicate would let items from one ingestion batch reconcile against
+      headers from another and double-count replays.
+    model: v_reconcile_sales_daily
+    given:
+      - input: ref('v_sales_daily')
+        rows:
+          - sales_date: '2026-01-01'
+            gross_sales: 100.00
+      - input: source('staging', 'orders')
+        rows:
+          - order_id: order-1
+            order_purchase_timestamp: '2026-01-01 10:00:00'
+            ingest_date: '2026-01-01'
+      - input: source('staging', 'order_items')
+        rows:
+          - order_id: order-1
+            order_item_id: 1
+            price: 100.00
+            ingest_date: '2026-01-02'
+    expect:
+      rows:
+        - sales_date: '2026-01-01'
+          mart_gross_sales: 100.00
+          source_gross_sales: 0.00
+          diff_amount: 100.00
