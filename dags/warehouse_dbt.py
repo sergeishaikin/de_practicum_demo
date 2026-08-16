@@ -14,6 +14,7 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Iterator
+from urllib.parse import unquote, urlparse
 
 import psycopg2
 
@@ -78,6 +79,34 @@ dbt model and test succeeds.
 
 def _connect():
     return psycopg2.connect(**DWH_CONN)
+
+
+def _metadata_task_state(dag_id: str, run_id: str, task_id: str) -> str | None:
+    metadata_uri = os.getenv("AIRFLOW__DATABASE__SQL_ALCHEMY_CONN")
+    if not metadata_uri:
+        raise AirflowException(
+            "AIRFLOW__DATABASE__SQL_ALCHEMY_CONN is required for dbt barrier polling"
+        )
+    parsed = urlparse(metadata_uri.replace("postgresql+psycopg2://", "postgresql://"))
+    with psycopg2.connect(
+        host=parsed.hostname,
+        port=parsed.port or 5432,
+        dbname=parsed.path.lstrip("/"),
+        user=unquote(parsed.username or ""),
+        password=unquote(parsed.password or ""),
+    ) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select state
+                from task_instance
+                where dag_id = %s and run_id = %s and task_id = %s
+                limit 1
+                """,
+                (dag_id, run_id, task_id),
+            )
+            row = cur.fetchone()
+    return row[0] if row else None
 
 
 def _source_ingestion_run_id(triggering_asset_events) -> str:
@@ -306,8 +335,8 @@ def warehouse_marts_validation():
         terminal_failures = {"failed", "upstream_failed", "skipped", "removed"}
         while True:
             states = {
-                task_id: getattr(
-                    dag_run.get_task_instance(task_id=task_id), "state", None
+                task_id: _metadata_task_state(
+                    context["ti"].dag_id, dag_run.run_id, task_id
                 )
                 for task_id in prerequisite_ids
             }
