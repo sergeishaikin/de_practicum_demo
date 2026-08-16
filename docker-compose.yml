@@ -10,8 +10,6 @@ volumes:
     name: de_demo_pg_data
   de_demo_airflow_logs:
     name: de_demo_airflow_logs
-  de_demo_dbt_target:
-    name: de_demo_dbt_target
 
 services:
   de-demo-postgres:
@@ -105,8 +103,7 @@ services:
     volumes:
       - ./dags:/opt/airflow/dags:ro
       - ./db:/opt/airflow/project/db:ro
-      - ./dbt:/opt/airflow/project/dbt:ro
-      - de_demo_dbt_target:/opt/airflow/project/dbt/target
+      - ./dbt:/opt/airflow/project/dbt:rw
       - ./data/raw:/opt/airflow/project/data/raw:ro
       - de_demo_airflow_logs:/opt/airflow/logs
     command:

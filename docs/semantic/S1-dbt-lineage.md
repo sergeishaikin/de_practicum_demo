@@ -15,9 +15,9 @@ Asset only after the dependency-aware dbt build and tests succeed.
 
 The Airflow image installs the pinned runtime (`dbt-core==1.12.2`,
 `dbt-trino==1.10.3`, and `astronomer-cosmos==1.15.0`). The project source is
-mounted read-only and `target/` is stored in the `de_demo_dbt_target` volume so
-`manifest.json`, `run_results.json`, `catalog.json`, and generated docs survive
-individual task runs without making source files mutable.
+mounted read-write so dbt can persist `target/` artifacts (`manifest.json`,
+`run_results.json`, `catalog.json`, and generated docs) across task runs in the
+local demo stack.
 
 ## Scope
 
