@@ -24,7 +24,7 @@ on:
 
 jobs:
   dbt-contract:
-    name: dbt parse, compile, and documentation artifacts
+    name: dbt parse and repository contracts
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -53,18 +53,9 @@ jobs:
         run: cp profiles.yml.example profiles.yml
       - name: Parse project
         run: ../.venv-dbt/bin/dbt parse --profiles-dir .
-      - name: Compile project
-        run: ../.venv-dbt/bin/dbt compile --profiles-dir .
       - name: Verify deterministic repository contracts
         working-directory: .
         run: uv run --locked pytest -q tests/test_s1_dbt.py
-      - name: Generate manifest and catalog artifacts
-        run: ../.venv-dbt/bin/dbt docs generate --profiles-dir .
-      - name: Upload dbt artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: s1-dbt-artifacts
-          path: dbt/target/
 
   dbt-live-contract:
     name: dbt tests against ephemeral Trino/Iceberg contract fixture
@@ -92,7 +83,6 @@ jobs:
         run: |
           cp .env.example .env
           sed -i 's/^MINIO_ROOT_PASSWORD=.*/MINIO_ROOT_PASSWORD=minio123/' .env
-          docker network create de_demo_net || true
           docker compose --env-file .env up -d de-demo-postgres
           docker compose --env-file .env -f docker-compose.extended.yml up -d minio iceberg-rest trino
       - name: Ensure warehouse bucket
@@ -134,13 +124,22 @@ jobs:
           "
       - name: Prepare deterministic profile
         run: cp profiles.yml.example profiles.yml
+      - name: Compile project
+        run: ../.venv-dbt/bin/dbt compile --profiles-dir .
       - name: Build semantic views
         run: ../.venv-dbt/bin/dbt run --profiles-dir . --select semantic
       - name: Run dbt contract tests
         run: ../.venv-dbt/bin/dbt test --profiles-dir .
+      - name: Generate manifest and catalog artifacts
+        run: ../.venv-dbt/bin/dbt docs generate --profiles-dir .
+      - name: Upload dbt artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: s1-dbt-artifacts
+          path: dbt/target/
       - name: Cleanup
         if: always()
         working-directory: .
         run: |
-          docker compose -f docker-compose.extended.yml down --remove-orphans || true
-          docker compose down --remove-orphans || true
+          docker compose --env-file .env -f docker-compose.extended.yml down --remove-orphans || true
+          docker compose --env-file .env down --remove-orphans || true

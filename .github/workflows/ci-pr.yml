@@ -93,6 +93,7 @@ jobs:
           docker buildx create --use
           docker buildx build --file airflow.Dockerfile \
             --tag "$AIRFLOW_IMAGE_TAG" \
+            --load \
             --cache-from=type=local,src=/tmp/.buildx-cache \
             --cache-to=type=local,dest=/tmp/.buildx-cache,mode=max \
             .
@@ -123,4 +124,4 @@ jobs:
         run: uv run --locked pytest tests/features/test_airflow_workflow_behavior.py -m "bdd and airflow"
       - name: Cleanup
         if: always()
-        run: docker compose down --remove-orphans
+        run: docker compose --env-file .env.example down --remove-orphans

@@ -26,8 +26,6 @@ jobs:
         run: |
           cp .env.example .env
           sed -i 's/^MINIO_ROOT_PASSWORD=.*/MINIO_ROOT_PASSWORD=minio123/' .env
-      - name: Create shared network
-        run: docker network create de_demo_net || true
       - name: Start base stack (creates network, postgres)
         run: docker compose --env-file .env up -d de-demo-postgres
       - name: Start live services only (minio + iceberg-rest + trino)
@@ -69,5 +67,5 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
-          docker compose -f docker-compose.extended.yml down --remove-orphans || true
-          docker compose down --remove-orphans || true
+          docker compose --env-file .env -f docker-compose.extended.yml down --remove-orphans || true
+          docker compose --env-file .env down --remove-orphans || true
