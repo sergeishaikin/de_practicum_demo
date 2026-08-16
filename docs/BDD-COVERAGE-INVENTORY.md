@@ -224,7 +224,7 @@ listed scenarios · `KEEP-PYTEST` = do not Gherkin-ify · `DONE` = specified.
 | Contract | Comparison is independent of row order and transport ordering; the Bronze boundary is pinned before B2 runs; a mismatch fails closed **before** any Gold write and records `shadow_failed`; switching `GOLD_SOURCE` never mutates persisted Silver; `persisted_silver` + shadow off is an invalid runtime state |
 | Specified by | `tests/features/shadow_cutover.feature` (7 scenarios / 10 cases, T1). The four legal stages are one `Scenario Outline`; steps bind to `validate_runtime_config` for the state machine and to `run` for the cycle, over the shared `tests/support/fakes.py` doubles |
 | Notes | Env var names stay out of the scenario text — the contract is the *stage* (`legacy`, `rollback`, `shadow`, `cutover`), not the spelling of the switch. Mismatch **taxonomy** (missing key / duplicate key / version vs payload) is deliberately not specified: it is comparator internals |
-| Still pytest | `tests/test_m4_gold.py` — order/transport independence of the comparator, deterministic mismatch classification, and the no-rebuild optimisation (see §6.8) |
+| Still pytest | `tests/test_m4_gold.py` — order/transport independence of the comparator, deterministic mismatch classification, and that Gold is fed from persisted Silver at `cutover` (see §6.8) |
 | Remaining | The live cutover-then-rollback run against a real catalog — backlog item 10, `gold_cutover.feature` (T2) |
 | Verdict | `T1 DONE` — the state machine and the fail-closed cutover behavior are specified; the live run is not |
 
@@ -412,21 +412,44 @@ design can be reassessed after the first few T1 features.
    `legacy_business_version_migration.py` 66%. Worth a separate fix — adding
    scenarios will not close a 10-point gap.
 
-8. **One M4 test exercises a runtime state the rollout matrix forbids.**
-   `tests/test_m4_gold.py::test_persisted_silver_gold_does_not_rebuild_silver_from_bronze`
-   runs with `GOLD_SOURCE=persisted_silver` and `SHADOW_COMPARE` off. That
-   combination is absent from `RUNTIME_ROLLOUT_MATRIX`, so `main()` refuses to
-   start in it — the test reaches the state only by bypassing
-   `validate_runtime_config`. The skip-the-rebuild optimisation it proves is
-   therefore unreachable today: in the `cutover` stage
-   (`persisted_silver` + shadow **on**) `_run_m4` still pins Bronze and builds
-   the legacy candidate for the comparison. This is why `shadow_cutover.feature`
-   specifies "metrics served from the incremental state do not **rewrite** it"
-   and says nothing about avoiding the rebuild. Two readings are open, and it is
-   a **decision**, not a test defect: either the matrix eventually gains a
-   post-cutover `("b2", "persisted_silver", "0")` terminal state, or the
-   optimisation is dead code and the test documents an intent that will never
-   run. Decide before writing `gold_cutover.feature`.
+8. **An M4 test asserted a valid property under a forbidden configuration —
+   resolved.** An authority trace settled this; it is no longer an open decision.
+
+   `persisted_silver` + shadow-off is **not** part of the accepted rollout
+   contract. M5 states that *"the only accepted target configuration is
+   `SILVER_MODE=b2`, `GOLD_SOURCE=persisted_silver`, `SHADOW_COMPARE=1`"*, and M4
+   names only two recommended rollout settings, both with shadow on. M4 presents
+   the three variables as an **option space** (`legacy|b2`, `legacy|persisted_silver`,
+   `0|1`) and then separately names which combinations are accepted, so
+   `RUNTIME_ROLLOUT_MATRIX` is a **whitelist over that product, not a completion
+   of it**. Four of the eight cells are legal; the rest are absent by design.
+   Do not add the missing cell to "complete the matrix".
+
+   The runtime agrees. There is no state-transition logic at all — the three
+   variables are read from the environment at import
+   (`iceberg_medallion.py:55-57`) and validated in `main()` (`:1147`), so a
+   process boots into one state and stays there. The forbidden combination is not
+   "unreachable by transition"; the service **refuses to boot** into it.
+
+   `test_persisted_silver_gold_does_not_rebuild_silver_from_bronze` reached that
+   state only by bypassing `validate_runtime_config`. Its underlying property is
+   sound, but the "no rebuild" half cannot survive re-scoping: shadow validation
+   needs the legacy projection, and `cutover` is the only accepted state that
+   reads persisted Silver, so a rebuild happens in **every** accepted
+   configuration. The test is now
+   `test_cutover_gold_is_served_from_persisted_silver`, scoped to `cutover` and
+   asserting what the contract actually requires — Gold is *fed from* persisted
+   Silver (by object identity, since shadow compare forces the two projections to
+   agree), and the Gold cycle never rewrites persisted Silver.
+
+   The same trace corrected a second thing: M4 defines rollback as changing
+   `GOLD_SOURCE` only, so rolling back from `cutover` lands in `shadow`
+   (`b2, legacy, 1`) — **not** in the stage the matrix happens to name
+   `rollback` (`b2, legacy, 0`), which also switches validation off. Rollback is
+   a return to the earlier validating state, not a move to a separate terminal
+   state. `shadow_cutover.feature` now models that path. The misleading stage
+   *name* is left alone: the combination is legal, and renaming it is vocabulary
+   debt tracked with the other overloaded terms, not part of this migration.
 
 ---
 

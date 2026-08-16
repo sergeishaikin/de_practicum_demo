@@ -122,23 +122,41 @@ def setup_gold_run(monkeypatch, *, gold_source: str, shadow: bool = False):
     return catalog, persisted_silver, gold, FakeMetrics()
 
 
-def test_persisted_silver_gold_does_not_rebuild_silver_from_bronze(monkeypatch) -> None:
+def test_cutover_gold_is_served_from_persisted_silver(monkeypatch) -> None:
+    # Scoped to the accepted cutover state (b2 / persisted_silver / shadow on),
+    # which is the only accepted configuration that reads persisted Silver.
+    #
+    # Shadow validation needs the legacy projection, so a rebuild *does* happen
+    # here — an earlier version of this test asserted the opposite, but reached
+    # that state with shadow off, a combination the rollout matrix forbids and
+    # main() refuses to boot into. What the cutover contract actually requires is
+    # that Gold is fed from persisted Silver rather than from the rebuild, and
+    # that the Gold cycle never rewrites persisted Silver.
     catalog, persisted_silver, gold, metrics = setup_gold_run(
-        monkeypatch, gold_source="persisted_silver"
+        monkeypatch, gold_source="persisted_silver", shadow=True
     )
-    monkeypatch.setattr(
-        m,
-        "build_silver",
-        lambda _: pytest.fail("persisted-Silver Gold must not rebuild Silver"),
-    )
+    persisted_silver.df = table([row("a", 1)])
+
+    gold_inputs = []
+    real_build_gold = m.build_gold
+
+    def capture_gold_input(df):
+        gold_inputs.append(df)
+        return real_build_gold(df)
+
+    monkeypatch.setattr(m, "build_gold", capture_gold_input)
 
     m.run(catalog, metrics, "b2")
 
+    # Identity, not equality: shadow compare forces the two projections to agree,
+    # so only object identity can tell which one reached Gold.
+    assert gold_inputs, "Gold was never built"
+    assert gold_inputs[0] is persisted_silver.df
     assert gold.df is not None
     assert gold.overwrite_calls == 1
     assert persisted_silver.overwrite_calls == 0
     assert metrics.records[-1]["status"] == "success"
-    assert metrics.records[-1]["shadow_comparisons"] == 0
+    assert metrics.records[-1]["shadow_comparisons"] == 1
 
 
 def test_shadow_mismatch_fails_closed_before_gold_write(monkeypatch) -> None:

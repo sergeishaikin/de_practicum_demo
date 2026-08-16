@@ -184,7 +184,10 @@ def run_at_cutover(context: dict) -> None:
 
 @when("the metrics source is rolled back to the full rebuild")
 def run_after_rollback(context: dict) -> None:
-    _run_cycle(context, "rollback")
+    # M4 defines rollback as changing the Gold source only, so from `cutover` it
+    # lands back in `shadow` — not in the stage the matrix happens to name
+    # `rollback`, which also switches validation off.
+    _run_cycle(context, "shadow")
 
 
 # --- Then ------------------------------------------------------------------
@@ -251,6 +254,13 @@ def run_recorded(context: dict, outcome: str) -> None:
 @then(parsers.parse("exactly {count:d} shadow comparison is recorded"))
 def comparisons_recorded(context: dict, count: int) -> None:
     assert context["metrics"].records[-1]["shadow_comparisons"] == count
+
+
+@then("shadow validation is still in force")
+def shadow_still_on(context: dict) -> None:
+    assert (
+        context["metrics"].records[-1]["shadow_comparisons"] == 1
+    ), "rollback left the deployment without shadow validation"
 
 
 @then("the disagreement is counted in the recorded evidence")

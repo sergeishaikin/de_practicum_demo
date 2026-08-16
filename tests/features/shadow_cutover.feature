@@ -10,6 +10,10 @@ Feature: Shadow validation and the metrics source cutover
   metrics from the incrementally maintained state while shadow validation is
   disabled would publish unvalidated business state and is refused at startup.
 
+  Rolling back changes only which source feeds the metrics. It returns the
+  deployment to the earlier validating state — it is not a move to a separate
+  terminal state with validation switched off.
+
   Scenario Outline: Each stage of the rollout is a supported runtime state
     Given a runtime configured for the <stage> stage
     When the rollout configuration is validated
@@ -55,9 +59,10 @@ Feature: Shadow validation and the metrics source cutover
     Then the daily metrics are published
     And the incremental business state is not rewritten
 
-  Scenario: Rolling the metrics source back leaves the incremental state untouched
+  Scenario: Rolling the metrics source back returns to the validating state
     Given an incremental business state that agrees with a full rebuild
     And a completed cycle with metrics served from the incremental state
     When the metrics source is rolled back to the full rebuild
     Then the daily metrics are published again
     And the incremental business state is not rewritten
+    And shadow validation is still in force
