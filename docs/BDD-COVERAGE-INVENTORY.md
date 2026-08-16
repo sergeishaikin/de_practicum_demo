@@ -6,7 +6,7 @@ This document is the input for deciding **which** `.feature` files to write. It 
 not itself a contract: the contracts live in `tests/features/*.feature`, and in the
 pytest suites listed below until a feature covers them.
 
-Status: **4 feature files, 30 scenarios (36 cases)** against ~180 pytest tests
+Status: **5 feature files, 33 scenarios (39 cases)** against ~180 pytest tests
 across unit / integration / e2e.
 
 | Feature | Tier | Scenarios | Runs |
@@ -14,6 +14,7 @@ across unit / integration / e2e.
 | `silver_business_state.feature` | T1 | 8 | default fast suite, every PR |
 | `data_quality_modes.feature` | T1 | 6 (12 cases) | default fast suite, every PR |
 | `legacy_cleanup_safety.feature` | T1 | 7 | default fast suite, every PR |
+| `retention_recovery.feature` | T1 | 3 | default fast suite, every PR |
 | `airflow_workflow_behavior.feature` | T3 | 9 | dedicated Airflow job, every PR |
 
 ---
@@ -96,7 +97,7 @@ are the scenarios that keep the contract honest during refactoring.
 | **Legacy outbox reconciliation / cleanup** | **G** | **G** | **G** | — | **G** | ✓ |
 | Lakehouse maintenance | G | ✓ | G | ✓ | — | G |
 | Maintenance verifier (exact run id) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Retention vs recovery horizon | ✓ | ✓ | ✓ | ✓ | — | — |
+| **Retention vs recovery horizon** | **G** | **G** | **G** | **G** | — | — |
 | Trino ⇄ PyIceberg interop | ✓ | ✓ | ✓ | ✓ | ✓ | — |
 | Observability / metrics evidence | ✓ | ✓ | ✓ | — | ✓ | ✓ |
 | E2E isolation | ✓ | — | ✓ | — | — | ✓ |
@@ -247,14 +248,15 @@ listed scenarios · `KEEP-PYTEST` = do not Gherkin-ify · `DONE` = specified.
 | Gap | Failures of `optimize` and `remove_orphan_files` are not specified — only `expire_snapshots`. Fail-closed must be proven per stage |
 | Verdict | `PARTIAL` — convert the single failure scenario to a `Scenario Outline` over the three operations |
 
-### 4.16 Retention vs recovery horizon
+### 4.16 Retention vs recovery horizon — **DONE**
 
 | Field | Value |
 |---|---|
-| Contract | Snapshot retention must be **strictly greater** than the recovery horizon plus safety margin; equality is unsafe; unparseable durations are rejected |
-| Existing | `tests/test_residual_remediation.py` (4 tests) |
-| Gap | An architecture invariant that reads as a system guarantee ("expiry never destroys evidence a restarting writer still needs"), not a config test. The boundary case (`retention == horizon` is unsafe) erodes silently |
-| Verdict | `FEATURE` → `retention_recovery.feature` (T1, 3 scenarios) |
+| Contract | Snapshot retention must be **strictly greater** than the recovery horizon plus safety margin, because a restarting writer reads Bronze snapshot summaries to decide whether a pending batch was already committed. Equality already destroys that evidence. Uninterpretable durations are rejected |
+| Specified by | `tests/features/retention_recovery.feature` (3 scenarios, T1), binding to `validate_retention_contract` |
+| Notes | Deliberately three scenarios. `retention < boundary` is not specified separately: equality plus acceptance already pin the strict comparison, and a strictly-smaller value adds no discriminating power. Duration syntax, the unit table and the regex stay out of the feature |
+| Still pytest | `tests/test_residual_remediation.py::test_duration_parser_rejects_unsupported_values` (5 parametrized inputs) and the numeric-field assertions |
+| Verdict | `DONE` — see §6.6 for a coverage asymmetry found in the existing tests |
 
 ### 4.17 Maintenance verifier
 
@@ -321,7 +323,7 @@ design can be reassessed after the first few T1 features.
 | 1 | `silver_business_state.feature` | T1 | 8 | **done** |
 | 2 | `data_quality_modes.feature` | T1 | 6 (12 cases) | **done** |
 | 3 | `legacy_cleanup_safety.feature` | T1 | 7 | **done** |
-| 4 | `retention_recovery.feature` | T1 | 3 | next |
+| 4 | `retention_recovery.feature` | T1 | 3 | **done** |
 | 5 | `business_version_migration.feature` | T1 | ~5 | blocked on §6.3 |
 | 6 | `shadow_cutover.feature` (T1 portion) | T1 | ~4 | decide after reassess |
 | 7 | `gold_aggregation.feature` | T1 | ~4 | |
@@ -387,7 +389,15 @@ design can be reassessed after the first few T1 features.
    test list would conclude the system blocks it. The name should say
    "is treated as live work"; the feature now states the rule correctly regardless.
 
-6. **The `iceberg/` coverage gate is currently red, independent of BDD.**
+6. **Both retention rejection tests are the same boundary case.**
+   `test_retention_contract_rejects_early_snapshot_expiry` uses `75m` against
+   `1h + 15m`, and `test_retention_equal_to_recovery_horizon_is_not_safe` uses
+   `1h` against `1h + 0s`. Both are *equality*, spelled in different units — the
+   suite never exercises `retention < boundary`. That is acceptable (equality is
+   the discriminating case for a `<=` comparison) but the first test's name
+   claims coverage it does not provide.
+
+7. **The `iceberg/` coverage gate is currently red, independent of BDD.**
    `pytest tests --cov=iceberg --cov-fail-under=90` reports 80% on this branch
    with or without the new feature. Largest shortfalls:
    `legacy_outbox_reconciliation.py` 57%, `ops.py` 62%,
