@@ -15,7 +15,7 @@ from typing import Iterator
 
 import psycopg2
 
-from airflow.sdk import Asset, Metadata, dag, get_current_context, task
+from airflow.sdk import Asset, Metadata, TriggerRule, dag, get_current_context, task
 from airflow.sdk.exceptions import AirflowException
 from cosmos import DbtTaskGroup
 from cosmos.config import ExecutionConfig, ProfileConfig, ProjectConfig, RenderConfig
@@ -285,6 +285,7 @@ def warehouse_marts_validation():
         profile_config=_profile_config(),
         dbt_executable_path=DBT_EXECUTABLE,
         env=DBT_ENV,
+        trigger_rule=TriggerRule.NONE_FAILED_MIN_ONE_SUCCESS,
     )
     dbt_producer = next(
         child
@@ -292,7 +293,7 @@ def warehouse_marts_validation():
         if task_id.endswith("dbt_producer_watcher")
     )
 
-    @task
+    @task(trigger_rule=TriggerRule.NONE_FAILED_MIN_ONE_SUCCESS)
     def validate_dbt_artifacts() -> None:
         required = ("manifest.json", "run_results.json", "catalog.json", "index.html")
         missing = [
@@ -305,7 +306,11 @@ def warehouse_marts_validation():
                 f"Warehouse dbt artifacts missing: {', '.join(missing)}"
             )
 
-    @task(inlets=[CORE_ORDERS_ASSET], outlets=[*MART_ASSETS, PIPELINE_AUDIT_ASSET])
+    @task(
+        trigger_rule=TriggerRule.NONE_FAILED_MIN_ONE_SUCCESS,
+        inlets=[CORE_ORDERS_ASSET],
+        outlets=[*MART_ASSETS, PIPELINE_AUDIT_ASSET],
+    )
     def publish_mart_assets(triggering_asset_events=None) -> Iterator[Metadata]:
         run_id = str(get_current_context()["dag_run"].run_id)
         state = _audit_and_counts(run_id, triggering_asset_events)
