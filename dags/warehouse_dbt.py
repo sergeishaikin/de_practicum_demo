@@ -89,11 +89,11 @@ def _metadata_task_state(dag_id: str, run_id: str, task_id: str) -> str | None:
         )
     parsed = urlparse(metadata_uri.replace("postgresql+psycopg2://", "postgresql://"))
     with psycopg2.connect(
-        host=parsed.hostname,
-        port=parsed.port or 5432,
-        dbname=parsed.path.lstrip("/"),
-        user=unquote(parsed.username or ""),
-        password=unquote(parsed.password or ""),
+        host=os.getenv("AIRFLOW_DB_HOST") or parsed.hostname,
+        port=int(os.getenv("AIRFLOW_DB_PORT") or parsed.port or 5432),
+        dbname=os.getenv("AIRFLOW_DB_NAME") or parsed.path.lstrip("/"),
+        user=os.getenv("AIRFLOW_DB_USER") or unquote(parsed.username or ""),
+        password=os.getenv("AIRFLOW_DB_PASSWORD") or unquote(parsed.password or ""),
     ) as conn:
         with conn.cursor() as cur:
             cur.execute(
