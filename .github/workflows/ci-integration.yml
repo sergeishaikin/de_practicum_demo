@@ -122,14 +122,20 @@ jobs:
               sleep 5
             done
             test "$ingestion_state" = "success"
+            asset_run_id=""
+            publish_state="missing"
             for i in $(seq 1 240); do
-              dbt_state=$(psql -U airflow -d airflow_meta -Atc "select coalesce((select state from dag_run where dag_id = 'warehouse_marts_validation' and run_id like 'asset_triggered__%' order by start_date desc limit 1), 'missing')")
-              echo "dbt_state=$dbt_state"
-              if [ "$dbt_state" = "failed" ]; then exit 1; fi
-              if [ "$dbt_state" = "success" ]; then break; fi
+              asset_run_id=$(psql -U airflow -d airflow_meta -Atc "select coalesce((select run_id from dag_run where dag_id = 'warehouse_marts_validation' and run_id like 'asset_triggered__%' order by start_date desc limit 1), '')")
+              if [ -n "$asset_run_id" ]; then
+                publish_state=$(psql -U airflow -d airflow_meta -Atc "select coalesce((select state from task_instance where dag_id = 'warehouse_marts_validation' and run_id = '$asset_run_id' and task_id = 'publish_mart_assets' limit 1), 'missing')")
+              fi
+              echo "asset_run_id=$asset_run_id publish_state=$publish_state"
+              if [ "$publish_state" = "failed" ] || [ "$publish_state" = "upstream_failed" ]; then exit 1; fi
+              if [ "$publish_state" = "success" ]; then break; fi
               sleep 5
             done
-            test "$dbt_state" = "success"
+            test "$publish_state" = "success"
+            echo "ASSET_RUN_ID=$asset_run_id" >> "$GITHUB_ENV"
           REMOTE
       - name: Verify exact pipeline provenance and dbt artifacts
         run: |
