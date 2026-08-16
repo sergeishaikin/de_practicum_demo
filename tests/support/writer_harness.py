@@ -156,6 +156,50 @@ def snapshot_business_versions(
     return ice.scan().to_arrow()["business_version"].to_pylist()
 
 
+def table_exists(namespace: str, table: str, cat: RestCatalog) -> bool:
+    try:
+        cat.load_table(f"{namespace}.{table}")
+    except Exception:
+        return False
+    return True
+
+
+def snapshot_load_ids(namespace: str, table: str, cat: RestCatalog) -> list[str]:
+    """Load identities recorded in the table's own snapshot summaries."""
+
+    from writer.iceberg_writer import LOAD_ID_KEY
+
+    ice = cat.load_table(f"{namespace}.{table}")
+    found = []
+    for snapshot in ice.metadata.snapshots:
+        summary = getattr(snapshot, "summary", None)
+        properties = getattr(summary, "additional_properties", None) or {}
+        if LOAD_ID_KEY in properties:
+            found.append(properties[LOAD_ID_KEY])
+    return found
+
+
+def write_landing_file(
+    filesystem: S3FileSystem, landing_prefix: str, filename: str, rows: int
+) -> str:
+    """Write a Parquet file into landing without marking it Spark-committed."""
+
+    import pyarrow.parquet as pq
+
+    path = landing_path(landing_prefix, filename)
+    with filesystem.open_output_stream(path) as out:
+        pq.write_table(orders_table(rows), out)
+    return path
+
+
+def write_corrupt_commit_log(filesystem: S3FileSystem, landing_prefix: str) -> None:
+    """Write commit evidence the writer cannot interpret."""
+
+    metadata_path = landing_path(landing_prefix, "_spark_metadata/0")
+    with filesystem.open_output_stream(metadata_path) as out:
+        out.write(b"not-a-spark-log\n")
+
+
 @contextmanager
 def isolated_lake(tmp_path: Path):
     """Yield a per-run namespace, landing prefix and state file, then clean up.

@@ -6,7 +6,7 @@ This document is the input for deciding **which** `.feature` files to write. It 
 not itself a contract: the contracts live in `tests/features/*.feature`, and in the
 pytest suites listed below until a feature covers them.
 
-Status: **5 feature files, 33 scenarios (39 cases)** against ~180 pytest tests
+Status: **7 feature files, 38 scenarios (44 cases)** against ~180 pytest tests
 across unit / integration / e2e.
 
 | Feature | Tier | Scenarios | Runs |
@@ -15,6 +15,8 @@ across unit / integration / e2e.
 | `data_quality_modes.feature` | T1 | 6 (12 cases) | default fast suite, every PR |
 | `legacy_cleanup_safety.feature` | T1 | 7 | default fast suite, every PR |
 | `retention_recovery.feature` | T1 | 3 | default fast suite, every PR |
+| `iceberg_writer.feature` | T2 | 3 | live MinIO + REST catalog; PR gate + integration |
+| `writer_crash_recovery.feature` | T2 | 2 | live MinIO + REST catalog; PR gate + integration |
 | `airflow_workflow_behavior.feature` | T3 | 9 | dedicated Airflow job, every PR |
 
 ---
@@ -85,7 +87,7 @@ are the scenarios that keep the contract honest during refactoring.
 | Malformed events / DLQ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Offset loss / checkpoint semantics | ✓ | ! | ✓ | ✓ | — | ✓ |
 | Event baseline contract (epoch/hash/event_id) | ✓ | ✓ | ✓ | — | ✓ | ✓ |
-| Iceberg writer (landing→bronze) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| **Iceberg writer (landing→bronze)** | **G** | **G** | **G** | **G** | **G** | ✓ |
 | Writer state durability | ✓ | ✓ | ✓ | ✓ | — | — |
 | **Dedup / business-version resolution** | **G** | **G** | **G** | ✓ | **G** | — |
 | Silver B2 incremental | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -161,10 +163,12 @@ listed scenarios · `KEEP-PYTEST` = do not Gherkin-ify · `DONE` = specified.
 | Field | Value |
 |---|---|
 | Contract | Only Spark-committed files are ingested; each append carries a `load-id`; a crash before commit re-appends exactly once; a crash after commit never appends twice; commit conflicts retry; an invalid commit log fails closed |
-| Existing | `tests/test_writer.py` (`TestListNewFiles`, `TestCommittedLoadIds`, `TestRecoverPending`, `TestMain`) |
-| Crash semantics | **DONE** — `tests/features/writer_crash_recovery.feature` (2 scenarios, T2) replaced `tests/integration/test_crash_recovery.py`, preserving all 13 assertions. Drives the real writer process through `tests/support/writer_harness.py` against live MinIO + REST catalog |
-| Gap | Eligibility, load identity, invalid commit evidence and commit-conflict retry are still pytest-only |
-| Verdict | `FEATURE` → `iceberg_writer.feature` (T2). Must **not** restate crash recovery — that boundary is now owned by the feature above |
+| Crash semantics | **DONE** — `writer_crash_recovery.feature` (2 scenarios, T2) replaced `tests/integration/test_crash_recovery.py`, preserving all 13 assertions |
+| Publication rules | **DONE** — `iceberg_writer.feature` (3 scenarios, T2): uncommitted landing data is not published, a publication records exactly one load identity in the table's own snapshot summaries, unreadable commit evidence prevents publication |
+| Deliberately unit-level | Commit-conflict retry stays `tests/test_writer.py::TestMain::test_commit_conflict_retries_then_succeeds`. Forcing a real `CommitFailedException` against a live catalog needs a test-only seam, and the rule that survives paraphrase is "the writer retries three times" — a policy, not a system contract |
+| Deliberately not restated | Duplicate prevention. "An already-committed load is not appended again" is the same contract as the crash-recovery restart scenario with a different setup |
+| Still pytest | `TestListNewFiles`, `TestCommittedLoadIds`, `TestRecoverPending`, `TestMain` — internal functions against `FakeFS`/`FakeTable`, a different level from live table state |
+| Verdict | `DONE` |
 
 ### 4.7 Writer state durability
 
@@ -333,11 +337,11 @@ design can be reassessed after the first few T1 features.
 
 ### Wave 2 — stateful guarantees
 
-| # | Feature file | Tier | Scenarios |
-|---|---|:--:|:--:|
-| 8 | `iceberg_writer.feature` | T2 | ~6 |
-| 9 | `writer_crash_recovery.feature` | T2 | ~4 |
-| 10 | `shadow_cutover.feature` (T2 portion) | T2 | ~3 |
+| # | Feature file | Tier | Scenarios | Status |
+|---|---|:--:|:--:|---|
+| 8 | `writer_crash_recovery.feature` | T2 | 2 | **done** — replaced `test_crash_recovery.py` |
+| 9 | `iceberg_writer.feature` | T2 | 3 | **done** |
+| 10 | `shadow_cutover.feature` (T2 portion) | T2 | ~3 | next |
 
 ### Wave 3 — orchestrated behavior
 
