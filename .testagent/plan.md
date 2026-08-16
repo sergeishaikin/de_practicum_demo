@@ -17,7 +17,7 @@ no live services (catalog/S3/Postgres mocked with fakes).
 
 | # | Requirement | Test |
 |---|---|---|
-| 1 | build_silver dedups by order_id, highest kafka_offset wins, columns reordered | `test_silver_dedup_latest_offset_wins`, `test_silver_no_duplicates_passthrough` |
+| 1 | build_silver dedups by order_id, highest `business_version` wins (not `kafka_offset` — see [ADR-0001 D-1a](../docs/adr/0001-incremental-silver-and-gold.md)), columns reordered | `test_silver_dedup_latest_offset_wins`, `test_silver_no_duplicates_passthrough` |
 | 2 | build_silver preserves all rows when unique | `test_silver_no_duplicates_passthrough` |
 | 3 | build_gold groups by event_date/country/status with correct aggs | `test_gold_aggregation_counts_sums` |
 | 4 | build_gold on empty table returns empty table with right schema | `test_gold_empty` |

@@ -29,7 +29,7 @@ Spark jobs.
 ## Verified runtime behavior (pin-down facts for assertions)
 
 ### medallion
-- `build_silver` dedups by `order_id` keeping the row with the highest `kafka_offset`; columns are re-ordered to the documented silver order. With input [a@1, a@5, b@3] → [a@5, b@3].
+- `build_silver` dedups by `order_id` keeping the row with the highest `business_version`, not `kafka_offset` — see [ADR-0001 D-1a](../docs/adr/0001-incremental-silver-and-gold.md); transport ordering never decides. Columns are re-ordered to the documented silver order. With input [a v1, a v5, b v3] → [a v5, b v3].
 - Edge case found: `build_silver` raises `ArrowNotImplementedError` if a hashed column is entirely null (e.g. all-null `event_time`), because `hash_first` has no kernel for a null-typed column. Realistic fixture data must carry non-null timestamps.
 - `build_gold` groups by `event_date`/`country`/`status` producing `orders_count`, `total_amount`, `avg_amount`, `distinct_customers`.
 - `run_quality_checks` returns only non-zero violation counters keyed `order_id_null`, `amount_null_or_nonpositive`, `country_null`, `status_invalid`, `event_time_null`.
