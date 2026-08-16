@@ -29,7 +29,7 @@ jobs:
       - name: Start base stack (creates network, postgres)
         run: docker compose --env-file .env up -d de-demo-postgres
       - name: Start live services only (minio + iceberg-rest + trino)
-        run: docker compose --env-file .env -f docker-compose.extended.yml up -d minio iceberg-rest trino
+        run: docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml up -d minio iceberg-rest trino
       - name: Ensure warehouse bucket
         run: |
           for i in $(seq 1 24); do
@@ -49,7 +49,7 @@ jobs:
             sleep 5
           done
           echo "stack did not become ready"
-          docker compose -f docker-compose.extended.yml logs --no-color trino iceberg-rest minio || true
+          docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml logs --no-color trino iceberg-rest minio || true
           exit 1
       - name: Integration tests
         run: uv run --locked pytest tests/integration -m integration
@@ -57,7 +57,7 @@ jobs:
         run: uv run --locked pytest tests/features -m "bdd and integration"
       - name: Collect stack logs on failure
         if: failure()
-        run: docker compose -f docker-compose.extended.yml logs --no-color > stack-logs.txt || true
+        run: docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml logs --no-color > stack-logs.txt || true
       - name: Upload stack logs
         if: failure()
         uses: actions/upload-artifact@v4
@@ -67,5 +67,5 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
-          docker compose --env-file .env -f docker-compose.extended.yml down --remove-orphans || true
+          docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml down --remove-orphans || true
           docker compose --env-file .env down --remove-orphans || true
