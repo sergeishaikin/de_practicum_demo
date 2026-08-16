@@ -180,7 +180,7 @@ The lakehouse uses an Iceberg REST catalog backed by MinIO:
 - REST catalog: `http://localhost:18181` (`iceberg-rest` service, SQLite metadata in the `de_demo_iceberg_catalog` volume)
 - Warehouse: `s3://de-practicum/warehouse`
 - Writer: `iceberg-writer` service runs `iceberg/writer/iceberg_writer.py`, which polls the landing bucket (`s3://de-practicum/streaming/orders_raw`) and appends new Parquet files into `bronze.orders` via PyIceberg. Ingested file paths are tracked in the `de_demo_iceberg_writer_state` volume.
-- Medallion: `iceberg-medallion` service runs `iceberg/medallion/iceberg_medallion.py`, which rebuilds `silver.orders_clean` (deduplicated by `order_id`, latest `kafka_offset` wins) and `gold.orders_daily_metrics` (per-day, per-country, per-status aggregates) from bronze every 60 seconds.
+- Medallion: `iceberg-medallion` service runs `iceberg/medallion/iceberg_medallion.py`, which rebuilds `silver.orders_clean` (deduplicated by `order_id`, highest `business_version` wins) and `gold.orders_daily_metrics` (per-day, per-country, per-status aggregates) from bronze every 60 seconds.
 - Metrics: writer and medallion write an observability row per cycle to `marts.lakehouse_metrics` in PostgreSQL (see *Observability metrics* below).
 - Maintenance: the Airflow DAG `lakehouse_maintenance` runs snapshot expiry, orphan-file cleanup, and compaction through Trino (see *Iceberg maintenance* below).
 - Trino: `http://localhost:18082` with the `iceberg` catalog. `trino/etc/catalog/iceberg.properties` is generated at container startup from `iceberg.properties.template` using `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` (see `trino/etc/start-trino.sh`), so credentials are never hardcoded in the repo.
@@ -189,7 +189,7 @@ The lakehouse uses an Iceberg REST catalog backed by MinIO:
 
 - **Landing** (`s3://de-practicum/streaming/orders_raw`): raw Parquet as written by Spark Structured Streaming. Uncurated, may contain duplicates if the stream replays.
 - **Bronze** (`bronze.orders`): raw rows ingested 1:1 from landing. Partitioned by `event_date`, one snapshot per ingestion batch.
-- **Silver** (`silver.orders_clean`): deduplicated orders — one row per `order_id` (the row with the highest `kafka_offset` wins).
+- **Silver** (`silver.orders_clean`): deduplicated orders — one row per `order_id` (the row with the highest `business_version` wins). Kafka transport order never decides which observation is current, and equal versions with conflicting payloads are rejected before any write (FF-14). The executable contract is `tests/features/silver_business_state.feature`.
 - **Gold** (`gold.orders_daily_metrics`): business-ready aggregates grouped by `event_date`, `country`, `status`.
 
 ### Idempotency and crash recovery

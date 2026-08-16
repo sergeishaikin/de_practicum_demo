@@ -98,7 +98,7 @@ Spark writes Iceberg *indirectly*: there is no `iceberg-spark-runtime-4.2` JAR, 
 
 - **Landing** — raw Parquet as written by Spark; uncurated, may contain replays.
 - **Bronze** (`bronze.orders`) — 1:1 from landing, partitioned by `event_date`, one snapshot per ingest batch.
-- **Silver** (`silver.orders_clean`) — one row per `order_id`, highest `kafka_offset` wins.
+- **Silver** (`silver.orders_clean`) — one row per `order_id`, highest `business_version` wins; transport order never decides. Executable contract: `tests/features/silver_business_state.feature`.
 - **Gold** (`gold.orders_daily_metrics`) — aggregates by `event_date` / `country` / `status`.
 
 ### Idempotency and recovery invariants
