@@ -123,7 +123,6 @@ the current SQL, quality, audit, and storage semantics.
 **Depends on:** Phase 1 reaching its terminal rollout decision; Quick Task
 260815-ulp verified Airflow 3.3.1 runtime and workflow baseline.
 **Plans:** 0 plans
-
 Plans:
 
 - [ ] TBD (run /gsd-plan-phase 2 to break down)
@@ -133,10 +132,13 @@ Plans:
 - `warehouse_orders_ingestion` remains manual and owns staging load,
   exact staging parity, the unchanged `10_rebuild_core.sql` transaction,
   read-only core readiness counts, and final core Asset publication.
+
 - `warehouse_marts_validation` is triggered by the successfully published
   `core.orders` Asset and owns marts validation, payment reconciliation,
   mart Asset publication, and the existing idempotent pipeline audit.
+
 - `marts.pipeline_runs.run_id` remains the downstream DagRun primary key;
   nullable indexed `ingestion_run_id` records Asset-event provenance.
+
 - Marts remain views. Maintenance, medallion, streaming, recovery,
   checkpoints, and Bronze/Silver/Gold publication remain unchanged.

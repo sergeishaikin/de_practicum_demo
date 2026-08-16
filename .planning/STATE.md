@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: 01-06 PASS; 01-07 authorized but not executed
-stopped_at: 01-03 STOP / HISTORICAL_EVIDENCE_GAP preserved
-last_updated: "2026-08-16T10:45:00Z"
+status: PASS; `ready_for_01_07=true`; live Gold remains on persisted Silver under shadow
+stopped_at: 01-06 PASS; 01-07 authorized but not executed
+last_updated: "2026-08-16T09:57:26.780Z"
 last_activity: 2026-08-16 -- Phase 2 warehouse Asset-orchestration boundary added to the roadmap
 progress:
   total_phases: 2
