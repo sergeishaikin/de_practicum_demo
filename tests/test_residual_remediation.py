@@ -84,9 +84,17 @@ def test_retention_contract_requires_a_strict_safety_boundary() -> None:
     assert contract.safety_margin_seconds == 900
 
 
-def test_retention_contract_rejects_early_snapshot_expiry() -> None:
+@pytest.mark.parametrize(
+    "retention",
+    [
+        "75m",  # exactly the safety boundary (1h + 15m)
+        "60m",  # below the boundary but above the bare recovery horizon
+        "30m",  # below the recovery horizon itself
+    ],
+)
+def test_retention_at_or_below_the_safety_boundary_is_rejected(retention: str) -> None:
     with pytest.raises(ValueError, match="FF-10 retention contract violated"):
-        validate_retention_contract("75m", "1h", "15m")
+        validate_retention_contract(retention, "1h", "15m")
 
 
 def test_retention_equal_to_recovery_horizon_is_not_safe() -> None:

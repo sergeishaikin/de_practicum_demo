@@ -12,10 +12,10 @@ from datetime import date, datetime
 
 import pyarrow as pa
 import pytest
-from pyiceberg.exceptions import NoSuchTableError
 from pytest_bdd import given, parsers, scenarios, then, when
 
 from medallion import iceberg_medallion as m
+from tests.support.fakes import FakeCatalog, FakeMetrics, FakeTable
 
 scenarios("data_quality_modes.feature")
 
@@ -38,55 +38,6 @@ DEFECTS: dict[str, dict] = {
     "an unknown status": {"status": "teleported"},
     "a missing event time": {"event_time": None},
 }
-
-
-class FakeScan:
-    def __init__(self, df: pa.Table) -> None:
-        self.df = df
-
-    def to_arrow(self) -> pa.Table:
-        return self.df
-
-
-class FakeTable:
-    def __init__(self, df: pa.Table | None = None) -> None:
-        self.df = df
-
-    @property
-    def num_rows(self) -> int:
-        return 0 if self.df is None else self.df.num_rows
-
-    def scan(self) -> FakeScan:
-        return FakeScan(self.df)
-
-    def overwrite(self, df: pa.Table) -> None:
-        self.df = df
-
-
-class FakeCatalog:
-    def __init__(self, tables: dict[str, FakeTable] | None = None) -> None:
-        self.tables = tables or {}
-
-    def load_table(self, identifier: str) -> FakeTable:
-        if identifier not in self.tables:
-            raise NoSuchTableError(f"no table {identifier}")
-        return self.tables[identifier]
-
-    def create_namespace_if_not_exists(self, namespace: str) -> None:
-        pass
-
-    def create_table(self, identifier: str, **kwargs) -> FakeTable:
-        table = FakeTable(None)
-        self.tables[identifier] = table
-        return table
-
-
-class FakeMetrics:
-    def __init__(self) -> None:
-        self.records: list[dict] = []
-
-    def record(self, **kwargs) -> None:
-        self.records.append(kwargs)
 
 
 def _order(**overrides) -> dict:
