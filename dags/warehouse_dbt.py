@@ -8,8 +8,9 @@ is the only publisher of downstream mart Assets and the pipeline audit.
 
 from __future__ import annotations
 
-import os
 import json
+import os
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Iterator
@@ -294,17 +295,27 @@ def warehouse_marts_validation():
         if task_id.endswith("dbt_producer_watcher")
     )
 
-    @task(trigger_rule=TriggerRule.ALL_DONE)
+    @task(execution_timeout=timedelta(minutes=40))
     def validate_dbt_artifacts() -> None:
         context = get_current_context()
         dag_run = context["dag_run"]
-        for task_id in ("dbt_warehouse.dbt_producer_watcher", "generate_dbt_docs"):
-            task_instance = dag_run.get_task_instance(task_id=task_id)
-            if task_instance is None or task_instance.state != "success":
-                raise AirflowException(
-                    f"Warehouse dbt prerequisite {task_id!r} did not succeed: "
-                    f"{getattr(task_instance, 'state', None)!r}"
+        prerequisite_ids = (
+            "dbt_warehouse.dbt_producer_watcher",
+            "generate_dbt_docs",
+        )
+        terminal_failures = {"failed", "upstream_failed", "skipped", "removed"}
+        while True:
+            states = {
+                task_id: getattr(
+                    dag_run.get_task_instance(task_id=task_id), "state", None
                 )
+                for task_id in prerequisite_ids
+            }
+            if any(state in terminal_failures for state in states.values()):
+                raise AirflowException(f"Warehouse dbt prerequisite failed: {states}")
+            if all(state == "success" for state in states.values()):
+                break
+            time.sleep(5)
         required = ("manifest.json", "run_results.json", "catalog.json", "index.html")
         missing = [
             name
@@ -349,7 +360,8 @@ def warehouse_marts_validation():
             },
         )
 
-    dbt_producer >> generate_docs >> validate_dbt_artifacts() >> publish_mart_assets()
+    dbt_producer >> generate_docs
+    validate_dbt_artifacts() >> publish_mart_assets()
 
 
 warehouse_marts_validation()

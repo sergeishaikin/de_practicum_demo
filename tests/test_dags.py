@@ -210,7 +210,7 @@ def test_marts_validation_contract(dag_structure: dict) -> None:
         "publish_mart_assets",
     } <= tasks.keys()
     assert tasks["generate_dbt_docs"] == ["dbt_warehouse.dbt_producer_watcher"]
-    assert tasks["validate_dbt_artifacts"] == ["generate_dbt_docs"]
+    assert tasks["validate_dbt_artifacts"] == []
     assert tasks["publish_mart_assets"] == ["validate_dbt_artifacts"]
     assert {
         task_id: assets
