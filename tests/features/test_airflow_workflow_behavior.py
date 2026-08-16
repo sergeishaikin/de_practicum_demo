@@ -135,6 +135,25 @@ elif case == "marts_provenance":
     )
     state = marts_ready({asset: [event]})
     result.update(state=state)
+elif case == "marts_ambiguous_provenance":
+    task_globals = marts_ready.__globals__
+    task_globals["_connect"] = lambda: Connection(counts=[10, 20, 30, 40])
+    asset = task_globals["CORE_ORDERS_ASSET"]
+    events = [
+        SimpleNamespace(
+            source_dag_run=SimpleNamespace(
+                dag_id="warehouse_orders_ingestion",
+                run_id=run_id,
+            )
+        )
+        for run_id in ("manual__bdd-ingestion-a", "manual__bdd-ingestion-b")
+    ]
+    error = None
+    try:
+        marts_ready({asset: events})
+    except Exception as exc:
+        error = str(exc)
+    result.update(error=error)
 elif case == "payment_mismatch":
     task_globals = payment.__globals__
     task_globals["_connect"] = lambda: Connection(
@@ -204,6 +223,11 @@ def core_failure(context: dict) -> None:
 @given("a core orders event from a successful ingestion DagRun")
 def marts_provenance(context: dict) -> None:
     _select_case(context, "marts_provenance")
+
+
+@given("two core orders events from different ingestion DagRuns")
+def marts_ambiguous_provenance(context: dict) -> None:
+    _select_case(context, "marts_ambiguous_provenance")
 
 
 @given("marts readiness followed by a payment mismatch")
@@ -315,6 +339,11 @@ def source_provenance_returned(context: dict) -> None:
         "marts.v_customer_state_daily": 30,
         "marts.v_reconcile_sales_daily": 40,
     }
+
+
+@then("marts readiness rejects ambiguous source provenance")
+def ambiguous_source_provenance_rejected(context: dict) -> None:
+    assert "Expected exactly one core.orders Asset event" in context["result"]["error"]
 
 
 @then("payment reconciliation fails and no mart metadata is published")

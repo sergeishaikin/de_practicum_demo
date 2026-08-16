@@ -63,15 +63,20 @@ def _quote(value: str) -> str:
 
 @pytest.fixture(scope="module", autouse=True)
 def require_explicit_receipt_gate() -> None:
-    if os.getenv("AIRFLOW_RECEIPT_E2E") != "1":
-        pytest.skip("set AIRFLOW_RECEIPT_E2E=1 for read-only receipt verification")
+    if (
+        os.getenv("AIRFLOW_RECEIPT_E2E") != "1"
+        and os.getenv("AIRFLOW_ASSET_RECEIPT_E2E") != "1"
+    ):
+        pytest.skip("set an explicit receipt E2E gate")
     names = set(_docker("ps", "--format", "{{.Names}}").splitlines())
-    required = {"de-demo-postgres", "de-demo-iceberg-medallion"}
+    required = {"de-demo-postgres"}
     if not required <= names:
         pytest.skip(f"receipt services absent: {sorted(required - names)}")
 
 
 def test_exact_airflow_dagruns_and_single_attempt_task_instances() -> None:
+    if os.getenv("AIRFLOW_RECEIPT_E2E") != "1":
+        pytest.skip("set AIRFLOW_RECEIPT_E2E=1 for historical receipt verification")
     maintenance = _quote(MAINTENANCE_RUN_ID)
     batch = _quote(BATCH_RUN_ID)
     runs = _psql(
@@ -122,6 +127,8 @@ def test_exact_airflow_dagruns_and_single_attempt_task_instances() -> None:
 
 
 def test_exact_dwh_audits_and_persisted_runtime_mode() -> None:
+    if os.getenv("AIRFLOW_RECEIPT_E2E") != "1":
+        pytest.skip("set AIRFLOW_RECEIPT_E2E=1 for historical receipt verification")
     maintenance = _quote(MAINTENANCE_RUN_ID)
     batch = _quote(BATCH_RUN_ID)
     audit = _psql(
@@ -188,6 +195,18 @@ def test_exact_warehouse_asset_flow_receipt_is_reproducible_read_only() -> None:
     assert {row[3] for row in events} == {"core.publish_core_assets"}
     assert {row[4] for row in events} == {source_run_id}
     assert all(set(json.loads(row[1])) == {"row_count"} for row in events)
+    event_counts = {row[0]: json.loads(row[1])["row_count"] for row in events}
+    current_core_counts = _psql(
+        "dwh",
+        "app",
+        "select (select count(*) from core.orders), "
+        "(select count(*) from core.order_items);",
+    )
+    assert current_core_counts == [["1000", "1149"]]
+    assert event_counts == {
+        "postgres://de-demo-postgres:5432/dwh/core/orders": 1000,
+        "postgres://de-demo-postgres:5432/dwh/core/order_items": 1149,
+    }
 
     association = _psql(
         "airflow_meta",
@@ -231,16 +250,21 @@ def test_exact_warehouse_asset_flow_receipt_is_reproducible_read_only() -> None:
     )
     assert schema == [["ingestion_run_id", "YES"]]
 
-    index_and_history = _psql(
+    index = _psql(
         "dwh",
         "app",
-        "select (select count(*) from pg_indexes where schemaname='marts' "
+        "select count(*) from pg_indexes where schemaname='marts' "
         "and tablename='pipeline_runs' and indexname='idx_pipeline_runs_ingestion_run_id' "
-        "and indexdef not like 'CREATE UNIQUE INDEX%'), "
-        "(select count(*) from marts.pipeline_runs where ingestion_run_id is null);",
+        "and indexdef not like 'CREATE UNIQUE INDEX%';",
     )
-    assert index_and_history and index_and_history[0][0] == "1"
-    assert int(index_and_history[0][1]) >= 0
+    assert index == [["1"]]
+    historical = _psql(
+        "dwh",
+        "app",
+        "select run_id, ingestion_run_id from marts.pipeline_runs "
+        f"where run_id='{_quote(BATCH_RUN_ID)}' and ingestion_run_id is null;",
+    )
+    assert historical == [[BATCH_RUN_ID, ""]]
 
     views = _psql(
         "dwh",

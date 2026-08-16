@@ -251,6 +251,9 @@ def test_pipeline_provenance_migration_is_additive_and_bootstrapped() -> None:
     assert "create unique index" not in migration.lower()
     assert "007_pipeline_runs_ingestion_provenance.sql" in bootstrap
     assert 'values["POSTGRES_DB"]' in bootstrap
+    dag = read("dags/warehouse_orders.py")
+    assert 'os.getenv("DWH_PASSWORD", "app")' not in dag
+    assert '_required_env("DWH_PASSWORD")' in dag
 
 
 def test_warehouse_asset_verifier_generates_unique_source_run_ids() -> None:
@@ -302,11 +305,18 @@ def _valid_core_event_rows(source_run_id: str) -> list[list[str]]:
     ]
 
 
+def _expected_core_counts() -> dict[str, int]:
+    return {
+        asset_verifier.CORE_ORDER_ITEMS_URI: 1149,
+        asset_verifier.CORE_ORDERS_URI: 1000,
+    }
+
+
 def test_warehouse_asset_verifier_accepts_exact_core_events() -> None:
     source = "warehouse_ingestion_verify_exact"
 
     accepted, _, events = asset_verifier.classify_core_events(
-        source, _valid_core_event_rows(source)
+        source, _valid_core_event_rows(source), _expected_core_counts()
     )
 
     assert accepted is True
@@ -324,17 +334,51 @@ def test_warehouse_asset_verifier_accepts_exact_core_events() -> None:
         lambda rows: [rows[0], [*rows[1][:-1], "wrong-run"]],
         lambda rows: [rows[0], [*rows[1][:2], '{"run_id":"bad"}', *rows[1][3:]]],
         lambda rows: [rows[0], [*rows[1][:4], "wrong.task", rows[1][5]]],
+        lambda rows: [[*rows[0][:2], '{"row_count":true}', *rows[0][3:]], rows[1]],
+        lambda rows: [
+            [*rows[0][:2], '{"row_count":1000}', *rows[0][3:]],
+            [*rows[1][:2], '{"row_count":1149}', *rows[1][3:]],
+        ],
     ],
-    ids=["missing", "duplicate", "wrong-source", "run-id-extra", "wrong-task"],
+    ids=[
+        "missing",
+        "duplicate",
+        "wrong-source",
+        "run-id-extra",
+        "wrong-task",
+        "boolean-count",
+        "swapped-counts",
+    ],
 )
 def test_warehouse_asset_verifier_rejects_invalid_core_events(mutate) -> None:
     source = "warehouse_ingestion_verify_exact"
     rows = mutate(_valid_core_event_rows(source))
 
-    accepted, _, events = asset_verifier.classify_core_events(source, rows)
+    accepted, _, events = asset_verifier.classify_core_events(
+        source, rows, _expected_core_counts()
+    )
 
     assert accepted is False
     assert events == {}
+
+
+def test_warehouse_asset_verifier_unpauses_only_asset_consumer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = []
+
+    def fake_airflow(*args: str, timeout: int = 90) -> str:
+        calls.append((args, timeout))
+        if args[:2] == ("dags", "list"):
+            return "warehouse_orders_ingestion\nwarehouse_marts_validation"
+        return ""
+
+    monkeypatch.setattr(asset_verifier, "_airflow", fake_airflow)
+
+    asset_verifier.ensure_dags_ready()
+
+    assert (("dags", "unpause", "warehouse_marts_validation"), 90) in calls
+    assert (("dags", "unpause", "warehouse_orders_ingestion"), 90) not in calls
 
 
 def test_warehouse_asset_verifier_accepts_only_one_asset_triggered_downstream() -> None:

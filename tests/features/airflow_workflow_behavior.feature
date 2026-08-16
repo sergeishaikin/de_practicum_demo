@@ -45,6 +45,11 @@ Feature: Fail-closed Airflow workflow behavior
     When the actual marts readiness callable runs in Airflow
     Then marts readiness returns the source ingestion run id
 
+  Scenario: Ambiguous source events fail closed
+    Given two core orders events from different ingestion DagRuns
+    When the actual marts readiness callable runs in Airflow
+    Then marts readiness rejects ambiguous source provenance
+
   Scenario: Payment mismatch prevents mart publication
     Given marts readiness followed by a payment mismatch
     When the actual marts quality and publisher callables run in Airflow

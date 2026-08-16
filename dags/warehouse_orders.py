@@ -17,12 +17,22 @@ PROJECT_DIR = Path("/opt/airflow/project")
 DATA_DIR = PROJECT_DIR / "data" / "raw"
 SQL_DIR = PROJECT_DIR / "db" / "pipeline_sql"
 
+
+def _required_env(name: str) -> str:
+    value = os.getenv(name)
+    if not value:
+        raise AirflowException(
+            f"Required Airflow environment variable is missing: {name}"
+        )
+    return value
+
+
 DWH_CONN = {
     "host": os.getenv("DWH_HOST", "de-demo-postgres"),
     "port": int(os.getenv("DWH_PORT", "5432")),
     "dbname": os.getenv("DWH_DB", "dwh"),
     "user": os.getenv("DWH_USER", "app"),
-    "password": os.getenv("DWH_PASSWORD", "app"),
+    "password": _required_env("DWH_PASSWORD"),
 }
 
 STG_LOADS = [
@@ -196,12 +206,12 @@ def _source_ingestion_run_id(triggering_asset_events) -> str:
         for asset, events in triggering_asset_events.items()
         if getattr(asset, "uri", None) == CORE_ORDERS_ASSET.uri
     ]
-    if len(matching_event_lists) != 1 or not matching_event_lists[0]:
+    if len(matching_event_lists) != 1 or len(matching_event_lists[0]) != 1:
         raise AirflowException(
-            "Expected exactly one non-empty core.orders Asset event collection"
+            "Expected exactly one core.orders Asset event for this DagRun"
         )
 
-    event = matching_event_lists[0][-1]
+    event = matching_event_lists[0][0]
     source_dag_run = getattr(event, "source_dag_run", None)
     source_dag_id = getattr(source_dag_run, "dag_id", None)
     source_run_id = getattr(source_dag_run, "run_id", None)
