@@ -104,6 +104,7 @@ services:
       - ./dags:/opt/airflow/dags:ro
       - ./db:/opt/airflow/project/db:ro
       - ./dbt:/opt/airflow/project/dbt:rw
+      - ./dbt/profiles.yml.example:/opt/airflow/project/dbt/profiles.yml:ro
       - ./data/raw:/opt/airflow/project/data/raw:ro
       - de_demo_airflow_logs:/opt/airflow/logs
     command:
