@@ -374,12 +374,21 @@ def warehouse_marts_validation():
             )
 
     @task(
-        trigger_rule=TriggerRule.ALL_SUCCESS,
+        trigger_rule=TriggerRule.ALL_DONE,
         inlets=[CORE_ORDERS_ASSET],
         outlets=[*MART_ASSETS, PIPELINE_AUDIT_ASSET],
     )
     def publish_mart_assets(triggering_asset_events=None) -> Iterator[Metadata]:
-        run_id = str(get_current_context()["dag_run"].run_id)
+        context = get_current_context()
+        run_id = str(context["dag_run"].run_id)
+        validation_state = _metadata_task_state(
+            context["ti"].dag_id, run_id, "validate_dbt_artifacts"
+        )
+        if validation_state != "success":
+            raise AirflowException(
+                "Warehouse dbt validation did not succeed before publication: "
+                f"{validation_state!r}"
+            )
         state = _audit_and_counts(run_id, triggering_asset_events)
         for asset in MART_ASSETS:
             yield Metadata(asset, {"dbt_project": "warehouse_transform"})
