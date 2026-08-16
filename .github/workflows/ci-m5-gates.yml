@@ -5,6 +5,7 @@ on:
     paths:
       - "iceberg/**"
       - "tests/test_*.py"
+      - "tests/features/**"
       - "tests/integration/test_crash_recovery.py"
       - "tests/integration/test_m3_b2_recovery.py"
       - "tests/integration/test_m4_gold_cutover.py"
@@ -53,6 +54,8 @@ jobs:
           tests/integration/test_crash_recovery.py
           tests/integration/test_m3_b2_recovery.py
           tests/integration/test_m4_gold_cutover.py
+      - name: PR blocking BDD specifications
+        run: uv run --locked pytest -q tests/features -m "bdd and integration"
       - name: Cleanup
         if: always()
         run: docker compose -f docker-compose.extended.yml down --remove-orphans || true

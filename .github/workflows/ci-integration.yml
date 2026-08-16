@@ -55,6 +55,8 @@ jobs:
           exit 1
       - name: Integration tests
         run: uv run --locked pytest tests/integration -m integration
+      - name: Integration BDD specifications
+        run: uv run --locked pytest tests/features -m "bdd and integration"
       - name: Collect stack logs on failure
         if: failure()
         run: docker compose -f docker-compose.extended.yml logs --no-color > stack-logs.txt || true
