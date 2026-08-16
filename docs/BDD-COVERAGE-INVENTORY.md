@@ -6,12 +6,13 @@ This document is the input for deciding **which** `.feature` files to write. It 
 not itself a contract: the contracts live in `tests/features/*.feature`, and in the
 pytest suites listed below until a feature covers them.
 
-Status: **2 feature files, 17 scenarios** against ~180 pytest tests across
-unit / integration / e2e.
+Status: **3 feature files, 23 scenarios (29 cases)** against ~180 pytest tests
+across unit / integration / e2e.
 
 | Feature | Tier | Scenarios | Runs |
 |---|:--:|:--:|---|
 | `silver_business_state.feature` | T1 | 8 | default fast suite, every PR |
+| `data_quality_modes.feature` | T1 | 6 (12 cases) | default fast suite, every PR |
 | `airflow_workflow_behavior.feature` | T3 | 9 | dedicated Airflow job, every PR |
 
 ---
@@ -87,7 +88,7 @@ are the scenarios that keep the contract honest during refactoring.
 | **Dedup / business-version resolution** | **G** | **G** | **G** | ✓ | **G** | — |
 | Silver B2 incremental | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Gold aggregation | ✓ | ✓ | ✓ | — | ✓ | ✓ |
-| Quality checks (strict vs permissive) | ✓ | ✓ | ✓ | — | — | ✓ |
+| **Quality checks (strict vs permissive)** | **G** | **G** | **G** | — | — | **G** |
 | Shadow compare | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Gold source cutover / rollout matrix | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Legacy business-version migration | ✓ | ✓ | ✓ | ! | ✓ | ✓ |
@@ -198,14 +199,15 @@ listed scenarios · `KEEP-PYTEST` = do not Gherkin-ify · `DONE` = specified.
 | Gap | Grain uniqueness is a real invariant; exact sums fit a `Scenario Outline` with an Examples table |
 | Verdict | `FEATURE` → `gold_aggregation.feature` (small, T1) |
 
-### 4.11 Quality checks — strict vs permissive
+### 4.11 Quality checks — strict vs permissive — **DONE**
 
 | Field | Value |
 |---|---|
-| Contract | `QUALITY_FAIL_ON_VIOLATIONS=0` records violations and proceeds; `=1` aborts the cycle; missing columns are skipped, not failed |
-| Existing | `tests/test_medallion.py::TestRunQualityChecks`, `TestRun::test_fail_on_violations_aborts`, `::test_violations_recorded_but_proceeds_when_not_fatal` |
-| Gap | Whole capability — the canonical fail-open vs fail-closed pair, and both modes are supported, so both belong in the spec |
-| Verdict | `FEATURE` → `data_quality_modes.feature` (T1, 4–5 scenarios) |
+| Contract | A broken data rule is a violation (null order id, null/non-positive amount, null country, unknown status, null event time); a field the batch does not carry is skipped, not failed; in permissive mode violations are evidence only and publication proceeds; in strict mode the cycle aborts before anything is curated, and the failure is recorded |
+| Specified by | `tests/features/data_quality_modes.feature` (6 scenarios / 12 cases, T1). Steps bind to `run_quality_checks` for classification and to `run` for the mode behavior, using the same in-memory catalog/metrics doubles as the medallion unit tests |
+| Notes | The violation rules are one `Scenario Outline` over seven defects rather than seven scenarios, per §1. Counter names (`order_id_null`, …) stay out of the scenario text — they are an implementation vocabulary, not the contract |
+| Still pytest | `tests/test_medallion.py::TestRunQualityChecks` (per-counter naming and Arrow edges), `TestRun` (bronze-missing skip, metric field detail) |
+| Verdict | `DONE` — the fail-open/fail-closed pair is now specified on both sides, including proof that no downstream table exists after a strict abort |
 
 ### 4.12 Shadow compare & Gold cutover
 
@@ -315,14 +317,14 @@ design can be reassessed after the first few T1 features.
 | # | Feature file | Tier | Scenarios | Status |
 |---|---|:--:|:--:|---|
 | 1 | `silver_business_state.feature` | T1 | 8 | **done** |
-| 2 | `data_quality_modes.feature` | T1 | ~5 | next |
-| 3 | `legacy_cleanup_safety.feature` | T1 | ~6 | |
+| 2 | `data_quality_modes.feature` | T1 | 6 (12 cases) | **done** |
+| 3 | `legacy_cleanup_safety.feature` | T1 | ~6 | next |
 | 4 | `retention_recovery.feature` | T1 | 3 | |
 | 5 | `business_version_migration.feature` | T1 | ~5 | blocked on §6.3 |
-| 6 | `shadow_cutover.feature` (T1 portion) | T1 | ~4 | |
+| 6 | `shadow_cutover.feature` (T1 portion) | T1 | ~4 | decide after reassess |
 | 7 | `gold_aggregation.feature` | T1 | ~4 | |
 
-**Reassess the inventory after item 4.**
+**Reassess the inventory after item 4**, before committing to `shadow_cutover`.
 
 ### Wave 2 — stateful guarantees
 
