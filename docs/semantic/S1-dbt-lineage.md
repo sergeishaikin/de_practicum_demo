@@ -5,6 +5,20 @@ The persistent local demo stack also contains pre-M1 rows that correctly fail
 the new `business_version` presence contract; this is recorded as a data
 backfill/roll-forward residual, not hidden by the semantic layer.
 
+## Runtime ownership
+
+The `dbt/` project owns Trino/Iceberg semantic transformations, tests, and
+published contracts. Airflow owns scheduling and operational state; the
+`lakehouse_dbt_semantic` DAG renders this project through Astronomer Cosmos in
+`ExecutionMode.WATCHER`. A final Airflow task emits the lakehouse semantic
+Asset only after the dependency-aware dbt build and tests succeed.
+
+The Airflow image installs the pinned runtime (`dbt-core==1.12.2`,
+`dbt-trino==1.10.3`, and `astronomer-cosmos==1.15.0`). The project source is
+mounted read-only and `target/` is stored in the `de_demo_dbt_target` volume so
+`manifest.json`, `run_results.json`, `catalog.json`, and generated docs survive
+individual task runs without making source files mutable.
+
 ## Scope
 
 S1 adds a reproducible `dbt-trino` project over the existing Iceberg catalog.

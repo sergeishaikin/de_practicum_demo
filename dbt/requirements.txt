@@ -226,9 +226,9 @@ dbt-common==1.39.0 \
     #   dbt-adapters
     #   dbt-core
     #   dbt-trino
-dbt-core==1.12.0 \
-    --hash=sha256:8a91ec6aabaf329efc603330b629e72551ea6be8321483d7c284c598541faaab \
-    --hash=sha256:f7d6a34f6600a371b8771e813f6b1566ab6d1fb8cea691619c791f527b1f8d7e
+dbt-core==1.12.2 \
+    --hash=sha256:9c4d60c58ed759ceff3cc20c065420abc4d26cb092b0e142b39b8747ee43c79b \
+    --hash=sha256:ecc5bc66eb09de0411658d159e973cf503bb1605589a7c2b3fb82a1637e31d32
     # via
     #   -r dbt/requirements.in
     #   dbt-trino
@@ -544,7 +544,9 @@ networkx==3.6.1 \
 opentelemetry-api==1.44.0 \
     --hash=sha256:67647e5e9566edcf421166fdf022b3537f818635daa852b289e34604dc6fb33a \
     --hash=sha256:94b98c893a91b88657eaac1e3ba89618cdb85be6918196705354f34728b2cdef
-    # via dbt-common
+    # via
+    #   dbt-common
+    #   dbt-core
 orderly-set==5.5.0 \
     --hash=sha256:46f0b801948e98f427b412fcabb831677194c05c3b699b80de260374baa0b1e7 \
     --hash=sha256:e87185c8e4d8afa64e7f8160ee2c542a475b738bc891dc3f58102e654125e6ce

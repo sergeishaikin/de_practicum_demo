@@ -1,2 +1,2 @@
 dbt-trino==1.10.3
-dbt-core==1.12.0
+dbt-core==1.12.2

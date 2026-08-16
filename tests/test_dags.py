@@ -31,6 +31,7 @@ EXPECTED_TABLES = [
 ]
 INGESTION_DAG = "warehouse_orders_ingestion"
 MARTS_DAG = "warehouse_marts_validation"
+DBT_SEMANTIC_DAG = "lakehouse_dbt_semantic"
 CORE_ORDERS_URI = "postgres://de-demo-postgres:5432/dwh/core/orders"
 INGESTION_UPSTREAM = {
     "staging.load_raw_csv_to_stg": [],
@@ -131,6 +132,25 @@ def test_warehouse_split_replaces_combined_dag(dag_structure: dict) -> None:
     dags = dag_structure["dags"]
     assert "demo_core_marts_pipeline" not in dags
     assert {INGESTION_DAG, MARTS_DAG} <= dags.keys()
+
+
+def test_lakehouse_dbt_cosmos_dag_exists(dag_structure: dict) -> None:
+    dag = dag_structure["dags"][DBT_SEMANTIC_DAG]
+    assert dag["display_name"] == "Lakehouse · dbt Semantic"
+    assert dag["description"]
+    assert dag["owner"] == "data-platform"
+    assert dag["schedule"] == "None"
+    assert dag["catchup"] is False
+    assert dag["max_active_runs"] == 1
+    assert dag["tags"] == sorted(
+        [
+            "domain:orders",
+            "layer:semantic",
+            "type:dbt",
+            "owner:data-platform",
+            "criticality:high",
+        ]
+    )
 
 
 def test_orders_ingestion_contract(dag_structure: dict) -> None:

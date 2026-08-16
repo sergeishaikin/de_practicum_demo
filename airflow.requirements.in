@@ -1,2 +1,5 @@
 psycopg2-binary==2.9.12
 trino==0.338.0
+astronomer-cosmos==1.15.0
+dbt-core==1.12.2
+dbt-trino==1.10.3
