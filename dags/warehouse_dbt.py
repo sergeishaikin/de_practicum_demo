@@ -298,32 +298,6 @@ def _audit_and_counts(
     ],
 )
 def warehouse_marts_validation():
-    dbt_group = DbtTaskGroup(
-        group_id="dbt_warehouse",
-        project_config=_project_config(),
-        profile_config=_profile_config(),
-        execution_config=ExecutionConfig(
-            execution_mode=ExecutionMode.WATCHER,
-            dbt_executable_path=DBT_EXECUTABLE,
-        ),
-        render_config=RenderConfig(emit_datasets=False),
-        operator_args={"install_deps": False},
-    )
-
-    generate_docs = DbtDocsOperator(
-        task_id="generate_dbt_docs",
-        project_dir=str(DBT_PROJECT_PATH),
-        profile_config=_profile_config(),
-        dbt_executable_path=DBT_EXECUTABLE,
-        env=DBT_ENV,
-        trigger_rule=TriggerRule.NONE_FAILED_MIN_ONE_SUCCESS,
-    )
-    dbt_producer = next(
-        child
-        for task_id, child in dbt_group.children.items()
-        if task_id.endswith("dbt_producer_watcher")
-    )
-
     @task(execution_timeout=timedelta(minutes=40))
     def validate_dbt_artifacts() -> None:
         context = get_current_context()
@@ -389,8 +363,37 @@ def warehouse_marts_validation():
             },
         )
 
+    validate_task = validate_dbt_artifacts()
+    publish_task = publish_mart_assets()
+
+    dbt_group = DbtTaskGroup(
+        group_id="dbt_warehouse",
+        project_config=_project_config(),
+        profile_config=_profile_config(),
+        execution_config=ExecutionConfig(
+            execution_mode=ExecutionMode.WATCHER,
+            dbt_executable_path=DBT_EXECUTABLE,
+        ),
+        render_config=RenderConfig(emit_datasets=False),
+        operator_args={"install_deps": False},
+    )
+
+    generate_docs = DbtDocsOperator(
+        task_id="generate_dbt_docs",
+        project_dir=str(DBT_PROJECT_PATH),
+        profile_config=_profile_config(),
+        dbt_executable_path=DBT_EXECUTABLE,
+        env=DBT_ENV,
+        trigger_rule=TriggerRule.NONE_FAILED_MIN_ONE_SUCCESS,
+    )
+    dbt_producer = next(
+        child
+        for task_id, child in dbt_group.children.items()
+        if task_id.endswith("dbt_producer_watcher")
+    )
+
     dbt_producer >> generate_docs
-    validate_dbt_artifacts() >> publish_mart_assets()
+    validate_task >> publish_task
 
 
 warehouse_marts_validation()
