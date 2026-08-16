@@ -9,6 +9,7 @@ is the only publisher of downstream mart Assets and the pipeline audit.
 from __future__ import annotations
 
 import os
+import json
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Iterator
@@ -293,8 +294,17 @@ def warehouse_marts_validation():
         if task_id.endswith("dbt_producer_watcher")
     )
 
-    @task(trigger_rule=TriggerRule.NONE_FAILED_MIN_ONE_SUCCESS)
+    @task(trigger_rule=TriggerRule.ALL_DONE)
     def validate_dbt_artifacts() -> None:
+        context = get_current_context()
+        dag_run = context["dag_run"]
+        for task_id in ("dbt_warehouse.dbt_producer_watcher", "generate_dbt_docs"):
+            task_instance = dag_run.get_task_instance(task_id=task_id)
+            if task_instance is None or task_instance.state != "success":
+                raise AirflowException(
+                    f"Warehouse dbt prerequisite {task_id!r} did not succeed: "
+                    f"{getattr(task_instance, 'state', None)!r}"
+                )
         required = ("manifest.json", "run_results.json", "catalog.json", "index.html")
         missing = [
             name
@@ -305,9 +315,24 @@ def warehouse_marts_validation():
             raise AirflowException(
                 f"Warehouse dbt artifacts missing: {', '.join(missing)}"
             )
+        run_results = json.loads(
+            (DBT_PROJECT_PATH / "target" / "run_results.json").read_text()
+        )
+        results = run_results.get("results", [])
+        failed = [
+            result
+            for result in results
+            if result.get("status") not in {"success", "pass"}
+        ]
+        if not results or failed:
+            statuses = sorted({result.get("status") for result in failed})
+            raise AirflowException(
+                "Warehouse dbt run_results validation failed: "
+                f"results={len(results)}, statuses={statuses}"
+            )
 
     @task(
-        trigger_rule=TriggerRule.NONE_FAILED_MIN_ONE_SUCCESS,
+        trigger_rule=TriggerRule.ALL_SUCCESS,
         inlets=[CORE_ORDERS_ASSET],
         outlets=[*MART_ASSETS, PIPELINE_AUDIT_ASSET],
     )
