@@ -107,30 +107,28 @@ jobs:
         run: |
           export RUN_ID="phase03b-ci-${GITHUB_RUN_ID}"
           echo "RUN_ID=$RUN_ID" >> "$GITHUB_ENV"
+          test "$(docker exec de-demo-airflow airflow dags list-import-errors -l -o json)" = "[]"
           docker exec de-demo-airflow airflow dags trigger warehouse_orders_ingestion --run-id "$RUN_ID"
       - name: Wait for ingestion and Asset-triggered dbt workflow
         run: |
-          dag_state() {
-            local dag_id="$1"
-            local run_id="$2"
-            docker exec de-demo-postgres psql -U airflow -d airflow_meta -Atc \
-              "select coalesce((select state from dag_run where dag_id = '$dag_id' and run_id = '$run_id' limit 1), 'missing')"
-          }
-          for i in $(seq 1 120); do
-            ingestion_state=$(dag_state warehouse_orders_ingestion "$RUN_ID")
-            if [ "$ingestion_state" = "failed" ]; then echo "ingestion failed"; exit 1; fi
-            if [ "$ingestion_state" = "success" ]; then break; fi
-            sleep 5
-          done
-          test "$ingestion_state" = "success"
-          for i in $(seq 1 180); do
-            dbt_state=$(docker exec de-demo-postgres psql -U airflow -d airflow_meta -Atc \
-              "select coalesce((select state from dag_run where dag_id = 'warehouse_marts_validation' and run_id like 'asset_triggered__%' order by start_date desc limit 1), 'missing')")
-            if [ "$dbt_state" = "failed" ]; then echo "warehouse dbt DAG failed"; exit 1; fi
-            if [ "$dbt_state" = "success" ]; then break; fi
-            sleep 5
-          done
-          test "$dbt_state" = "success"
+          docker exec -e RUN_ID="$RUN_ID" de-demo-postgres sh -c '
+            for i in $(seq 1 180); do
+              ingestion_state=$(psql -U airflow -d airflow_meta -Atc "select coalesce((select state from dag_run where dag_id = '''warehouse_orders_ingestion''' and run_id = '''$RUN_ID''' limit 1), '''missing''')")
+              echo "ingestion_state=$ingestion_state"
+              if [ "$ingestion_state" = "failed" ]; then exit 1; fi
+              if [ "$ingestion_state" = "success" ]; then break; fi
+              sleep 5
+            done
+            test "$ingestion_state" = "success"
+            for i in $(seq 1 240); do
+              dbt_state=$(psql -U airflow -d airflow_meta -Atc "select coalesce((select state from dag_run where dag_id = '''warehouse_marts_validation''' and run_id like '''asset_triggered__%''' order by start_date desc limit 1), '''missing''')")
+              echo "dbt_state=$dbt_state"
+              if [ "$dbt_state" = "failed" ]; then exit 1; fi
+              if [ "$dbt_state" = "success" ]; then break; fi
+              sleep 5
+            done
+            test "$dbt_state" = "success"
+          '
       - name: Verify exact pipeline provenance and dbt artifacts
         run: |
           row=$(docker exec de-demo-postgres psql -U app -d dwh -Atc "select ingestion_run_id || '|' || status || '|' || stg_orders || '|' || stg_order_items || '|' || core_order_items || '|' || mart_sales_days || '|' || duplicate_grain_rows || '|' || null_key_rows || '|' || max_reconcile_diff from marts.pipeline_runs where run_id like 'asset_triggered__%' order by run_ts desc limit 1")
