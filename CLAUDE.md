@@ -36,6 +36,32 @@ Regenerate every committed dependency lock after intentionally changing
 `scripts/lock-python-dependencies.ps1` on Windows or
 `scripts/lock-python-dependencies.sh` on macOS/Linux.
 
+### Invoking dbt — always through a project venv
+
+**Bare `dbt` on this machine resolves to an unrelated Anaconda installation**
+(`C:\Users\serge\anaconda3\Scripts\dbt`), which carries its own dbt-core version
+and only the Trino adapter. Running it against `dbt/warehouse` fails on a
+missing `postgres` adapter, and running it anywhere else silently uses a version
+the repository does not pin. Always call dbt through the project's own venv:
+
+| Project | Executable | Runtime |
+|---|---|---|
+| `dbt/warehouse` (`warehouse_transform`, PostgreSQL) | `.venv-dbt-warehouse\Scripts\dbt.exe` | dbt-core 1.12.2 + dbt-postgres 1.11.0 |
+| `dbt` (`lakehouse_semantic`, Trino) | `.venv-dbt\Scripts\dbt.exe` | dbt-core 1.12.2 + dbt-trino 1.10.3 |
+
+Restore or repair either environment from its committed hash-pinned
+requirements file — never by installing dbt packages into Anaconda or any other
+global Python:
+
+```powershell
+uv pip sync --python .venv-dbt\Scripts\python.exe --require-hashes dbt\requirements.txt
+uv pip sync --python .venv-dbt-warehouse\Scripts\python.exe --require-hashes dbt\warehouse\requirements.txt
+```
+
+A plain `pip install dbt-core` / `dbt-postgres` now resolves to the Fusion-era
+`dbt-core` 2.x line, which rejects the `postgres` adapter outright. The
+`--require-hashes` sync above avoids that by construction.
+
 Follow the canonical **Verification contract** in `AGENTS.md`. It defines the
 completion gate, change-specific checks, stateful-test boundary, and required
 verification evidence; do not maintain a separate gate in this file.
