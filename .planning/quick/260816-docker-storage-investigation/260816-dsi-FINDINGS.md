@@ -1,9 +1,9 @@
 ---
-gsd_findings_version: 1.2
+gsd_findings_version: 1.3
 task: docker-storage-investigation
 mode: quick
 created: 2026-08-16
-status: incident-resolved-kafka-explained-prevention-staged
+status: kafka-recovered-prevention-staged-awaiting-deployment
 ---
 
 # Docker storage incident — investigation, recovery, prevention
@@ -213,7 +213,79 @@ Every link in that chain failed here: the restart policy was unbounded, growth
 was unbounded, and two stateful services were taken down by a third service's
 scratch. Those are testable properties.
 
-## 10. Still open
+## 10. Stack recovery — executed and validated
+
+### The "four stale duplicate containers" premise was wrong
+
+Inspection before any deletion showed each of the four services has **exactly
+one** container, it is the hash-prefixed one, and it is **running**:
+
+| Service | Containers | State | Mounts |
+|---|---|---|---|
+| `spark-connect` | `7a18cc079146_…` only | running | none |
+| `orders-producer` | `ff8f77f41bc2_…` only | running | none |
+| `kafka-ui` | `661e2fdcf3d3_…` only | running | none |
+| `observability-exporter` | `e31fb53765ba_…` only | running | none |
+
+All four carry correct Compose labels (`project=de-practicum-demo` plus the
+right `service`). They are the live singletons under renamed identities — the
+residue of an interrupted Compose rename-before-recreate — not stale leftovers
+sitting beside healthy counterparts. `7a18cc079146_…spark-connect` is the very
+Spark Connect server that owns the preserved running application.
+
+Deleting those four IDs would therefore have taken down four live services with
+no replacement. **They were not removed.** The zero-mount check does pass, which
+means they are safe to *recreate*, not safe to *delete now*.
+
+Correct resolution: let Compose rename them through recreation. Compose matches
+by label rather than name, so it only recreates services whose config changed —
+`spark-connect` and `orders-producer` did (they gained the logging anchor) and
+will get canonical names automatically; `kafka-ui` and `observability-exporter`
+did not, so they need `--force-recreate` scoped to those two services. No
+`--remove-orphans` anywhere.
+
+### Kafka recovered independently, before any Compose change
+
+Producer stopped first so recovery was not mixed with fresh writes, then
+`docker start de-demo-kafka` on the existing container:
+
+```
+Recovering 51 logs from /var/lib/kafka/data since no clean shutdown file was found
+WARN [LogLoader partition=orders-0] Corruption found in segment 0, truncating to offset 70143
+Completed load of Log(topic=orders, partition=0, … logEndOffset=70143) with 1 segments
+STARTING → RECOVERY → RUNNING … Kafka Server started
+```
+
+The predicted torn write was real and was handled exactly as designed:
+truncation to the last valid record.
+
+Validation:
+
+| Check | Result |
+|---|---|
+| Broker healthy | `Up (healthy)` |
+| Errors since restart | **0** |
+| `orders` offset range | 0 → 70143, single partition, Leader 1, ISR [1] |
+| TopicId | `GJvw-MROTyiERZC7fe1Ebg`, unchanged |
+| Log dir | `de_demo_kafka_data` → `/var/lib/kafka/data`, the named volume |
+| Producer restored | offsets advance ~2.3/s, matching `EVENTS_PER_SECOND: 2`, 0 broker errors |
+
+The producer's stdout is block-buffered, so its `docker logs` tail is not a
+live signal; the offset delta is. Its `_MSG_TIMED_OUT` lines are buffered
+messages from the outage window, not current failures.
+
+**New detail: Kafka was killed by disk exhaustion twice today**, at 09:10:29 and
+again at 15:16:01 — so the loop had already taken the broker down once before
+the second, final failure.
+
+### Rebuild cost fixed before rebuilding
+
+`spark/Dockerfile` copied `submit-with-runtime.sh` *before* the `RUN` that
+downloads the pinned JAR set, so editing the wrapper invalidated a 678 MB
+download layer. The `COPY` now comes after that `RUN` (with `chmod +x` preserved
+— the file is tracked mode `100644`), so future wrapper edits are free.
+
+## 11. Still open
 
 - Orphan volume `b420157…` (22.5 GB) and the dead `03-orchestration` / `op-*`
   volumes (~71 MB) — classified safe, deliberately left alone: with 899 GB free
@@ -223,7 +295,5 @@ scratch. Those are testable properties.
   300; deterministic streaming failure stopping after three retries; log
   rotation active; Spark Connect surviving recreation; Postgres/MinIO/Kafka
   volumes retaining state.
-- Four containers carry hash-prefixed duplicate names, so the running stack does
-  not match a clean `compose up`.
 - VHDX compaction — optional housekeeping, not recovery, with 2.3 TB free on `C:`.
 - A disk-space guard/alert.

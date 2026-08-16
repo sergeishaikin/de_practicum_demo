@@ -9,9 +9,7 @@ RUN /bin/uv pip install --python /usr/bin/python3 --no-cache --require-hashes -r
 ENV PYSPARK_PYTHON=/usr/bin/python3
 
 COPY h1-runtime-jars.lock /tmp/h1-runtime-jars.lock
-COPY submit-with-runtime.sh /usr/local/bin/spark-submit-h1
 RUN set -eu \
-    && chmod +x /usr/local/bin/spark-submit-h1 \
     && mkdir -p /opt/spark/h1-jars \
     && while IFS='|' read -r group artifact version; do \
          case "$group" in ''|'#'*) continue ;; esac; \
@@ -21,6 +19,13 @@ RUN set -eu \
            "https://repo1.maven.org/maven2/${path}" \
            --output "/opt/spark/h1-jars/${artifact}-${version}.jar"; \
        done < /tmp/h1-runtime-jars.lock \
-    && chown -R spark:spark /opt/spark/h1-jars /usr/local/bin/spark-submit-h1
+    && chown -R spark:spark /opt/spark/h1-jars
+
+# Copied *after* the JAR download so that editing the wrapper does not
+# invalidate the 678 MB download layer. The submit wrapper changes far more
+# often than the pinned JAR set does.
+COPY submit-with-runtime.sh /usr/local/bin/spark-submit-h1
+RUN chmod +x /usr/local/bin/spark-submit-h1 \
+    && chown spark:spark /usr/local/bin/spark-submit-h1
 
 USER spark
