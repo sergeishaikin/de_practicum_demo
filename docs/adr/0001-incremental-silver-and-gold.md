@@ -698,7 +698,8 @@ injection remains worth having for FF-03, where the failure is duplication rathe
 **FF-05 needs a seam that does not exist.** The writer has two crash hooks and a real fault-injection
 suite; the medallion has neither, and its tests are entirely mocked. The change makes the medallion
 stateful. **Add `SIMULATE_CRASH_BEFORE_SILVER_COMMIT` / `_AFTER_` before writing the progress logic,
-not after.** `tests/integration/test_crash_recovery.py` is the template.
+not after.** `tests/features/writer_crash_recovery.feature` with `tests/support/writer_harness.py`
+is the template.
 
 **FF-09 inverted, and the inversion is the whole point of D-1.** It previously asserted that no
 `order_id` spans two `event_date` partitions in Bronze — the invariant a partition-scoped rebuild

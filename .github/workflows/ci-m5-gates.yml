@@ -6,7 +6,7 @@ on:
       - "iceberg/**"
       - "tests/test_*.py"
       - "tests/features/**"
-      - "tests/integration/test_crash_recovery.py"
+      - "tests/support/**"
       - "tests/integration/test_m3_b2_recovery.py"
       - "tests/integration/test_m4_gold_cutover.py"
       - "docker-compose.extended.yml"
@@ -51,7 +51,6 @@ jobs:
       - name: M5 PR blocking live gates
         run: >
           uv run --locked pytest -q -m integration
-          tests/integration/test_crash_recovery.py
           tests/integration/test_m3_b2_recovery.py
           tests/integration/test_m4_gold_cutover.py
       - name: PR blocking BDD specifications

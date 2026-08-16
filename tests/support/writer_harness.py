@@ -1,17 +1,26 @@
+"""Live-stack harness for the Iceberg writer.
+
+Extracted from ``tests/integration/test_crash_recovery.py`` when the crash
+recovery contract moved into ``tests/features/writer_crash_recovery.feature``.
+These are plain importable helpers rather than fixtures so integration tests and
+BDD step definitions share one way of driving the real writer against an
+isolated namespace.
+
+Requires only MinIO and the Iceberg REST catalog — no Trino, no Airflow.
+"""
+
 from __future__ import annotations
 
 import json
 import os
 import subprocess
 import sys
-import time
 import uuid
+from contextlib import contextmanager
 from datetime import date, datetime
 from pathlib import Path
 
 import pyarrow as pa
-import pyarrow.parquet as pq
-import pytest
 from pyarrow.fs import FileSelector, S3FileSystem
 from pyiceberg.catalog.rest import RestCatalog
 
@@ -24,8 +33,12 @@ ACCESS_KEY = os.getenv("AWS_ACCESS_KEY_ID", "minio")
 SECRET_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "minio123")
 BUCKET = "de-practicum"
 
+# Exit codes the writer uses to report a simulated crash.
+CRASH_BEFORE_COMMIT_EXIT = 2
+CRASH_AFTER_COMMIT_EXIT = 3
 
-def _catalog() -> RestCatalog:
+
+def catalog() -> RestCatalog:
     return RestCatalog(
         "default",
         **{
@@ -40,7 +53,7 @@ def _catalog() -> RestCatalog:
     )
 
 
-def _fs() -> S3FileSystem:
+def fs() -> S3FileSystem:
     return S3FileSystem(
         access_key=ACCESS_KEY,
         secret_key=SECRET_KEY,
@@ -50,7 +63,7 @@ def _fs() -> S3FileSystem:
     )
 
 
-def _orders_table(n: int) -> pa.Table:
+def orders_table(n: int) -> pa.Table:
     ts = datetime(2026, 1, 1, 12, 0, 0)
     return pa.table(
         {
@@ -69,7 +82,7 @@ def _orders_table(n: int) -> pa.Table:
     )
 
 
-def _start_writer(
+def start_writer(
     namespace: str,
     table: str,
     landing_prefix: str,
@@ -105,28 +118,30 @@ def _start_writer(
     )
 
 
-def _landing_path(landing_prefix: str, filename: str) -> str:
+def landing_path(landing_prefix: str, filename: str) -> str:
     return f"{BUCKET}/{landing_prefix}/{filename}"
 
 
-def _mark_spark_committed(fs: S3FileSystem, landing_prefix: str, filename: str) -> None:
-    metadata_path = _landing_path(landing_prefix, "_spark_metadata/0")
-    source_path = f"s3a://{_landing_path(landing_prefix, filename)}"
+def mark_spark_committed(
+    filesystem: S3FileSystem, landing_prefix: str, filename: str
+) -> None:
+    metadata_path = landing_path(landing_prefix, "_spark_metadata/0")
+    source_path = f"s3a://{landing_path(landing_prefix, filename)}"
     payload = "v1\n" + json.dumps({"path": source_path, "action": "add"}) + "\n"
-    with fs.open_output_stream(metadata_path) as out:
+    with filesystem.open_output_stream(metadata_path) as out:
         out.write(payload.encode("utf-8"))
 
 
-def _outbox_files(fs: S3FileSystem, landing_prefix: str) -> list[str]:
+def outbox_files(filesystem: S3FileSystem, landing_prefix: str) -> list[str]:
     selector = FileSelector(
-        base_dir=_landing_path(landing_prefix, "outbox"),
+        base_dir=landing_path(landing_prefix, "outbox"),
         recursive=True,
         allow_not_found=True,
     )
-    return [info.path for info in fs.get_file_info(selector) if info.is_file]
+    return [info.path for info in filesystem.get_file_info(selector) if info.is_file]
 
 
-def _snapshot_count_and_rows(
+def snapshot_count_and_rows(
     namespace: str, table: str, cat: RestCatalog
 ) -> tuple[int, int]:
     ice = cat.load_table(f"{namespace}.{table}")
@@ -134,100 +149,39 @@ def _snapshot_count_and_rows(
     return len(snapshots), ice.scan().to_arrow().num_rows
 
 
-def _snapshot_business_versions(
+def snapshot_business_versions(
     namespace: str, table: str, cat: RestCatalog
 ) -> list[int]:
     ice = cat.load_table(f"{namespace}.{table}")
     return ice.scan().to_arrow()["business_version"].to_pylist()
 
 
-@pytest.fixture
-def isolated_lake(tmp_path):
+@contextmanager
+def isolated_lake(tmp_path: Path):
+    """Yield a per-run namespace, landing prefix and state file, then clean up.
+
+    The namespace and landing prefix are unique per run, so a live writer or
+    medallion running against the canonical lake is never touched.
+    """
+
     run_id = uuid.uuid4().hex[:8]
     namespace = f"test_{run_id}"
     landing = f"test-crash/{run_id}"
     state_file = tmp_path / "state.json"
-    yield namespace, "orders", landing, state_file
-    cat = _catalog()
-    fs = _fs()
-    for ident in (f"{namespace}.orders",):
+    try:
+        yield namespace, "orders", landing, state_file
+    finally:
+        cat = catalog()
+        filesystem = fs()
         try:
-            cat.drop_table(ident)
+            cat.drop_table(f"{namespace}.orders")
         except Exception:
             pass
-    try:
-        cat.drop_namespace(namespace)
-    except Exception:
-        pass
-    try:
-        fs.delete_dir(landing)
-    except Exception:
-        pass
-
-
-@pytest.mark.integration
-def test_crash_after_commit_no_duplicate_append(isolated_lake):
-    namespace, table, landing, state_file = isolated_lake
-    fs = _fs()
-    path = _landing_path(landing, "part-00000.parquet")
-    with fs.open_output_stream(path) as out:
-        pq.write_table(_orders_table(5), out)
-    _mark_spark_committed(fs, landing, "part-00000.parquet")
-
-    proc = _start_writer(namespace, table, landing, state_file, "after")
-    assert proc.wait(timeout=90) == 3
-
-    cat = _catalog()
-    count, rows = _snapshot_count_and_rows(namespace, table, cat)
-    assert count == 1
-    assert rows == 5
-    assert _snapshot_business_versions(namespace, table, cat) == [1] * 5
-    assert len(_outbox_files(fs, landing)) == 1
-
-    proc2 = _start_writer(namespace, table, landing, state_file, None)
-    time.sleep(8)
-    proc2.terminate()
-    proc2.wait(timeout=10)
-
-    count2, rows2 = _snapshot_count_and_rows(namespace, table, cat)
-    assert count2 == 1
-    assert rows2 == 5
-    assert _snapshot_business_versions(namespace, table, cat) == [1] * 5
-    state = json.loads(state_file.read_text(encoding="utf-8"))
-    assert state["pending"] == {}
-    assert path in state["done"]
-    assert len(_outbox_files(fs, landing)) == 1
-
-
-@pytest.mark.integration
-def test_crash_before_commit_reappends_exactly_once(isolated_lake):
-    namespace, table, landing, state_file = isolated_lake
-    fs = _fs()
-    path = _landing_path(landing, "part-00000.parquet")
-    with fs.open_output_stream(path) as out:
-        pq.write_table(_orders_table(5), out)
-    _mark_spark_committed(fs, landing, "part-00000.parquet")
-
-    proc = _start_writer(namespace, table, landing, state_file, "before")
-    assert proc.wait(timeout=90) == 2
-
-    proc2 = _start_writer(namespace, table, landing, state_file, None)
-    deadline = time.time() + 90
-    count = rows = 0
-    while time.time() < deadline:
         try:
-            count, rows = _snapshot_count_and_rows(namespace, table, cat := _catalog())
-            if count >= 1:
-                break
+            cat.drop_namespace(namespace)
         except Exception:
             pass
-        time.sleep(2)
-    proc2.terminate()
-    proc2.wait(timeout=10)
-
-    assert count == 1
-    assert rows == 5
-    assert _snapshot_business_versions(namespace, table, _catalog()) == [1] * 5
-    state = json.loads(state_file.read_text(encoding="utf-8"))
-    assert path in state["done"]
-    assert len(_outbox_files(fs, landing)) == 1
+        try:
+            filesystem.delete_dir(landing)
+        except Exception:
+            pass

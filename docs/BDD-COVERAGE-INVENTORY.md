@@ -161,9 +161,10 @@ listed scenarios · `KEEP-PYTEST` = do not Gherkin-ify · `DONE` = specified.
 | Field | Value |
 |---|---|
 | Contract | Only Spark-committed files are ingested; each append carries a `load-id`; a crash before commit re-appends exactly once; a crash after commit never appends twice; commit conflicts retry; an invalid commit log fails closed |
-| Existing | `tests/test_writer.py` (`TestListNewFiles`, `TestCommittedLoadIds`, `TestRecoverPending`, `TestMain`), `tests/integration/test_crash_recovery.py` (both crash directions) |
-| Gap | Whole capability. Highest-value remaining BDD target — the contract is exactly "exactly once, observable in snapshots" |
-| Verdict | `FEATURE` → `iceberg_writer.feature` + `writer_crash_recovery.feature` (T2, reuse `isolated_lake`) |
+| Existing | `tests/test_writer.py` (`TestListNewFiles`, `TestCommittedLoadIds`, `TestRecoverPending`, `TestMain`) |
+| Crash semantics | **DONE** — `tests/features/writer_crash_recovery.feature` (2 scenarios, T2) replaced `tests/integration/test_crash_recovery.py`, preserving all 13 assertions. Drives the real writer process through `tests/support/writer_harness.py` against live MinIO + REST catalog |
+| Gap | Eligibility, load identity, invalid commit evidence and commit-conflict retry are still pytest-only |
+| Verdict | `FEATURE` → `iceberg_writer.feature` (T2). Must **not** restate crash recovery — that boundary is now owned by the feature above |
 
 ### 4.7 Writer state durability
 
