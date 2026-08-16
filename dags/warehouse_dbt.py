@@ -286,6 +286,7 @@ def warehouse_marts_validation():
         dbt_executable_path=DBT_EXECUTABLE,
         env=DBT_ENV,
     )
+    dbt_producer_done = dbt_group.children["dbt_producer_watcher_done"]
 
     @task
     def validate_dbt_artifacts() -> None:
@@ -314,7 +315,12 @@ def warehouse_marts_validation():
             },
         )
 
-    dbt_group >> generate_docs >> validate_dbt_artifacts() >> publish_mart_assets()
+    (
+        dbt_producer_done
+        >> generate_docs
+        >> validate_dbt_artifacts()
+        >> publish_mart_assets()
+    )
 
 
 warehouse_marts_validation()
