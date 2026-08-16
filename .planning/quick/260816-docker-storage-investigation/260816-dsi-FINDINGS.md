@@ -1,9 +1,9 @@
 ---
-gsd_findings_version: 1.1
+gsd_findings_version: 1.2
 task: docker-storage-investigation
 mode: quick
 created: 2026-08-16
-status: incident-resolved-prevention-landed
+status: incident-resolved-kafka-explained-prevention-staged
 ---
 
 # Docker storage incident — investigation, recovery, prevention
@@ -143,24 +143,87 @@ rebuild for the wrapper change, which is a separate authorized action.
 | `marts.pipeline_runs` | 8 | Aug 5 → Aug 16 | 3 | 48 kB |
 
 `lakehouse_metrics` grows ~970 rows/day and is the only real retention
-candidate — but it would take a year to reach ~65 MB. A 3-day policy there is
-defensible for query tidiness; it is not a disk-space measure.
+candidate — but it would take a year to reach ~65 MB. This is not a storage
+problem. If a policy is wanted it should be defined **semantically** — on the
+order of 90/180 days, with aggregation of older rows — rather than the original
+3-day idea, which was aimed at a disk problem that turned out to live elsewhere.
 
 `maintenance_runs` and `pipeline_runs` are **audit/evidence** tables referenced
 by `STATE.md` phase records. They should not get a blanket time-based delete.
 
 Separately: `marts.streaming_orders` occupies **46 MB while holding 0 rows** —
-dead-tuple bloat from the upsert path. That wants a `VACUUM FULL`, not
-retention.
+dead-tuple bloat from the upsert path. An earlier draft of this document
+suggested `VACUUM FULL`; that is the wrong tool here. `VACUUM FULL` rewrites the
+table under an `ACCESS EXCLUSIVE` lock, and 46 MB against 899 GB of free space
+does not justify it. Plain `VACUUM (ANALYZE)` is the right call unless the bloat
+is measurably hurting query plans.
 
-## 8. Still open
+## 8. Kafka — resolved: same incident, wider blast radius
+
+`de-demo-kafka` did not fail independently. It was killed by the same disk
+exhaustion, 3.5 hours before Postgres finally gave out:
+
+```
+[2026-08-16 15:16:01,256] ERROR Error while appending records to orders-0
+  in dir /var/lib/kafka/data
+java.io.IOException: No space left on device
+[2026-08-16 15:16:01,507] ERROR Shutdown broker because all log dirs in
+  /var/lib/kafka/data have failed
+```
+
+Kafka's log-dir failure handling is fail-fast by design: one failed dir, and
+with no other dir available the broker shuts itself down. Exit code 1, restart
+policy `no`, so it stayed down while the producer kept running against a broker
+that was gone.
+
+**The blast radius of the Spark disk exhaustion was therefore Postgres *and*
+Kafka** — the two stateful stores in the stack.
+
+Read-only inspection of `de_demo_kafka_data` (1.153 GB) shows it structurally
+intact:
+
+- `orders-0/00000000000000000000.log` is 50 MB and non-zero, with its `.index`
+  and `.timeindex` present.
+- The 50 zero-length `.log` files are all `__consumer_offsets-*` partitions.
+  That is expected, not damage: Spark Structured Streaming keeps offsets in its
+  own checkpoint and does not commit to `__consumer_offsets`.
+- `cluster.id=5L6g3nShT-eMCtK--X86sw` and
+  `directory.id=KVkjlSIJNaSMstmZOrNNFw` match the uuid named in the failure log;
+  `partition.metadata` still carries its Aug 10 epoch.
+- No clean-shutdown marker, so the next start runs a normal unclean-shutdown
+  recovery scan. If the final append was torn mid-write, that scan truncates to
+  the last valid record — designed behaviour, no loss of committed data.
+
+The broker was **not** restarted; that is a stateful action for the controlled
+stack change, where the recovery scan output should be read before anything
+else is trusted.
+
+## 9. The incident as an executable test scenario
+
+The most valuable output here is not the reclaimed space — it is that the
+incident traced a complete failure chain the orchestration/idempotency phase
+should assert rather than merely document:
+
+> dependency unavailable → job fails → restart policy activates → submission
+> occurs → **scratch/resource growth stays bounded** → **stateful services stay
+> intact** → dependency recovers → rerun resumes without duplication or
+> checkpoint corruption
+
+Every link in that chain failed here: the restart policy was unbounded, growth
+was unbounded, and two stateful services were taken down by a third service's
+scratch. Those are testable properties.
+
+## 10. Still open
 
 - Orphan volume `b420157…` (22.5 GB) and the dead `03-orchestration` / `op-*`
-  volumes (~71 MB) — classified safe, awaiting authorization.
-- **`de-demo-kafka` is `exited`** and this investigation does not explain why.
-  It matters for the streaming checkpoint story.
+  volumes (~71 MB) — classified safe, deliberately left alone: with 899 GB free
+  there is no operational reward for an irreversible action.
+- Applying the prevention branch as a controlled stack change, verifying:
+  `local:` JAR handling actually in use; worker reporting TTL 900 / interval
+  300; deterministic streaming failure stopping after three retries; log
+  rotation active; Spark Connect surviving recreation; Postgres/MinIO/Kafka
+  volumes retaining state.
 - Four containers carry hash-prefixed duplicate names, so the running stack does
   not match a clean `compose up`.
-- VHDX compaction, once the stack is healthy.
-- A disk-space guard/alert, and restart/failure behaviour as a case in the
-  upcoming orchestration/idempotency testing work.
+- VHDX compaction — optional housekeeping, not recovery, with 2.3 TB free on `C:`.
+- A disk-space guard/alert.
