@@ -40,18 +40,6 @@ INGESTION_UPSTREAM = {
     "core.validate_core": ["core.rebuild_core"],
     "core.publish_core_assets": ["core.validate_core"],
 }
-MARTS_UPSTREAM = {
-    "quality.validate_marts": [],
-    "quality.check_payment_reconcile": ["quality.validate_marts"],
-    "publication.publish_mart_assets": [
-        "quality.check_payment_reconcile",
-        "quality.validate_marts",
-    ],
-    "publication.write_audit": [
-        "publication.publish_mart_assets",
-        "quality.validate_marts",
-    ],
-}
 
 pytestmark = pytest.mark.airflow
 
@@ -194,35 +182,43 @@ def test_orders_ingestion_contract(dag_structure: dict) -> None:
 
 def test_marts_validation_contract(dag_structure: dict) -> None:
     dag = dag_structure["dags"][MARTS_DAG]
-    assert dag["display_name"] == "Warehouse · Marts Validation & Publication"
+    assert dag["display_name"] == "Warehouse · dbt Marts Validation & Publication"
     assert dag["description"]
     assert dag["has_doc_md"] is True
     assert dag["scheduled_asset_uris"] == [CORE_ORDERS_URI]
     assert dag["max_active_runs"] == 1
-    assert dag["dagrun_timeout"] == "0:30:00"
+    assert dag["dagrun_timeout"] == "0:45:00"
     assert dag["default_retries"] == 0
-    assert dag["execution_timeout"] == "0:15:00"
+    assert dag["execution_timeout"] == "None"
     assert dag["owner"] == "data-platform"
     assert dag["tags"] == sorted(
         [
             "domain:orders",
             "layer:marts",
-            "type:batch",
+            "type:dbt",
             "trigger:asset",
             "owner:data-platform",
             "criticality:high",
         ]
     )
-    assert dag["tasks"] == MARTS_UPSTREAM
-    assert dag["task_groups"] == {
-        "quality.validate_marts": "quality",
-        "quality.check_payment_reconcile": "quality",
-        "publication.publish_mart_assets": "publication",
-        "publication.write_audit": "publication",
-    }
-    assert dag["task_assets"] == {
-        "quality.validate_marts": {"inlets": 1, "outlets": 0},
-        "quality.check_payment_reconcile": {"inlets": 2, "outlets": 0},
-        "publication.publish_mart_assets": {"inlets": 0, "outlets": 4},
-        "publication.write_audit": {"inlets": 4, "outlets": 1},
-    }
+    tasks = dag["tasks"]
+    assert {
+        "dbt_warehouse.dbt_producer_watcher",
+        "dbt_warehouse.dbt_producer_watcher_done",
+        "generate_dbt_docs",
+        "validate_dbt_artifacts",
+        "publish_mart_assets",
+    } <= tasks.keys()
+    assert tasks["generate_dbt_docs"] == [
+        "dbt_warehouse.dbt_producer_watcher_done",
+        "dbt_warehouse.v_customer_state_daily_run",
+        "dbt_warehouse.v_order_items_wide.test",
+        "dbt_warehouse.v_reconcile_sales_daily.test",
+    ]
+    assert tasks["validate_dbt_artifacts"] == ["generate_dbt_docs"]
+    assert tasks["publish_mart_assets"] == ["validate_dbt_artifacts"]
+    assert {
+        task_id: assets
+        for task_id, assets in dag["task_assets"].items()
+        if task_id in {"publish_mart_assets"}
+    } == {"publish_mart_assets": {"inlets": 1, "outlets": 5}}

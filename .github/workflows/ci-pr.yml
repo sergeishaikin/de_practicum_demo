@@ -31,7 +31,7 @@ jobs:
           sh scripts/lock-python-dependencies.sh
           git diff --exit-code -- \
             uv.lock requirements-dev.txt airflow.requirements.txt \
-            dbt/requirements.txt iceberg/requirements.txt jupyter/requirements.txt \
+            dbt/requirements.txt dbt/warehouse/requirements.txt iceberg/requirements.txt jupyter/requirements.txt \
             kafka/producer/requirements.txt observability/requirements.txt \
             spark/requirements.txt
       - name: Validate Compose files
@@ -63,6 +63,67 @@ jobs:
         run: uv sync --locked
       - name: Fast unit suite with coverage gate (>= 90%)
         run: uv run --locked pytest tests --cov=iceberg --cov-report=term-missing --cov-fail-under=90
+
+  warehouse-dbt-contract:
+    name: Warehouse dbt contract + artifacts
+    runs-on: ubuntu-latest
+    env:
+      DBT_POSTGRES_HOST: localhost
+      DBT_POSTGRES_PORT: "15432"
+      DBT_POSTGRES_USER: app
+      DBT_POSTGRES_PASSWORD: change-me
+      DBT_POSTGRES_DB: dwh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: ".python-version"
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.5"
+          enable-cache: true
+          cache-dependency-glob: "dbt/warehouse/requirements.txt"
+      - name: Install warehouse dbt runtime
+        run: |
+          uv venv --python 3.12 .venv-dbt-warehouse
+          uv pip sync --python .venv-dbt-warehouse/bin/python --require-hashes dbt/warehouse/requirements.txt
+          cp dbt/warehouse/profiles.yml.example dbt/warehouse/profiles.yml
+      - name: Install repository test dependencies
+        run: uv sync --locked
+      - name: Start PostgreSQL fixture
+        run: |
+          docker compose --env-file .env.example up -d de-demo-postgres
+          for i in $(seq 1 30); do
+            docker exec de-demo-postgres pg_isready -U app -d dwh >/dev/null 2>&1 && break
+            sleep 2
+          done
+          docker exec de-demo-postgres psql -U app -d dwh -v ON_ERROR_STOP=1 -c "
+            insert into stg.orders values ('ci-order', 'ci-customer', 'paid', timestamp '2026-01-01 10:00:00', null, null, null, null, date '2026-01-01');
+            insert into stg.customers values ('ci-customer', 'ci-customer', '10115', 'Berlin', 'BE', date '2026-01-01');
+            insert into stg.order_items values ('ci-order', 1, 'ci-product', 'ci-seller', timestamp '2026-01-01 11:00:00', 10.00, 1.00, date '2026-01-01');
+            insert into stg.order_payments values ('ci-order', 1, 'credit_card', 1, 10.00, date '2026-01-01');
+            insert into core.orders values ('ci-order', 'ci-customer', 'BE', 'paid', date '2026-01-01', 10.00, 'credit_card', 1, date '2026-01-01');
+            insert into core.order_items values ('ci-order', 1, date '2026-01-01', 'paid', 'ci-customer', 'BE', 'ci-product', 'ci-seller', 10.00, 1.00, date '2026-01-01');
+          "
+      - name: Run warehouse dbt build and docs
+        run: |
+          .venv-dbt-warehouse/bin/dbt parse --project-dir dbt/warehouse --profiles-dir dbt/warehouse
+          .venv-dbt-warehouse/bin/dbt build --project-dir dbt/warehouse --profiles-dir dbt/warehouse
+          .venv-dbt-warehouse/bin/dbt docs generate --project-dir dbt/warehouse --profiles-dir dbt/warehouse
+          test -s dbt/warehouse/target/manifest.json
+          test -s dbt/warehouse/target/run_results.json
+          test -s dbt/warehouse/target/catalog.json
+          test -s dbt/warehouse/target/index.html
+      - name: Verify repository contracts
+        run: uv run --locked pytest -q tests/test_warehouse_dbt.py
+      - name: Upload warehouse dbt artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: warehouse-dbt-artifacts
+          path: dbt/warehouse/target/
+      - name: Cleanup
+        if: always()
+        run: docker compose --env-file .env.example down --remove-orphans || true
 
   airflow-dags:
     name: Airflow DAG validation

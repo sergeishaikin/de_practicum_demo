@@ -26,17 +26,14 @@ sys.path.insert(0, "/opt/airflow/dags")
 bag = DagBag(dag_folder="/opt/airflow/dags")
 maintenance = bag.dags["lakehouse_maintenance"].task_dict["maintain_table"].python_callable
 ingestion = bag.dags["warehouse_orders_ingestion"].task_dict
-marts = bag.dags["warehouse_marts_validation"].task_dict
+import warehouse_dbt
 staging = ingestion["staging.validate_staging"].python_callable
 core_ready = ingestion["core.validate_core"].python_callable
 core_publish = ingestion["core.publish_core_assets"].python_callable
-marts_ready = marts["quality.validate_marts"].python_callable
-payment = marts["quality.check_payment_reconcile"].python_callable
-marts_publish = marts["publication.publish_mart_assets"].python_callable
 
 class Cursor:
     def __init__(self, conn): self.conn = conn
-    def execute(self, sql):
+    def execute(self, sql, *params):
         operation = next((name for name in ("optimize", "expire_snapshots", "remove_orphan_files") if name in sql), None)
         if operation:
             self.conn.operations.append(operation)
@@ -45,6 +42,8 @@ class Cursor:
         if self.conn.fail_query and self.conn.fail_query in sql:
             raise RuntimeError(f"query failed:{self.conn.fail_query}")
     def fetchone(self):
+        if hasattr(self.conn, "audit_row"):
+            return self.conn.fetchone()
         if self.conn.payment_values is not None:
             return self.conn.payment_values
         return (self.conn.counts.pop(0),)
@@ -124,8 +123,7 @@ elif case.startswith("core_"):
         error = str(exc)
     result.update(error=error, counts=counts, metadata=metadata)
 elif case == "marts_provenance":
-    task_globals = marts_ready.__globals__
-    task_globals["_connect"] = lambda: Connection(counts=[10, 20, 30, 40])
+    task_globals = warehouse_dbt.__dict__
     asset = task_globals["CORE_ORDERS_ASSET"]
     event = SimpleNamespace(
         source_dag_run=SimpleNamespace(
@@ -133,11 +131,10 @@ elif case == "marts_provenance":
             run_id="manual__bdd-ingestion",
         )
     )
-    state = marts_ready({asset: [event]})
-    result.update(state=state)
+    state = task_globals["_source_ingestion_run_id"]({asset: [event]})
+    result.update(state={"ingestion_run_id": state})
 elif case == "marts_ambiguous_provenance":
-    task_globals = marts_ready.__globals__
-    task_globals["_connect"] = lambda: Connection(counts=[10, 20, 30, 40])
+    task_globals = warehouse_dbt.__dict__
     asset = task_globals["CORE_ORDERS_ASSET"]
     events = [
         SimpleNamespace(
@@ -150,28 +147,38 @@ elif case == "marts_ambiguous_provenance":
     ]
     error = None
     try:
-        marts_ready({asset: events})
+        task_globals["_source_ingestion_run_id"]({asset: events})
     except Exception as exc:
         error = str(exc)
     result.update(error=error)
 elif case in {"payment_mismatch", "payment_match"}:
-    task_globals = payment.__globals__
-    task_globals["_connect"] = lambda: Connection(
-        payment_values=(
-            (Decimal("10.00"), Decimal("9.00"))
-            if case == "payment_mismatch"
-            else (Decimal("10.00"), Decimal("10.00"))
-        )
+    task_globals = warehouse_dbt.__dict__
+    asset = task_globals["CORE_ORDERS_ASSET"]
+    event = SimpleNamespace(source_dag_run=SimpleNamespace(
+        dag_id="warehouse_orders_ingestion", run_id="manual__bdd-ingestion"
+    ))
+    class WarehouseConnection(Connection):
+        def __init__(self, audit_row):
+            super().__init__(counts=[10, 20, 30, 40])
+            self.audit_row = audit_row
+        def fetchone(self):
+            if self.audit_row is not None:
+                row, self.audit_row = self.audit_row, None
+                return row
+            return tuple(self.counts)
+    task_globals["_connect"] = lambda: WarehouseConnection(
+        ("failed", 0, 0, 1.00)
+        if case == "payment_mismatch"
+        else ("success", 0, 0, 0.00)
     )
-    state = {
-        "ingestion_run_id": "manual__bdd-ingestion",
-        "row_counts": {table: i for i, table in enumerate(task_globals["MART_TABLES"], start=1)},
-    }
     error = None
     metadata = []
     try:
-        payment()
-        metadata = metadata_rows(marts_publish(state))
+        state = task_globals["_audit_and_counts"]("manual__bdd-marts", {asset: [event]})
+        metadata = [
+            {"uri": output.uri, "extra": {"dbt_project": "warehouse_transform"}}
+            for output in [*task_globals["MART_ASSETS"], task_globals["PIPELINE_AUDIT_ASSET"]]
+        ]
     except Exception as exc:
         error = str(exc)
     result.update(error=error, metadata=metadata)
@@ -342,12 +349,6 @@ def core_failure_not_published(context: dict) -> None:
 def source_provenance_returned(context: dict) -> None:
     state = context["result"]["state"]
     assert state["ingestion_run_id"] == "manual__bdd-ingestion"
-    assert state["row_counts"] == {
-        "marts.v_order_items_wide": 10,
-        "marts.v_sales_daily": 20,
-        "marts.v_customer_state_daily": 30,
-        "marts.v_reconcile_sales_daily": 40,
-    }
 
 
 @then("marts readiness rejects ambiguous source provenance")
@@ -358,7 +359,7 @@ def ambiguous_source_provenance_rejected(context: dict) -> None:
 @then("payment reconciliation fails and no mart metadata is published")
 def payment_failure_not_published(context: dict) -> None:
     result = context["result"]
-    assert "Payment reconciliation failed" in result["error"]
+    assert "Warehouse dbt audit failed" in result["error"]
     assert result["metadata"] == []
 
 
@@ -366,4 +367,4 @@ def payment_failure_not_published(context: dict) -> None:
 def payment_success_published(context: dict) -> None:
     result = context["result"]
     assert result["error"] is None
-    assert len(result["metadata"]) == 4
+    assert len(result["metadata"]) == 5

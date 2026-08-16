@@ -31,6 +31,7 @@ compile() {
 }
 
 compile 3.12 dbt/requirements.in dbt/requirements.txt
+compile 3.12 dbt/warehouse/requirements.in dbt/warehouse/requirements.txt
 compile 3.12 iceberg/requirements.in iceberg/requirements.txt
 compile 3.10 jupyter/requirements.in jupyter/requirements.txt
 compile 3.12 kafka/producer/requirements.in kafka/producer/requirements.txt

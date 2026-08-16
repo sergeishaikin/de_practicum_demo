@@ -16,6 +16,7 @@ agate==1.9.1 \
     #   dbt-adapters
     #   dbt-common
     #   dbt-core
+    #   dbt-postgres
 aiosmtplib==5.1.2 \
     --hash=sha256:04a0ea3c678f5b719f998f290dce010ca512e1385836d3944206299df03b060f \
     --hash=sha256:070d467cc329dafd0af59108ba5d217d973cba10309910fed359a2a7bfb52d7a
@@ -431,6 +432,7 @@ dbt-adapters==1.24.5 \
     --hash=sha256:87de096a0d5b219905f1079b002f13e3447ffb63558f4f3c5b7278670d198acb
     # via
     #   dbt-core
+    #   dbt-postgres
     #   dbt-trino
 dbt-common==1.39.0 \
     --hash=sha256:30d63490b9ef2aad6f469ec841fb758430fcb1d997b79ff3df36fcb7b79a241f \
@@ -438,12 +440,14 @@ dbt-common==1.39.0 \
     # via
     #   dbt-adapters
     #   dbt-core
+    #   dbt-postgres
     #   dbt-trino
 dbt-core==1.12.2 \
     --hash=sha256:9c4d60c58ed759ceff3cc20c065420abc4d26cb092b0e142b39b8747ee43c79b \
     --hash=sha256:ecc5bc66eb09de0411658d159e973cf503bb1605589a7c2b3fb82a1637e31d32
     # via
     #   -r airflow.requirements.in
+    #   dbt-postgres
     #   dbt-trino
 dbt-core-experimental-parser==2.0.0b1 \
     --hash=sha256:72dda4c1269607934dc0fa24dc0495d74c508ecb3fdb3dbe01fac37d6c4b23de
@@ -466,6 +470,10 @@ dbt-extractor==0.6.0 \
     --hash=sha256:d6cf08ec793b8bc2bd6e260ef818230ae68a4f71436fa489f08d7db1a52e2ffe \
     --hash=sha256:dcf14ed245de8df269815ff4c4f555fa72d2621f4fff37c023b8c99d0e421b4f
     # via dbt-core
+dbt-postgres==1.11.0 \
+    --hash=sha256:0a8558e03776231969a9614075eb31eb7daca03bcee1db7bc36f85f027826965 \
+    --hash=sha256:b88f994dc2f00150579d62f8ff91af715428a3cfe064e067945359ca4509872c
+    # via -r airflow.requirements.in
 dbt-protos==1.0.565 \
     --hash=sha256:130a8333fcd644ba1f00c8377e8f8013b28cca696a6af56037feb55a011f964c \
     --hash=sha256:fabee73a6f98a7eb7e52ab34571ef24d82cce760829e268c7263a5805f3937cf
@@ -1610,7 +1618,9 @@ psycopg2-binary==2.9.12 \
     --hash=sha256:f921f3cd87035ef7df233383011d7a53ea1d346224752c1385f1edfd790ceb6a \
     --hash=sha256:fb1828cf3da68f99e45ebce1355d65d2d12b6a78fb5dfb16247aad6bdef5f5d2 \
     --hash=sha256:ffdd7dc5463ccd61845ac37b7012d0f35a1548df9febe14f8dd549be4a0bc81e
-    # via -r airflow.requirements.in
+    # via
+    #   -r airflow.requirements.in
+    #   dbt-postgres
 pycparser==3.0 ; implementation_name != 'PyPy' and platform_python_implementation != 'PyPy' \
     --hash=sha256:600f49d217304a5902ac3c37e1281c9fe94e4d0489de643a9504c5cdfdfc6b29 \
     --hash=sha256:b727414169a36b7d524c1c3e31839a521725078d7b2ff038656844266160a992

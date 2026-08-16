@@ -93,8 +93,13 @@ services:
       DBT_TRINO_HOST: ${DBT_TRINO_HOST:-de-demo-trino}
       DBT_TRINO_PORT: ${DBT_TRINO_PORT:-8080}
       DBT_TRINO_USER: ${DBT_TRINO_USER:-admin}
+      DBT_POSTGRES_HOST: ${DBT_POSTGRES_HOST:-de-demo-postgres}
+      DBT_POSTGRES_PORT: ${DBT_POSTGRES_PORT:-5432}
+      DBT_POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      DBT_POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      DBT_POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
       AIRFLOW__COSMOS__ENABLE_TELEMETRY: "False"
-      AIRFLOW__COSMOS__DBT_DOCS_PROJECTS: '{"lakehouse":{"dir":"/opt/airflow/project/dbt/target","index":"index.html","name":"Lakehouse dbt docs"}}'
+      AIRFLOW__COSMOS__DBT_DOCS_PROJECTS: '{"lakehouse":{"dir":"/opt/airflow/project/dbt/target","index":"index.html","name":"Lakehouse dbt docs"},"warehouse":{"dir":"/opt/airflow/project/dbt/warehouse/target","index":"index.html","name":"Warehouse dbt docs"}}'
       MAINTENANCE_RETENTION: ${MAINTENANCE_RETENTION:-2h}
       MAINTENANCE_RECOVERY_HORIZON: ${MAINTENANCE_RECOVERY_HORIZON:-1h}
       MAINTENANCE_RECOVERY_SAFETY_MARGIN: ${MAINTENANCE_RECOVERY_SAFETY_MARGIN:-15m}
@@ -105,6 +110,7 @@ services:
       - ./db:/opt/airflow/project/db:ro
       - ./dbt:/opt/airflow/project/dbt:rw
       - ./dbt/profiles.yml.example:/opt/airflow/project/dbt/profiles.yml:ro
+      - ./dbt/warehouse/profiles.yml.example:/opt/airflow/project/dbt/warehouse/profiles.yml:ro
       - ./data/raw:/opt/airflow/project/data/raw:ro
       - de_demo_airflow_logs:/opt/airflow/logs
     command:

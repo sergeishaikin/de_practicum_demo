@@ -22,6 +22,7 @@ try {
 
 $Locks = @(
     @{ Input = "dbt/requirements.in"; Output = "dbt/requirements.txt"; Python = "3.12" },
+    @{ Input = "dbt/warehouse/requirements.in"; Output = "dbt/warehouse/requirements.txt"; Python = "3.12" },
     @{ Input = "iceberg/requirements.in"; Output = "iceberg/requirements.txt"; Python = "3.12" },
     @{ Input = "jupyter/requirements.in"; Output = "jupyter/requirements.txt"; Python = "3.10" },
     @{ Input = "kafka/producer/requirements.in"; Output = "kafka/producer/requirements.txt"; Python = "3.12" },

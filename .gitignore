@@ -51,6 +51,10 @@ dbt/profiles.yml
 dbt/target/
 dbt/dbt_packages/
 dbt/.user.yml
+dbt/warehouse/profiles.yml
+dbt/warehouse/.user.yml
+dbt/warehouse/target/
+dbt/warehouse/dbt_packages/
 
 # Generated at container startup from trino/etc/catalog/iceberg.properties.template
 trino/etc/catalog/iceberg.properties

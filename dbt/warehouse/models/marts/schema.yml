@@ -1,0 +1,89 @@
+version: 2
+
+models:
+  - name: v_order_items_wide
+    description: Stable replacement for marts.v_order_items_wide; dbt owns the view SQL.
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: order_id
+        data_type: varchar
+        tests: [not_null]
+      - name: order_item_id
+        data_type: integer
+        tests: [not_null]
+      - name: order_purchase_date
+        data_type: date
+      - name: order_status
+        data_type: varchar
+      - name: customer_id
+        data_type: varchar
+        tests: [not_null]
+      - name: customer_state
+        data_type: varchar
+      - name: product_id
+        data_type: varchar
+        tests: [not_null]
+      - name: seller_id
+        data_type: varchar
+        tests: [not_null]
+      - name: price
+        data_type: numeric(12,2)
+      - name: freight_value
+        data_type: numeric(12,2)
+      - name: order_payment_value
+        data_type: numeric(12,2)
+      - name: main_payment_type
+        data_type: varchar
+      - name: ingest_date
+        data_type: date
+
+  - name: v_sales_daily
+    description: Stable replacement for marts.v_sales_daily.
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: sales_date
+        data_type: date
+      - name: orders_cnt
+        data_type: bigint
+      - name: items_cnt
+        data_type: bigint
+      - name: gross_sales
+        data_type: numeric(12,2)
+      - name: freight_sum
+        data_type: numeric(12,2)
+
+  - name: v_customer_state_daily
+    description: Stable replacement for marts.v_customer_state_daily.
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: sales_date
+        data_type: date
+      - name: customer_state
+        data_type: varchar
+      - name: orders_cnt
+        data_type: bigint
+      - name: items_cnt
+        data_type: bigint
+      - name: gross_sales
+        data_type: numeric(12,2)
+
+  - name: v_reconcile_sales_daily
+    description: Source-to-mart reconciliation view; no rows means the contract passes.
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: sales_date
+        data_type: date
+      - name: mart_gross_sales
+        data_type: numeric(12,2)
+      - name: source_gross_sales
+        data_type: numeric(12,2)
+      - name: diff_amount
+        data_type: numeric(12,2)

@@ -1,0 +1,12 @@
+warehouse:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: "{{ env_var('DBT_POSTGRES_HOST', 'localhost') }}"
+      port: "{{ env_var('DBT_POSTGRES_PORT', '15432') | int }}"
+      user: "{{ env_var('DBT_POSTGRES_USER', 'app') }}"
+      password: "{{ env_var('DBT_POSTGRES_PASSWORD', 'change-me') }}"
+      dbname: "{{ env_var('DBT_POSTGRES_DB', 'dwh') }}"
+      schema: marts
+      threads: 4

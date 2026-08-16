@@ -69,3 +69,70 @@ jobs:
         run: |
           docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml down --remove-orphans || true
           docker compose --env-file .env down --remove-orphans || true
+
+  warehouse-airflow-dbt-e2e:
+    name: Warehouse Asset → Cosmos dbt E2E
+    runs-on: ubuntu-latest
+    env:
+      AIRFLOW_IMAGE_TAG: de-practicum-demo-airflow:0.1.0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build Airflow image
+        run: |
+          docker buildx build --file airflow.Dockerfile --tag "$AIRFLOW_IMAGE_TAG" --load .
+      - name: Prepare runtime environment
+        run: cp .env.example .env
+      - name: Start PostgreSQL and Airflow
+        run: |
+          docker compose --env-file .env up -d de-demo-postgres de-demo-airflow
+          ready=0
+          for i in $(seq 1 72); do
+            if docker exec de-demo-airflow python -c '
+          import json
+          import urllib.request
+          health = json.load(urllib.request.urlopen("http://127.0.0.1:8080/api/v2/monitor/health", timeout=3))
+          assert health["scheduler"]["status"] == "healthy"
+          assert health["dag_processor"]["status"] == "healthy"
+          assert health["triggerer"]["status"] == "healthy"
+            ' >/dev/null 2>&1; then
+              echo "airflow ready"
+              ready=1
+              break
+            fi
+            sleep 5
+          done
+          test "$ready" = "1"
+      - name: Trigger manual ingestion boundary
+        run: |
+          export RUN_ID="phase03b-ci-${GITHUB_RUN_ID}"
+          echo "RUN_ID=$RUN_ID" >> "$GITHUB_ENV"
+          docker exec de-demo-airflow airflow dags trigger warehouse_orders_ingestion --run-id "$RUN_ID"
+      - name: Wait for ingestion and Asset-triggered dbt workflow
+        run: |
+          for i in $(seq 1 120); do
+            ingestion_state=$(docker exec de-demo-airflow airflow dags list-runs warehouse_orders_ingestion -o json | python -c 'import json,sys; run_id=sys.argv[1]; runs=json.load(sys.stdin); print(next((r["state"] for r in runs if r["run_id"]==run_id), "missing"))' "$RUN_ID")
+            if [ "$ingestion_state" = "failed" ]; then echo "ingestion failed"; exit 1; fi
+            if [ "$ingestion_state" = "success" ]; then break; fi
+            sleep 5
+          done
+          for i in $(seq 1 180); do
+            dbt_state=$(docker exec de-demo-airflow airflow dags list-runs warehouse_marts_validation -o json | python -c 'import json,sys; runs=json.load(sys.stdin); asset=[r for r in runs if r["run_id"].startswith("asset_triggered__")]; print(asset[0]["state"] if asset else "missing")')
+            if [ "$dbt_state" = "failed" ]; then echo "warehouse dbt DAG failed"; exit 1; fi
+            if [ "$dbt_state" = "success" ]; then break; fi
+            sleep 5
+          done
+          test "$dbt_state" = "success"
+      - name: Verify exact pipeline provenance and dbt artifacts
+        run: |
+          row=$(docker exec de-demo-postgres psql -U app -d dwh -Atc "select ingestion_run_id || '|' || status || '|' || stg_orders || '|' || stg_order_items || '|' || core_order_items || '|' || mart_sales_days || '|' || duplicate_grain_rows || '|' || null_key_rows || '|' || max_reconcile_diff from marts.pipeline_runs where run_id like 'asset_triggered__%' order by run_ts desc limit 1")
+          test "$row" = "$RUN_ID|success|1000|1149|1149|463|0|0|0.00"
+          for artifact in manifest.json run_results.json catalog.json index.html; do
+            docker exec de-demo-airflow test -s "/opt/airflow/project/dbt/warehouse/target/$artifact"
+          done
+      - name: Collect Airflow logs on failure
+        if: failure()
+        run: docker compose --env-file .env logs --no-color de-demo-airflow de-demo-postgres || true
+      - name: Cleanup
+        if: always()
+        run: docker compose --env-file .env down --remove-orphans || true

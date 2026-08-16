@@ -1,0 +1,50 @@
+version: 2
+
+sources:
+  - name: staging
+    description: Raw Olist relations loaded by the Airflow ingestion transaction.
+    schema: stg
+    database: "{{ env_var('DBT_POSTGRES_DB', 'dwh') }}"
+    tables:
+      - name: orders
+        description: One CSV ingestion slice of order headers.
+        tags: [domain:orders, layer:staging, owner:airflow]
+      - name: order_items
+        description: One CSV ingestion slice of order line items.
+        tags: [domain:orders, layer:staging, owner:airflow]
+      - name: order_payments
+        description: One CSV ingestion slice of order payments.
+        tags: [domain:orders, layer:staging, owner:airflow]
+      - name: customers
+        description: One CSV ingestion slice of customers.
+        tags: [domain:orders, layer:staging, owner:airflow]
+
+  - name: core
+    description: Transactionally rebuilt relations owned by the ingestion DAG.
+    schema: core
+    database: "{{ env_var('DBT_POSTGRES_DB', 'dwh') }}"
+    tables:
+      - name: orders
+        description: Current warehouse order header projection.
+        tags: [domain:orders, layer:core, owner:airflow]
+        columns:
+          - name: order_id
+            tests: [not_null, unique]
+          - name: customer_id
+            tests: [not_null]
+      - name: order_items
+        description: Current warehouse order item projection.
+        tags: [domain:orders, layer:core, owner:airflow]
+        columns:
+          - name: order_id
+            tests: [not_null]
+          - name: order_item_id
+            tests: [not_null]
+          - name: customer_id
+            tests: [not_null]
+          - name: product_id
+            tests: [not_null]
+          - name: seller_id
+            tests: [not_null]
+        tests:
+          - core_order_items_grain_unique

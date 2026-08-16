@@ -1,14 +1,21 @@
 from __future__ import annotations
 
 import os
+import sys
 import traceback
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import psycopg2
 import trino
 
 from airflow.sdk import dag, get_current_context, task
-from recovery_contract import validate_retention_contract
+
+_DAG_DIR = str(Path(__file__).resolve().parent)
+if _DAG_DIR not in sys.path:
+    sys.path.insert(0, _DAG_DIR)
+
+from recovery_contract import validate_retention_contract  # noqa: E402
 
 TRINO_HOST = os.getenv("TRINO_HOST", "trino")
 TRINO_PORT = int(os.getenv("TRINO_PORT", "8080"))

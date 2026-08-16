@@ -1,0 +1,15 @@
+selectors:
+  - name: warehouse_contracts
+    description: Tier-1 warehouse models and all downstream tests.
+    definition:
+      method: tag
+      value: contract:mart
+      children: true
+  - name: warehouse_reconciliation
+    description: Reconciliation views and singular source-to-core checks.
+    definition:
+      union:
+        - method: tag
+          value: contract:reconciliation
+        - method: path
+          value: tests
