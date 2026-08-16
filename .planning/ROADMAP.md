@@ -8,6 +8,10 @@
 - 🚧 **B2 Controlled Rollout** — execute the accepted B2 architecture under
   controlled canary, evidence gate, cutover, and telemetry observation.
 
+- **Airflow Orchestration Boundaries** — split the existing warehouse batch
+  workflow at a real Asset publication boundary without changing storage,
+  business, streaming, maintenance, or medallion ownership semantics.
+
 ## Phases
 
 ### Phase 1: B2 Controlled Rollout
@@ -99,11 +103,40 @@ window contains ten successful rows and one non-empty B2 cycle with complete
 planned/added/removed byte and file measures, one snapshot, zero shadow/FF-14
 failures, and no in-flight work. 01-07 is the next plan and was not executed.
 
-**Execution Order:** Phase 1 → 01-01 → 01-02 → 01-02A → historical 01-02B STOP → 01-02B-R STOP → 01-02B-NB → 01-02C → 01-03 → 01-04 → 01-05 → 01-06 → 01-07
+**Execution Order:** Phase 1 → 01-01 → 01-02 → 01-02A → historical 01-02B STOP → 01-02B-R STOP → 01-02B-NB → 01-02C → 01-03 → 01-04 → 01-05 → 01-06 → 01-07 → Phase 2
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 1. B2 Controlled Rollout | Current | 8/12 | In Progress|  |
+| 2. Warehouse Asset-Orchestrated Batch Split | Airflow Orchestration Boundaries | 0/TBD | Planned |  |
 
 Historical milestones are intentionally summarized above rather than
 replayed as unfinished GSD phases.
+
+### Phase 2: Warehouse Asset-Orchestrated Batch Split
+
+**Goal:** Replace the combined manual warehouse DAG with a manual ingestion
+DAG and an Asset-triggered marts validation/publication DAG while preserving
+the current SQL, quality, audit, and storage semantics.
+
+**Requirements**: [ORCH-01, ORCH-02, ORCH-03, ORCH-04, ORCH-05, ORCH-06, ORCH-07, ORCH-08]
+**Depends on:** Phase 1 reaching its terminal rollout decision; Quick Task
+260815-ulp verified Airflow 3.3.1 runtime and workflow baseline.
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 2 to break down)
+
+**Scope contract:**
+
+- `warehouse_orders_ingestion` remains manual and owns staging load,
+  exact staging parity, the unchanged `10_rebuild_core.sql` transaction,
+  read-only core readiness counts, and final core Asset publication.
+- `warehouse_marts_validation` is triggered by the successfully published
+  `core.orders` Asset and owns marts validation, payment reconciliation,
+  mart Asset publication, and the existing idempotent pipeline audit.
+- `marts.pipeline_runs.run_id` remains the downstream DagRun primary key;
+  nullable indexed `ingestion_run_id` records Asset-event provenance.
+- Marts remain views. Maintenance, medallion, streaming, recovery,
+  checkpoints, and Bronze/Silver/Gold publication remain unchanged.

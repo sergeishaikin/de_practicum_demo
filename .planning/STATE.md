@@ -4,10 +4,10 @@ milestone: v1.0
 milestone_name: milestone
 status: 01-06 PASS; 01-07 authorized but not executed
 stopped_at: 01-03 STOP / HISTORICAL_EVIDENCE_GAP preserved
-last_updated: "2026-08-15T22:50:00Z"
-last_activity: 2026-08-15 -- Quick Task 260815-ulp verified Airflow maintenance and batch hardening live
+last_updated: "2026-08-16T10:45:00Z"
+last_activity: 2026-08-16 -- Phase 2 warehouse Asset-orchestration boundary added to the roadmap
 progress:
-  total_phases: 1
+  total_phases: 2
   completed_phases: 0
   total_plans: 13
   completed_plans: 11
@@ -28,7 +28,7 @@ See: `.planning/PROJECT.md` (updated 2026-08-09)
 Phase: 01 (b2-controlled-rollout) — EXECUTING
 Plan: 01-06 of 13 complete; next is 01-07
 Status: PASS; `ready_for_01_07=true`; live Gold remains on persisted Silver under shadow
-Last activity: 2026-08-15 -- Quick Task 260815-ulp passed exact Airflow maintenance and batch live verification
+Last activity: 2026-08-16 -- Phase 2 warehouse Asset-orchestration boundary added to the roadmap
 
 Progress: ▓▓▓▓▓▓▓░░░ 67% of current rollout phase
 
@@ -44,6 +44,10 @@ Progress: ▓▓▓▓▓▓▓░░░ 67% of current rollout phase
 | Phase 01 P02C | 30m | 2 tasks | 4 files |
 
 ## Accumulated Context
+
+### Roadmap Evolution
+
+- Phase 2 added: Warehouse Asset-Orchestrated Batch Split. This is Phase 1 of the Airflow orchestration roadmap; Airflow-owned medallion remains an unapproved seed.
 
 ### Decisions
 
@@ -64,6 +68,7 @@ Progress: ▓▓▓▓▓▓▓░░░ 67% of current rollout phase
 - [Phase 01]: 01-03 remains STOP / HISTORICAL_EVIDENCE_GAP; 01-03F adds an immutable forward completion ledger without backfilling historical identities.
 - [Phase 01]: 01-06 PASS used one bounded higher-version event for an existing key; B2 recorded complete scan/write/snapshot cost, zero mismatches/FF-14/in-flight work, and retained `b2/persisted_silver/1`.
 - [Quick 260815-ulp]: Airflow maintenance and batch hardening passed exact one-shot live verification under `b2/persisted_silver/1`; no retry, clear, replay, backfill, or historical-evidence mutation occurred.
+- [Phase 2]: Keep ingestion manual, trigger marts validation/publication from the successful `core.orders` Asset event, preserve marts as views, and add source ingestion provenance without renaming `marts.pipeline_runs.run_id`.
 
 ### Pending Todos
 
