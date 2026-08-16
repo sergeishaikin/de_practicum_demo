@@ -6,13 +6,14 @@ This document is the input for deciding **which** `.feature` files to write. It 
 not itself a contract: the contracts live in `tests/features/*.feature`, and in the
 pytest suites listed below until a feature covers them.
 
-Status: **3 feature files, 23 scenarios (29 cases)** against ~180 pytest tests
+Status: **4 feature files, 30 scenarios (36 cases)** against ~180 pytest tests
 across unit / integration / e2e.
 
 | Feature | Tier | Scenarios | Runs |
 |---|:--:|:--:|---|
 | `silver_business_state.feature` | T1 | 8 | default fast suite, every PR |
 | `data_quality_modes.feature` | T1 | 6 (12 cases) | default fast suite, every PR |
+| `legacy_cleanup_safety.feature` | T1 | 7 | default fast suite, every PR |
 | `airflow_workflow_behavior.feature` | T3 | 9 | dedicated Airflow job, every PR |
 
 ---
@@ -92,7 +93,7 @@ are the scenarios that keep the contract honest during refactoring.
 | Shadow compare | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Gold source cutover / rollout matrix | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Legacy business-version migration | ✓ | ✓ | ✓ | ! | ✓ | ✓ |
-| Legacy outbox reconciliation / cleanup | ✓ | ✓ | ✓ | — | ✓ | ✓ |
+| **Legacy outbox reconciliation / cleanup** | **G** | **G** | **G** | — | **G** | ✓ |
 | Lakehouse maintenance | G | ✓ | G | ✓ | — | G |
 | Maintenance verifier (exact run id) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Retention vs recovery horizon | ✓ | ✓ | ✓ | ✓ | — | — |
@@ -227,14 +228,15 @@ listed scenarios · `KEEP-PYTEST` = do not Gherkin-ify · `DONE` = specified.
 | Gap | Whole capability, plus a **behavior** gap: no rollback semantics — see §6.3. Decide the semantics before writing the scenario |
 | Verdict | `FEATURE` → `business_version_migration.feature` (T1), blocked on the rollback decision |
 
-### 4.14 Legacy outbox reconciliation & cleanup
+### 4.14 Legacy outbox reconciliation & cleanup — **DONE**
 
 | Field | Value |
 |---|---|
-| Contract | A legacy row is safe to remove only after an authoritative v1 match; active in-flight progress blocks cleanup even when rows are migrated; a missing authoritative row blocks; the digest is order-independent and a digest mismatch rejects before any file lookup; post-migration snapshots are blocked |
-| Existing | `tests/test_s1_2_outbox_reconciliation.py` (5 tests), `tests/test_s1_2_cleanup.py` (2 tests) |
-| Gap | Whole capability. Pure fail-closed safety rules — very high BDD value per line |
-| Verdict | `FEATURE` → `legacy_cleanup_safety.feature` (T1) |
+| Contract | A legacy batch is eligible for deletion only when its rows are represented in authoritative state; active in-flight progress withholds it even once its rows are migrated; missing authoritative rows withhold it as unsafe; work observed after the migration boundary is **live, not stale** — excluded from cleanup without being reported as a safety failure; the approval fingerprint is order-independent; the gate refuses on a fingerprint mismatch before inspecting any batch |
+| Specified by | `tests/features/legacy_cleanup_safety.feature` (7 scenarios, T1). Steps bind to `classify_manifests`, `cleanup_set_digest` and `_pre_delete_gate` |
+| Safety property | Every ineligible case asserts the proposed cleanup set is **empty** — the dangerous action cannot happen, not merely that classification reported a problem (DoD §5–6) |
+| Still pytest | `tests/test_s1_2_outbox_reconciliation.py`, `tests/test_s1_2_cleanup.py` — per-reason counter names and receipt field detail |
+| Verdict | `DONE` — see §6.5 for a naming defect found in the existing tests while writing this |
 
 ### 4.15 Lakehouse maintenance
 
@@ -318,8 +320,8 @@ design can be reassessed after the first few T1 features.
 |---|---|:--:|:--:|---|
 | 1 | `silver_business_state.feature` | T1 | 8 | **done** |
 | 2 | `data_quality_modes.feature` | T1 | 6 (12 cases) | **done** |
-| 3 | `legacy_cleanup_safety.feature` | T1 | ~6 | next |
-| 4 | `retention_recovery.feature` | T1 | 3 | |
+| 3 | `legacy_cleanup_safety.feature` | T1 | 7 | **done** |
+| 4 | `retention_recovery.feature` | T1 | 3 | next |
 | 5 | `business_version_migration.feature` | T1 | ~5 | blocked on §6.3 |
 | 6 | `shadow_cutover.feature` (T1 portion) | T1 | ~4 | decide after reassess |
 | 7 | `gold_aggregation.feature` | T1 | ~4 | |
@@ -377,7 +379,15 @@ design can be reassessed after the first few T1 features.
    `expire_snapshots` failure is specified; `optimize` and `remove_orphan_files`
    failures are assumed to behave the same way.
 
-5. **The `iceberg/` coverage gate is currently red, independent of BDD.**
+5. **A misleading test name in the legacy outbox suite.**
+   `tests/test_s1_2_outbox_reconciliation.py::test_post_migration_snapshot_is_blocked`
+   asserts the opposite of its name: `blocked == 0`, `blocked_reasons == {}`, and
+   `live_post_migration == 1`. Post-migration work is classified `LIVE_POST_MIGRATION`
+   — current work excluded from cleanup, not a safety failure. Anyone reading the
+   test list would conclude the system blocks it. The name should say
+   "is treated as live work"; the feature now states the rule correctly regardless.
+
+6. **The `iceberg/` coverage gate is currently red, independent of BDD.**
    `pytest tests --cov=iceberg --cov-fail-under=90` reports 80% on this branch
    with or without the new feature. Largest shortfalls:
    `legacy_outbox_reconciliation.py` 57%, `ops.py` 62%,
