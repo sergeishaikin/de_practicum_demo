@@ -109,6 +109,7 @@ failures, and no in-flight work. 01-07 is the next plan and was not executed.
 |-------|-----------|----------------|--------|-----------|
 | 1. B2 Controlled Rollout | Current | 8/12 | In Progress|  |
 | 2. Warehouse Asset-Orchestrated Batch Split | Airflow Orchestration Boundaries | 1/1 | Complete   | 2026-08-16 |
+| 3. Staging Source Freshness Gate | Airflow Orchestration Boundaries | 0/4 | Planned    |  |
 
 Historical milestones are intentionally summarized above rather than
 replayed as unfinished GSD phases.
@@ -161,12 +162,23 @@ so if ingestion never runs the gate never evaluates.
 — implement as specified; do not redesign unless implementation proves it
 impossible.
 
-**Requirements**: Fail-closed freshness gate; thresholds evidence-based rather
-than guessed; W1's "deliberately not adopted" statement updated in the same
-change that activates freshness.
+**Requirements**: [R1, R1c, R2, R2b, R2c, R2d, R3, R6, R7] — new work; and
+[R3b, R4, R5, R6b, R8, R9, R10, R11] — existing behaviour that must stay green.
+Fail-closed freshness gate; thresholds evidence-based rather than guessed, or
+recorded verbatim as provisional and unmeasured; W1's "deliberately not adopted"
+statement replaced in the same commit that activates freshness.
 **Depends on:** Phase 2
-**Plans:** 0 plans
+**Plans:** 4 plans in 4 waves
 
 Plans:
 
-- [ ] TBD (run /gsd-plan-phase 3 to break down)
+- [ ] 03-01-PLAN.md — Arrival signal: `loaded_at` migration and bootstrap replay (wave 1)
+- [ ] 03-02-PLAN.md — Activate freshness: dbt source config, the Airflow gate, and the W1/W2 rewrite (wave 2)
+- [ ] 03-03-PLAN.md — Live proof in CI: fresh passes, stale fails closed, one batch one timestamp (wave 3)
+- [ ] 03-04-PLAN.md — Live phase gate: DagBag mapping, BDD fail-closed scenario, threshold basis (wave 4, not autonomous)
+
+**Wave order is sequential by design.** The operator requires small commits with
+verification after each meaningful step, and each wave depends on the previous
+one: the column must exist before freshness can be declared, freshness must be
+declared before CI can prove it, and the DAG task must exist before the live
+DagBag can be observed. There is no parallelism to recover here.
