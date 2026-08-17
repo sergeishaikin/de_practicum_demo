@@ -113,6 +113,44 @@ Two consequences the plan must carry:
   0.11.1. Two traps: a full overwrite writes **two** snapshots (delete + append,
   both stamped), and the append half is not elided for an empty frame.
 
+### Operator decisions taken at planning time (LOCKED)
+
+**ADR-0001 D-4 — amend narrowly.** GLD-01 conflicts with the ratified sentence
+*"Gold is not made incremental. It is rebuilt in full from persisted Silver on
+every cycle."* All six of D-4's stated reasons concern **not making Gold
+incremental** — non-composable aggregates, sketch state, exact verifiability.
+GLD-01 does not make Gold incremental: it keeps the full deterministic rebuild
+and skips it only when the source Silver snapshot has not moved. This is
+memoization, not incrementalisation.
+
+The amendment is therefore deliberately narrow:
+- keep the decision and **all six reasons verbatim**;
+- change only *"on every cycle"* → *"on every cycle in which persisted Silver
+  changed"*;
+- record it as a **superseding amendment** in ADR-0001 citing the Phase 4
+  evidence, not as a silent edit;
+- reword the one ratified scenario in `tests/features/shadow_cutover.feature:66`
+  (*"the daily metrics are published again"*) and its step at
+  `tests/features/test_shadow_cutover.py:219`.
+
+Gold must remain a full, exactly-verifiable rebuild whenever it does run. If
+implementation pressure ever pushes toward a partial or delta Gold, that is
+outside this amendment and needs a fresh decision.
+
+**Prometheus — cycle-only gauge updates.** `_RuntimeMetrics` labels gauges by
+`source` alone, so the outer `_run_m4` record currently overwrites the nested B2
+gauges **with zeros** — `lakehouse_files{kind="planned"}`, `lakehouse_bytes`,
+`lakehouse_processed{kind="keys"}` and `lakehouse_work{state="in_flight"}` reset
+seconds after being measured, weakening the `LakehouseUnresolvedWork` alert.
+This is an active defect, not merely a reporting nuisance, and its fix is in
+scope.
+
+The fix is **cycle-only gauge updates**: only the outer cycle record updates
+Prometheus gauges; nested phase records go to Postgres only. No new label, no
+cardinality change, and no existing query or alert rule needs rewriting.
+Per-phase granularity lives in Postgres instead. Do **not** add a `phase` label
+to the gauges.
+
 ### P2 — Steady-state shadow policy
 
 - Analyse whether `SHADOW_COMPARE` must stay permanently enabled after a
