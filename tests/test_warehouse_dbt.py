@@ -231,6 +231,66 @@ def test_replay_parity_is_asserted_against_the_production_rebuild() -> None:
     assert workflow.count("db/pipeline_sql/10_rebuild_core.sql") >= 2
 
 
+def test_staging_load_timestamp_fixtures_are_guarded_and_deterministic() -> None:
+    """Two failure modes, both worse than a failing test.
+
+    A stray local run of the backdate fixture against a real warehouse would
+    block the marts DAG for two hours with no obvious cause, which is why both
+    mutating fixtures carry the same `marts.pipeline_runs` emptiness guard the
+    seed uses. And a fixture that produced staleness by *waiting* rather than by
+    writing would make the entire freshness layer flaky — the point of a
+    test-controlled column is that staleness is deterministic.
+    """
+
+    fixtures = ROOT / "tests" / "fixtures" / "warehouse"
+
+    def body(name: str) -> str:
+        text = (fixtures / name).read_text(encoding="utf-8")
+        # Strip comments so a later header edit cannot invalidate a count.
+        return "\n".join(
+            line for line in text.splitlines() if not line.strip().startswith("--")
+        )
+
+    backdate = body("backdate_staging_loaded_at.sql")
+    reset = body("reset_staging_loaded_at.sql")
+    one_batch = body("assert_loaded_at_is_one_batch.sql")
+
+    tables = ("orders", "order_items", "order_payments", "customers")
+
+    for name, sql in (("backdate", backdate), ("reset", reset)):
+        assert "marts.pipeline_runs" in sql, f"{name} fixture is missing its guard"
+        assert "raise exception" in sql, f"{name} fixture guard does not abort"
+        # One transaction, so all four tables share one timestamp.
+        assert sql.count("begin;") == 1, f"{name} is not a single transaction"
+        assert sql.count("commit;") == 1, f"{name} is not a single transaction"
+
+    assert backdate.count("interval '3 hours'") == 4
+    for table in tables:
+        assert f"update stg.{table} set loaded_at" in backdate
+    assert reset.count("set loaded_at = now()") == 4
+
+    # Staleness is written, never waited for. Asserted against the executable
+    # SQL rather than the whole file: the headers legitimately discuss why there
+    # is no sleep, and prose must not be able to fail a behavioural check.
+    # "sleep" subsumes "pg_sleep".
+    for name, sql in (
+        ("backdate", backdate),
+        ("reset", reset),
+        ("one_batch", one_batch),
+    ):
+        assert "sleep" not in sql.lower(), f"{name} waits instead of writing"
+
+    assert "'loaded_at differs across staging tables'" in one_batch
+    assert "having count(*) <> 1" in one_batch
+    assert "{%" not in one_batch, "this file runs through psql, not dbt"
+
+    # R8: the linter's scope is deliberate. These fixtures are not in it.
+    workflow = read(".github/workflows/ci-pr.yml")
+    assert (
+        "sqlfluff lint dbt/warehouse/models dbt/warehouse/tests dbt/models" in workflow
+    )
+
+
 def test_tier1_tests_persist_their_failure_rows() -> None:
     """A red Tier-1 test must say *which* rows broke, not just that something did."""
 
