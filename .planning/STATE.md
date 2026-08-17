@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: 03-01 complete; 03-02 next (wave 2)
+stopped_at: 03-02 complete; 03-03 next (wave 3)
 last_updated: "2026-08-17T12:00:00.000Z"
-last_activity: 2026-08-17 -- Phase 3 wave 1 (03-01) complete; loaded_at signal landed
+last_activity: 2026-08-17 -- Phase 3 wave 2 (03-02) complete; gate configured, not yet exercised
 progress:
   total_phases: 2
   completed_phases: 1
@@ -21,16 +21,16 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-08-09)
 
 **Core value:** Business-key current state must remain correct and recoverable while the pipeline processes only committed incremental work.
-**Current focus:** Phase 3 — Staging Source Freshness Gate (wave 1 of 4 complete)
+**Current focus:** Phase 3 — Staging Source Freshness Gate (wave 2 of 4 complete)
 
 ## Current Position
 
-Phase: 3 (Staging Source Freshness Gate) — IN PROGRESS, wave 1 of 4 complete
-Plan: 03-01 complete; 03-02 next
-Status: Wave 1 landed (loaded_at signal). Waves 2-3 autonomous; wave 4 needs a live stack.
-Last activity: 2026-08-17 -- Phase 3 wave 1 (03-01) complete
+Phase: 3 (Staging Source Freshness Gate) — IN PROGRESS, wave 2 of 4 complete
+Plan: 03-02 complete; 03-03 next
+Status: Gate implemented and configured; NOT yet exercised. Runtime proof is 03-03 (CI) and 03-04 (live DagBag/BDD).
+Last activity: 2026-08-17 -- Phase 3 wave 2 (03-02) complete
 
-Progress: ▓▓▓░░░░░░░ 25% of Phase 3 (1 of 4 plans)
+Progress: ▓▓▓▓▓░░░░░ 50% of Phase 3 (2 of 4 plans)
 
 ## Performance Metrics
 
