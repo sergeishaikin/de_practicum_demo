@@ -142,3 +142,31 @@ Plans:
 
 - Marts remain views. Maintenance, medallion, streaming, recovery,
   checkpoints, and Bronze/Silver/Gold publication remain unchanged.
+
+### Phase 3: Staging Source Freshness Gate
+
+**Goal:** Make staging load-recency an explicit, fail-closed prerequisite to mart
+certification. Add `loaded_at timestamptz NOT NULL DEFAULT now()` to the four
+`stg.*` tables, declare dbt source freshness with `loaded_at_field: loaded_at`,
+and enforce it as a distinct task at the consumption boundary in
+`warehouse_marts_validation`, before the Cosmos dbt build.
+
+**Guarantee (deliberately narrow):** prevent downstream certification from
+consuming staging whose most recent successful load is outside the permitted
+age. This is **not** missing-batch detection — the timestamp is written by the
+staging load itself and the marts DAG is Asset-triggered by the same pipeline,
+so if ingestion never runs the gate never evaluates.
+
+**Approved design:** `docs/superpowers/specs/2026-08-17-warehouse-source-freshness-design.md`
+— implement as specified; do not redesign unless implementation proves it
+impossible.
+
+**Requirements**: Fail-closed freshness gate; thresholds evidence-based rather
+than guessed; W1's "deliberately not adopted" statement updated in the same
+change that activates freshness.
+**Depends on:** Phase 2
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 3 to break down)
