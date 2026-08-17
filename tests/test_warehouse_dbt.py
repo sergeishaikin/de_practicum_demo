@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 
@@ -71,8 +72,23 @@ def test_quality_contracts_and_selectors_are_present() -> None:
         "mart_reconciliation.sql",
         "order_items_wide_grain.sql",
         "payment_reconciliation.sql",
+        # Property/invariant tests: these hold on *any* data, unlike the
+        # reconciliation tests which assert today's rows agree.
+        "reconcile_arithmetic_consistency.sql",
+        "sales_daily_orders_within_items.sql",
+        "order_items_wide_preserves_item_count.sql",
+        "customer_state_rolls_up_to_sales_daily.sql",
     ):
         assert (PROJECT / "tests" / test_name).exists()
+
+    # Reusable generic tests, kept local because the project carries no packages.
+    for macro_name in ("non_negative.sql", "composite_unique.sql"):
+        assert (PROJECT / "macros" / macro_name).exists()
+
+    # Generic test arguments must stay nested under `arguments:` - the top-level
+    # form is deprecated in dbt 1.12 and warns on every parse.
+    assert "arguments:" in schema
+    assert "columns: [order_id, order_item_id]" in schema
     selectors = (PROJECT / "selectors.yml").read_text(encoding="utf-8")
     assert "warehouse_contracts" in selectors
     assert "warehouse_reconciliation" in selectors
@@ -91,6 +107,10 @@ def test_unit_tests_pin_the_mart_transformation_semantics() -> None:
         "sales_daily_counts_orders_distinctly_and_sums_money_per_day": "v_sales_daily",
         "reconcile_sales_daily_reports_both_sides_of_the_full_join": "v_reconcile_sales_daily",
         "reconcile_sales_daily_ignores_cross_batch_ingest_dates": "v_reconcile_sales_daily",
+        "customer_state_daily_partitions_each_day_by_state": "v_customer_state_daily",
+        "sales_daily_sums_money_exactly_not_in_floating_point": "v_sales_daily",
+        "sales_daily_produces_no_rows_for_an_empty_source": "v_sales_daily",
+        "reconcile_sales_daily_is_empty_when_both_sides_are_empty": "v_reconcile_sales_daily",
     }
     cases = definitions.split("  - name: ")[1:]
     assert len(cases) == len(expected_models)
@@ -150,6 +170,44 @@ def test_integration_fixture_runs_the_production_core_rebuild() -> None:
 
     invariant = PROJECT / "tests" / "customer_state_rolls_up_to_sales_daily.sql"
     assert "v_customer_state_daily" in invariant.read_text(encoding="utf-8")
+
+
+def test_generate_schema_name_keeps_the_legacy_marts_relation_names() -> None:
+    """The macro deliberately discards `target.schema`, which is the opposite of
+    dbt's default. That is load-bearing: `dags/warehouse_dbt.py` reads the mart
+    views by literal `marts.*` name and publishes Assets with `marts/<view>`
+    URIs, so dbt's default `<target>_<custom>` prefix would break both."""
+
+    macro = (PROJECT / "macros" / "generate_schema_name.sql").read_text(
+        encoding="utf-8"
+    )
+    assert "custom_schema_name | trim if custom_schema_name else target.schema" in macro
+
+    # The consumers that make this non-negotiable.
+    dag = read("dags/warehouse_dbt.py")
+    for literal in ("marts.v_order_items_wide", "marts.v_sales_daily"):
+        assert literal in dag
+    assert '"marts/v_order_items_wide"' in dag or "marts/v_order_items_wide" in dag
+
+    # And the trade-off is documented rather than silently accepted.
+    doc = read("docs/warehouse/W1-dbt-ownership.md")
+    assert "generate_schema_name" in doc
+
+    # Stronger evidence when a parsed manifest is available: every mart model must
+    # land in `marts`, unprefixed. Skipped in the fast suite, where no dbt run has
+    # happened yet.
+    manifest_path = PROJECT / "target" / "manifest.json"
+    if not manifest_path.is_file():
+        return
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    marts = {
+        node["name"]: node
+        for node in manifest.get("nodes", {}).values()
+        if node.get("resource_type") == "model"
+    }
+    assert marts, "manifest contains no models"
+    for name, node in marts.items():
+        assert node["schema"] == "marts", f"{name} resolved to {node['schema']!r}"
 
 
 def test_core_rebuild_transaction_remains_airflow_owned() -> None:

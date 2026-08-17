@@ -17,6 +17,7 @@ dev = [
     "pytest-bdd==8.1.0",
     "pytest-cov==7.1.0",
     "ruff==0.12.0",
+    "sqlfluff==3.4.2",
 ]
 
 [tool.uv]

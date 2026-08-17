@@ -44,6 +44,8 @@ jobs:
           uv run --locked ruff check dags --select AIR3 --preview
       - name: Black
         run: uv run --locked black --check .
+      - name: SQLFluff (correctness rules only — see .sqlfluff)
+        run: uv run --locked sqlfluff lint dbt/warehouse/models dbt/warehouse/tests dbt/models
 
   unit:
     name: Unit tests + coverage

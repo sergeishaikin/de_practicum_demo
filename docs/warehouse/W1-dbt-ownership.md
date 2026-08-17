@@ -56,14 +56,28 @@ invisible in a green production run:
 | `reconcile_sales_daily_ignores_cross_batch_ingest_dates` | the `ingest_date` predicate that keeps ingestion batches from cross-reconciling |
 
 **Data tests** — *do the real rows satisfy the contract?* Enforced model
-contracts cover column shape; `core.orders.order_id` is unique and not null;
-`core_order_items_grain_unique` and `tests/order_items_wide_grain.sql` cover the
-`(order_id, order_item_id)` grain on both sides of the mart join, which is what
-makes fan-out detectable. `tests/mart_reconciliation.sql` and
-`tests/payment_reconciliation.sql` assert source-to-mart and staging-to-core
-agreement. `tests/customer_state_rolls_up_to_sales_daily.sql` asserts the
-cross-model invariant that the state grain sums back to the daily grain
-exactly.
+contracts cover column shape. Column-level `not_null` / `unique` /
+`non_negative` cover every staging and core column the pipeline depends on but
+the DDL leaves nullable; the DDL's own primary keys are deliberately **not**
+re-asserted, since PostgreSQL already enforces them and duplicating them adds
+runtime with no new failure mode. `composite_unique` covers the
+`(order_id, order_item_id)` and `(sales_date, customer_state)` grains — dbt's
+built-in `unique` is single-column only and this project carries no packages, so
+that generic test lives in `macros/`.
+
+**Property tests** — *do relationships that must hold on any data still hold?*
+Distinct from reconciliation, which asserts that today's rows agree:
+
+| Test | Invariant |
+|---|---|
+| `reconcile_arithmetic_consistency.sql` | `mart − source − diff = 0`; the view cannot misreport its own arithmetic |
+| `sales_daily_orders_within_items.sql` | `orders_cnt ≤ items_cnt`; catches the two counters being swapped |
+| `order_items_wide_preserves_item_count.sql` | row count equals `core.order_items`, and names whether it was fan-out or row loss |
+| `customer_state_rolls_up_to_sales_daily.sql` | the state grain sums back to the daily grain exactly |
+
+`order_status` intentionally has no `accepted_values` test: the values in the
+demo slice are a sample artifact and the full Olist domain is wider, so pinning
+the observed set would fail on a legitimate fuller load.
 
 **Integration check** — *does the whole chain still line up?* The `ci-pr.yml`
 `warehouse-dbt-contract` job seeds `tests/fixtures/warehouse/seed_staging.sql`
@@ -82,10 +96,19 @@ The seed is destructive — it truncates `stg.*` and the rebuild truncates
 `core.*` — so it aborts if `marts.pipeline_runs` already holds rows. Run it
 only against an ephemeral database.
 
-Not adopted, deliberately: SQL linting (no defect here it would have caught,
-and it would add a toolchain plus lock churn) and dbt source freshness (the
-`stg.*` relations carry no `loaded_at_field`, and ingestion is manual-trigger
-by design).
+**Static analysis** — SQLFluff runs in `ci-pr.yml` as a *correctness* gate, not
+a formatter. The default rule set reports ~100 findings here, of which 96 are
+pure layout (74 are 2-space vs 4-space indent alone); enforcing those would
+reformat every model while catching no defect. `.sqlfluff` therefore enables
+only the `AM*` ambiguity and `CV02`/`CV03` convention rules — implicit join
+types, unknown result-column counts, ambiguous `ORDER BY` and `DISTINCT`. That
+set found two real issues on adoption: an implicit `join` in
+`v_reconcile_sales_daily` (now `inner join`) and a `select *` of unknown width
+in the roll-up test. It uses the `jinja` templater rather than the `dbt` one, so
+the linter is not coupled to either pinned dbt runtime.
+
+Not adopted, deliberately: dbt source freshness — the `stg.*` relations carry no
+`loaded_at_field`, and ingestion is manual-trigger by design.
 
 ## Schema naming is intentional
 
