@@ -143,6 +143,38 @@ jobs:
           for artifact in manifest.json run_results.json catalog.json index.html; do
             docker exec de-demo-airflow test -s "/tmp/warehouse_dbt_artifacts/$artifact"
           done
+      - name: Replay the same batch through the real entry point
+        env:
+          REPLAY_RUN_ID: replay-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          # Freeze the business result of the first end-to-end run.
+          docker exec -i de-demo-postgres psql -U app -d dwh -v ON_ERROR_STOP=1 \
+            < tests/fixtures/warehouse/replay_snapshot.sql
+          # Re-trigger the *production* ingestion DAG with the same CSV inputs.
+          docker exec de-demo-airflow airflow dags trigger warehouse_orders_ingestion --run-id "$REPLAY_RUN_ID"
+          for _ in $(seq 1 60); do
+            state=$(docker exec de-demo-postgres psql -U airflow -d airflow_meta -Atc \
+              "select coalesce((select state from dag_run where dag_id = 'warehouse_orders_ingestion' and run_id = '$REPLAY_RUN_ID' limit 1), 'missing')")
+            case "$state" in
+              success) break ;;
+              failed) echo "replay ingestion failed"; exit 1 ;;
+            esac
+            sleep 5
+          done
+          test "$state" = "success"
+      - name: Assert the replay changed no business state
+        run: |
+          violations=$(docker exec -i de-demo-postgres psql -U app -d dwh \
+            -v ON_ERROR_STOP=1 -At -F '|' < tests/fixtures/warehouse/assert_replay_parity.sql)
+          if [ -n "$violations" ]; then
+            echo "Replaying the same batch through Airflow changed the business result:"
+            echo "$violations"
+            exit 1
+          fi
+          # The audit must gain one row per DagRun, not overwrite or duplicate the first.
+          runs=$(docker exec de-demo-postgres psql -U app -d dwh -Atc \
+            "select count(*) from marts.pipeline_runs where status = 'success'")
+          test "$runs" -ge 1
       - name: Collect Airflow logs on failure
         if: failure()
         run: docker compose --env-file .env logs --no-color de-demo-airflow de-demo-postgres || true

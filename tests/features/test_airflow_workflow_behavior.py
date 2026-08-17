@@ -183,6 +183,79 @@ elif case in {"payment_mismatch", "payment_match"}:
         error = str(exc)
     result.update(error=error, metadata=metadata)
 
+elif case in {"publication_blocked_by_failed_validation", "publication_after_recovery"}:
+    publisher = bag.dags["warehouse_marts_validation"].task_dict["publish_mart_assets"].python_callable
+    # The DagBag loads dags/warehouse_dbt.py as its own module object, so the
+    # callable's globals are NOT the separately imported `warehouse_dbt`.
+    task_globals = publisher.__globals__
+    asset = task_globals["CORE_ORDERS_ASSET"]
+    event = SimpleNamespace(source_dag_run=SimpleNamespace(
+        dag_id="warehouse_orders_ingestion", run_id="manual__bdd-ingestion"))
+    validation = "failed" if case == "publication_blocked_by_failed_validation" else "success"
+    task_globals["get_current_context"] = lambda: {
+        "dag_run": SimpleNamespace(run_id="asset_triggered__bdd"),
+        "ti": SimpleNamespace(dag_id="warehouse_marts_validation"),
+    }
+    task_globals["_metadata_task_state"] = lambda dag_id, run_id, task_id: validation
+    audit_calls = []
+    def fake_audit(run_id, events):
+        audit_calls.append(run_id)
+        return {"ingestion_run_id": "manual__bdd-ingestion", "stg_orders": 1,
+                "stg_order_items": 1, "core_order_items": 1, "mart_sales_days": 1}
+    task_globals["_audit_and_counts"] = fake_audit
+    error = None
+    metadata = []
+    try:
+        metadata = metadata_rows(list(publisher(triggering_asset_events={asset: [event]})))
+    except Exception as exc:
+        error = str(exc)
+    result.update(error=error, metadata=metadata, audit_calls=audit_calls)
+elif case == "audit_upsert_is_replay_safe":
+    task_globals = warehouse_dbt.__dict__
+    asset = task_globals["CORE_ORDERS_ASSET"]
+    event = SimpleNamespace(source_dag_run=SimpleNamespace(
+        dag_id="warehouse_orders_ingestion", run_id="manual__bdd-ingestion"))
+    executed = []
+    class RecordingConnection(Connection):
+        def __init__(self):
+            super().__init__(counts=[10, 20, 30, 40])
+            self.audit_row = ("success", 0, 0, 0.00)
+            self.executed = executed
+        def cursor(self):
+            outer = self
+            class RecordingCursor(Cursor):
+                def execute(self, sql, *params):
+                    outer.executed.append(sql)
+                    return super().execute(sql, *params)
+            return RecordingCursor(self)
+        def fetchone(self):
+            if self.audit_row is not None:
+                row, self.audit_row = self.audit_row, None
+                return row
+            return tuple(self.counts)
+    task_globals["_connect"] = lambda: RecordingConnection()
+    error = None
+    try:
+        task_globals["_audit_and_counts"]("asset_triggered__bdd", {asset: [event]})
+    except Exception as exc:
+        error = str(exc)
+    joined = " ".join(executed).lower()
+    result.update(error=error,
+                  upsert="on conflict (run_id) do update" in joined,
+                  insert_only="insert into marts.pipeline_runs" in joined)
+elif case == "replay_truncate_precedes_load":
+    loader = ingestion["staging.load_raw_csv_to_stg"].python_callable
+    task_globals = loader.__globals__
+    order = []
+    task_globals["_execute_sql_file"] = lambda conn, path: order.append("sql:" + path.name)
+    task_globals["_copy_csv"] = lambda conn, table, csv_name, columns: order.append("copy:" + table)
+    task_globals["_connect"] = lambda: Connection()
+    error = None
+    try:
+        loader()
+    except Exception as exc:
+        error = str(exc)
+    result.update(error=error, order=order)
 print(json.dumps(result))
 """
 
@@ -256,6 +329,7 @@ def payment_match(context: dict) -> None:
 @when("the actual core readiness and publisher callables run in Airflow")
 @when("the actual marts readiness callable runs in Airflow")
 @when("the actual marts quality and publisher callables run in Airflow")
+@when("the actual marts publisher callable runs in Airflow")
 def run_actual_callable(context: dict) -> None:
     script = AIRFLOW_CALLABLE_SCRIPT.replace("__CASE__", json.dumps(context["case"]))
     proc = subprocess.run(
@@ -368,3 +442,65 @@ def payment_success_published(context: dict) -> None:
     result = context["result"]
     assert result["error"] is None
     assert len(result["metadata"]) == 5
+
+
+@given("a marts run whose dbt artifact validation failed")
+def publication_blocked(context: dict) -> None:
+    _select_case(context, "publication_blocked_by_failed_validation")
+
+
+@given("a marts run whose dbt artifact validation succeeded")
+def publication_recovered(context: dict) -> None:
+    _select_case(context, "publication_after_recovery")
+
+
+@given("a marts audit for a DagRun id that has already been recorded")
+def audit_replay(context: dict) -> None:
+    _select_case(context, "audit_upsert_is_replay_safe")
+
+
+@given("a staging load for a repeated ingestion batch")
+def staging_replay(context: dict) -> None:
+    _select_case(context, "replay_truncate_precedes_load")
+
+
+@then("publication is refused, no audit is written and no mart metadata is published")
+def assert_publication_blocked(context: dict) -> None:
+    result = context["result"]
+    assert "did not succeed before publication" in (result["error"] or "")
+    # The decisive assertion: the audit was never even attempted, so no row can
+    # claim success for a run whose dbt validation failed.
+    assert result["audit_calls"] == []
+    assert result["metadata"] == []
+
+
+@then("the audit is written once and all mart metadata is published")
+def assert_publication_recovered(context: dict) -> None:
+    result = context["result"]
+    assert result["error"] is None
+    assert result["audit_calls"] == ["asset_triggered__bdd"]
+    uris = [row["uri"] for row in result["metadata"]]
+    assert len(uris) == 5, uris
+    assert any(uri.endswith("marts/pipeline_runs") for uri in uris)
+
+
+@then("the audit statement upserts on the run id")
+def assert_audit_upsert(context: dict) -> None:
+    result = context["result"]
+    assert result["error"] is None
+    assert result["insert_only"], "audit no longer writes marts.pipeline_runs"
+    # Without the upsert a retried DagRun would raise on the primary key instead
+    # of converging, so the retry could never succeed.
+    assert result["upsert"], "audit is not replay-safe on the same run_id"
+
+
+@then("the truncate runs before any CSV is copied")
+def assert_truncate_first(context: dict) -> None:
+    result = context["result"]
+    assert result["error"] is None
+    order = result["order"]
+    assert order[0] == "sql:00_truncate_stg.sql", order
+    # Everything after the truncate is a copy: staging holds exactly one batch,
+    # which is what makes a replayed ingestion idempotent rather than additive.
+    assert all(step.startswith("copy:") for step in order[1:]), order
+    assert len(order) == 5, order

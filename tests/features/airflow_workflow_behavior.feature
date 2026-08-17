@@ -59,3 +59,23 @@ Feature: Fail-closed Airflow workflow behavior
     Given marts readiness followed by matching payments
     When the actual marts quality and publisher callables run in Airflow
     Then payment reconciliation succeeds and all mart metadata is published
+
+  Scenario: Mart publication is refused when dbt validation did not succeed
+    Given a marts run whose dbt artifact validation failed
+    When the actual marts publisher callable runs in Airflow
+    Then publication is refused, no audit is written and no mart metadata is published
+
+  Scenario: A recovered marts run publishes the same way a clean run does
+    Given a marts run whose dbt artifact validation succeeded
+    When the actual marts publisher callable runs in Airflow
+    Then the audit is written once and all mart metadata is published
+
+  Scenario: Re-running the same DagRun updates the audit row instead of duplicating it
+    Given a marts audit for a DagRun id that has already been recorded
+    When the actual marts publisher callable runs in Airflow
+    Then the audit statement upserts on the run id
+
+  Scenario: Staging load truncates before every batch so a replay cannot accumulate rows
+    Given a staging load for a repeated ingestion batch
+    When the actual marts publisher callable runs in Airflow
+    Then the truncate runs before any CSV is copied
