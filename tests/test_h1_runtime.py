@@ -256,6 +256,51 @@ def test_pipeline_provenance_migration_is_additive_and_bootstrapped() -> None:
     assert '_required_env("DWH_PASSWORD")' in dag
 
 
+def test_stg_loaded_at_migration_is_additive_and_bootstrapped() -> None:
+    """Two failure modes make these assertions load-bearing.
+
+    `db/init/` runs only on an empty PostgreSQL data directory, so without the
+    bootstrap replay this change works on a fresh stack and silently does
+    nothing on every existing one — the freshness gate would then read a column
+    that is not there. And the DDL must stay additive, because `stg.*` is a live
+    relation in every developer's warehouse; a destructive form here is not a
+    failed test, it is lost data.
+    """
+
+    migration = read("db/init/008_stg_loaded_at.sql")
+    bootstrap = read("scripts/bootstrap_stack.py")
+    # A future header edit must not be able to change a count assertion.
+    body = "\n".join(
+        line for line in migration.splitlines() if not line.strip().startswith("--")
+    )
+
+    for table in ("orders", "order_items", "order_payments", "customers"):
+        assert f"alter table if exists stg.{table}" in body
+    assert (
+        body.count(
+            "add column if not exists loaded_at timestamptz not null default now()"
+        )
+        == 4
+    )
+    # now() is transaction-start time, so one batch yields one timestamp across
+    # all four tables. clock_timestamp() would vary per row and break that.
+    assert "clock_timestamp" not in body
+    assert "drop" not in body.lower()
+    assert "create unique index" not in body.lower()
+
+    assert "008_stg_loaded_at.sql" in bootstrap
+    # The 007 contract must not regress while adding 008.
+    assert "007_pipeline_runs_ingestion_provenance.sql" in bootstrap
+    assert 'values["POSTGRES_DB"]' in bootstrap
+
+    # Naming loaded_at in a COPY column list would make PostgreSQL demand it in
+    # the CSV and break every load. PostgreSQL must supply the default instead.
+    assert "loaded_at" not in read("dags/warehouse_orders.py")
+    # The column arrives only through the additive migration, so the two files
+    # cannot drift into competing definitions.
+    assert "loaded_at" not in read("db/init/002_stg_tables.sql")
+
+
 def test_warehouse_asset_verifier_generates_unique_source_run_ids() -> None:
     first = asset_verifier.make_run_id()
     second = asset_verifier.make_run_id()
