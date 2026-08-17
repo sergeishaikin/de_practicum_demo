@@ -3,7 +3,7 @@
 
 ## Test framework and setup
 
-Testing uses pytest and pytest-bdd (`pytest.ini`, `pyproject.toml`, `uv.lock`, `tests/`). It is split by marker into a fast unit suite and stack-dependent suites: `integration` (live stack boundaries), `e2e` (full runtime flows), `airflow` (DagBag/runtime validation), and `bdd` (Gherkin workflow behavior). Run `uv sync --locked` once to create the host environment. The repository completion gate is `ruff`, `black --check`, and the fast pytest suite; marked suites run only against their live dependencies. The CI workflow additionally defines a 90% `iceberg/` coverage check whose recorded baseline is 79.80%, so it is a known failing check rather than a passing completion gate. See [Running tests](#running-tests) and [CI integration](#ci-integration) below.
+Testing uses pytest and pytest-bdd (`pytest.ini`, `pyproject.toml`, `uv.lock`, `tests/`). It is split by marker into a fast unit suite and stack-dependent suites: `integration` (live stack boundaries), `e2e` (full runtime flows), `airflow` (DagBag/runtime validation), and `bdd` (Gherkin workflow behavior). Run `uv sync --locked` once to create the host environment. The repository completion gate is `ruff`, `black --check`, and the fast pytest suite; marked suites run only against their live dependencies. The CI workflow additionally defines a 90% `iceberg/` coverage check, currently at 93.66%, so it is a passing gate rather than a known failure. See [Running tests](#running-tests) and [CI integration](#ci-integration) below.
 
 Alongside the pytest suites, the stack itself carries these checkable surfaces:
 
@@ -164,7 +164,7 @@ Verify quality checks are active: the medallion logs a "quality checks" line eac
 
 ## Coverage requirements
 
-The PR workflow contains a **>= 90%** statement coverage check for the `iceberg/` package (`pytest --cov=iceberg --cov-fail-under=90`). The documented baseline is 79.80%, so report that existing failure; do not lower the threshold or add unrelated tests unless coverage remediation is the explicit task.
+The PR workflow contains a **>= 90%** statement coverage check for the `iceberg/` package (`pytest --cov=iceberg --cov-fail-under=90`). It passes: total coverage is 93.66%, so a failure is a real regression rather than a documented baseline. Do not lower the threshold, omit modules from `--cov=iceberg`, or add filler tests to clear it. The remaining uncovered statements are the `sys.path` bootstrap lines and `if __name__ == "__main__"` guards in the two `legacy_*` migration utilities, plus retry and error paths in `iceberg/writer/iceberg_writer.py` and `iceberg/medallion/iceberg_medallion.py`.
 
 ## CI integration
 

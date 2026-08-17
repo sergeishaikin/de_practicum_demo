@@ -72,11 +72,12 @@ The existing CI workflow also defines this coverage check:
 uv run --locked pytest tests --cov=iceberg --cov-report=term-missing --cov-fail-under=90
 ```
 
-At the time this contract was adopted, that command had a known baseline gap:
-all 150 fast tests passed, but total `iceberg` coverage was 79.80% against the
-90% threshold, so the command exited with status 1. Report this known failure
-when the coverage check is run. Do not lower the threshold or add unrelated
-tests as part of another change; coverage remediation must be an explicit task.
+That command previously had a known baseline gap and exited with status 1. It no
+longer does: coverage remediation landed as its own task and total `iceberg`
+coverage is 93.66% with 292 passing fast tests, so the check is now a passing
+completion gate and any failure is a real regression. Do not lower the
+threshold, omit modules from `--cov=iceberg`, or add filler tests to clear it;
+new production code in `iceberg/` lands with dependency-free unit coverage.
 
 Run additional checks according to the changed surface:
 

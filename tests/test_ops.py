@@ -1,6 +1,47 @@
 from __future__ import annotations
 
+import prometheus_client
+import pytest
+
 from common import ops
+
+OBSERVATION = {
+    "source": "medallion",
+    "status": "success",
+    "rows_processed": 7,
+    "files_processed": 2,
+    "keys_processed": 3,
+    "duration_ms": 1500,
+    "work_available": 4,
+    "work_in_flight": 1,
+    "work_completed": 9,
+    "lower_versions_ignored": 2,
+    "ff14_conflicts": 1,
+    "shadow_mismatches": 3,
+    "silver_duration_ms": 250,
+    "gold_duration_ms": 750,
+    "files_planned": 11,
+    "files_removed": 5,
+    "files_added": 6,
+    "bytes_planned": 1024,
+    "bytes_removed": 256,
+    "bytes_added": 512,
+}
+
+
+def published(collector, name: str, **labels: str) -> float:
+    """Read one published sample straight out of a Prometheus collector.
+
+    Asserting on collected samples rather than on call counts proves the value
+    an operator's dashboard would actually see, including the label set it is
+    filed under.
+    """
+
+    for metric in collector.collect():
+        for sample in metric.samples:
+            if sample.name == name and sample.labels == labels:
+                return sample.value
+    raise AssertionError(f"no sample {name} with labels {labels}")
 
 
 class FakeCursor:
@@ -187,3 +228,227 @@ class TestMetrics:
         m.enabled = False
         m.close()
         assert m.conn is None
+
+
+@pytest.fixture
+def served(monkeypatch) -> list:
+    """Capture the endpoint that would be served, without binding a port."""
+
+    calls: list = []
+    monkeypatch.setattr(
+        prometheus_client,
+        "start_http_server",
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+    return calls
+
+
+class TestRuntimeMetrics:
+    @pytest.mark.parametrize("port", [None, ""])
+    def test_absent_port_disables_runtime_before_any_collector_is_built(
+        self, port
+    ) -> None:
+        runtime = ops._RuntimeMetrics(port)
+
+        assert runtime.enabled is False
+        assert not hasattr(runtime, "events")
+        # The guard precedes every value lookup, so an empty observation is safe.
+        assert runtime.observe() is None
+
+    def test_enabled_runtime_serves_a_private_registry_on_the_configured_port(
+        self, served
+    ) -> None:
+        runtime = ops._RuntimeMetrics("9099")
+
+        assert runtime.enabled is True
+        ((args, kwargs),) = served
+        assert args == (9099,)
+        assert kwargs["addr"] == "0.0.0.0"
+        assert isinstance(kwargs["registry"], prometheus_client.CollectorRegistry)
+        assert kwargs["registry"] is not prometheus_client.REGISTRY
+
+    def test_a_second_runtime_does_not_collide_on_the_global_registry(
+        self, served
+    ) -> None:
+        first = ops._RuntimeMetrics("9099")
+        second = ops._RuntimeMetrics("9100")
+
+        # A shared registry would reject the duplicate timeseries and silently
+        # disable the second process's endpoint.
+        assert (first.enabled, second.enabled) == (True, True)
+        assert len(served) == 2
+
+    def test_observe_publishes_every_runtime_dimension(self, served) -> None:
+        runtime = ops._RuntimeMetrics("9099")
+
+        runtime.observe(**OBSERVATION)
+
+        assert published(runtime.up, "lakehouse_up", source="medallion") == 1
+        assert (
+            published(
+                runtime.events,
+                "lakehouse_events_total",
+                source="medallion",
+                status="success",
+            )
+            == 1
+        )
+        assert {
+            state: published(
+                runtime.work, "lakehouse_work", source="medallion", state=state
+            )
+            for state in ("available", "in_flight", "completed")
+        } == {"available": 4, "in_flight": 1, "completed": 9}
+        assert {
+            kind: published(
+                runtime.processed, "lakehouse_processed", source="medallion", kind=kind
+            )
+            for kind in ("rows", "files", "keys")
+        } == {"rows": 7, "files": 2, "keys": 3}
+        assert {
+            kind: published(
+                runtime.correctness,
+                "lakehouse_correctness_total",
+                source="medallion",
+                kind=kind,
+            )
+            for kind in (
+                "lower_versions_ignored",
+                "ff14_conflicts",
+                "shadow_mismatches",
+            )
+        } == {
+            "lower_versions_ignored": 2,
+            "ff14_conflicts": 1,
+            "shadow_mismatches": 3,
+        }
+        assert {
+            kind: published(
+                runtime.files, "lakehouse_files", source="medallion", kind=kind
+            )
+            for kind in ("planned", "removed", "added")
+        } == {"planned": 11, "removed": 5, "added": 6}
+        assert {
+            kind: published(
+                runtime.bytes, "lakehouse_bytes", source="medallion", kind=kind
+            )
+            for kind in ("planned", "removed", "added")
+        } == {"planned": 1024, "removed": 256, "added": 512}
+
+    def test_durations_are_published_in_seconds(self, served) -> None:
+        runtime = ops._RuntimeMetrics("9099")
+
+        runtime.observe(**OBSERVATION)
+
+        assert (
+            published(
+                runtime.duration, "lakehouse_duration_seconds_sum", source="medallion"
+            )
+            == 1.5
+        )
+        assert (
+            published(
+                runtime.duration, "lakehouse_duration_seconds_count", source="medallion"
+            )
+            == 1
+        )
+        assert {
+            stage: published(
+                runtime.stage_duration,
+                "lakehouse_stage_duration_seconds",
+                source="medallion",
+                stage=stage,
+            )
+            for stage in ("silver", "gold")
+        } == {"silver": 0.25, "gold": 0.75}
+
+    def test_counters_accumulate_while_gauges_hold_the_latest_cycle(
+        self, served
+    ) -> None:
+        runtime = ops._RuntimeMetrics("9099")
+
+        runtime.observe(**OBSERVATION)
+        runtime.observe(
+            **{**OBSERVATION, "rows_processed": 1, "lower_versions_ignored": 5}
+        )
+
+        assert (
+            published(
+                runtime.events,
+                "lakehouse_events_total",
+                source="medallion",
+                status="success",
+            )
+            == 2
+        )
+        assert (
+            published(
+                runtime.correctness,
+                "lakehouse_correctness_total",
+                source="medallion",
+                kind="lower_versions_ignored",
+            )
+            == 7
+        )
+        assert (
+            published(
+                runtime.processed,
+                "lakehouse_processed",
+                source="medallion",
+                kind="rows",
+            )
+            == 1
+        )
+
+    def test_last_event_records_the_observation_wall_clock(
+        self, served, monkeypatch
+    ) -> None:
+        runtime = ops._RuntimeMetrics("9099")
+        monkeypatch.setattr(ops.time, "time", lambda: 1767225600.0)
+
+        runtime.observe(**OBSERVATION)
+
+        assert (
+            published(
+                runtime.last_event,
+                "lakehouse_last_event_timestamp_seconds",
+                source="medallion",
+            )
+            == 1767225600.0
+        )
+
+    def test_failed_endpoint_startup_disables_metrics_and_observe_stays_silent(
+        self, monkeypatch, capsys
+    ) -> None:
+        def boom(*args, **kwargs):
+            raise OSError("address already in use")
+
+        monkeypatch.setattr(prometheus_client, "start_http_server", boom)
+
+        runtime = ops._RuntimeMetrics("9099")
+
+        assert runtime.enabled is False
+        assert "Prometheus metrics endpoint unavailable" in capsys.readouterr().err
+        assert runtime.observe(**OBSERVATION) is None
+        # Nothing was published, so no scrape can report a half-initialised app.
+        assert runtime.events.collect()[0].samples == []
+
+    def test_record_publishes_runtime_metrics_even_when_the_postgres_sink_is_off(
+        self, served, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(ops, "PROMETHEUS_METRICS_PORT", "9099")
+        metrics = ops.Metrics()
+        metrics.enabled = False
+
+        metrics.record(**OBSERVATION)
+
+        assert metrics.conn is None
+        assert (
+            published(
+                metrics.runtime.processed,
+                "lakehouse_processed",
+                source="medallion",
+                kind="rows",
+            )
+            == 7
+        )

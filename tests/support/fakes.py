@@ -12,6 +12,8 @@ consumer needs them.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pyarrow as pa
 from pyiceberg.exceptions import NoSuchTableError
 
@@ -25,15 +27,36 @@ class FakeScan:
 
 
 class FakeTable:
-    def __init__(self, df: pa.Table | None = None) -> None:
+    def __init__(
+        self, df: pa.Table | None = None, *, snapshot_history: int = 0
+    ) -> None:
         self.df = df
         # Rewrite count, so a specification can assert that a table was left
         # untouched — not merely that its contents happen to look the same.
         self.overwrite_calls = 0
+        # Snapshot identity and the properties each rewrite carried. A one-shot
+        # migration has to be auditable after the fact, so "which snapshot did
+        # this write produce, and what provenance did it record" is part of the
+        # contract, not an implementation detail.
+        self.snapshots: list[SimpleNamespace] = []
+        self.snapshot_properties: list[dict] = []
+        for _ in range(snapshot_history):
+            self.add_snapshot()
 
     @property
     def num_rows(self) -> int:
         return 0 if self.df is None else self.df.num_rows
+
+    def add_snapshot(self, **summary: str) -> SimpleNamespace:
+        snapshot = SimpleNamespace(
+            snapshot_id=len(self.snapshots) + 1,
+            summary=SimpleNamespace(additional_properties=dict(summary)),
+        )
+        self.snapshots.append(snapshot)
+        return snapshot
+
+    def current_snapshot(self) -> SimpleNamespace | None:
+        return self.snapshots[-1] if self.snapshots else None
 
     def scan(self, row_filter=None) -> FakeScan:
         return FakeScan(self.df)
@@ -41,6 +64,9 @@ class FakeTable:
     def overwrite(self, df: pa.Table, **kwargs) -> None:
         self.df = df
         self.overwrite_calls += 1
+        properties = dict(kwargs.get("snapshot_properties") or {})
+        self.snapshot_properties.append(properties)
+        self.add_snapshot(**properties)
 
 
 class FakeCatalog:
