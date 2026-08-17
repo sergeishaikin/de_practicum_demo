@@ -138,6 +138,17 @@ jobs:
           fi
       - name: Verify repository contracts
         run: uv run --locked pytest -q tests/test_warehouse_dbt.py
+      - name: SQL mutation gate — known-bad SQL must not survive the suite
+        env:
+          DBT_EXECUTABLE: .venv-dbt-warehouse/bin/dbt
+        run: uv run --locked python scripts/mutation_test.py --json mutation-report.json
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-report
+          path: mutation-report.json
+          if-no-files-found: warn
       - name: Upload warehouse dbt artifacts
         uses: actions/upload-artifact@v4
         with:
