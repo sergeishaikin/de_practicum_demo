@@ -40,7 +40,9 @@ Selectors:
 
 ## Testing layers
 
-The project is tested at three levels, each answering a different question.
+The project is tested at seven levels, each answering a different question. As
+of this writing the project carries **4 models, 79 data tests and 9 unit
+tests** (`dbt ls`).
 
 **Unit tests** (`models/marts/unit_tests.yml`) — *does the SQL compute the right
 thing?* Fixture rows are mocked for every `source()` and `ref()`, so no
@@ -52,8 +54,12 @@ invisible in a green production run:
 | `order_items_wide_keeps_items_without_a_matching_order` | the `LEFT JOIN` to `core.orders`; an inner join would silently drop items |
 | `order_items_wide_enriches_every_item_of_its_order` | per-item enrichment across a multi-item order, and NULL payment propagation |
 | `sales_daily_counts_orders_distinctly_and_sums_money_per_day` | `COUNT(DISTINCT order_id)` vs `COUNT(*)`, the money sums, and day grouping |
+| `sales_daily_sums_money_exactly_not_in_floating_point` | `0.10 + 0.20` is exactly `0.30` in `numeric` and `0.30000000000000004` in binary floating point; fails if a money column becomes a float or double |
+| `sales_daily_produces_no_rows_for_an_empty_source` | an empty source yields an empty mart, not one all-NULL aggregate row — which is what removing the `GROUP BY` would produce |
 | `reconcile_sales_daily_reports_both_sides_of_the_full_join` | all four `FULL JOIN` branches, both `COALESCE`s, and the sign of `diff_amount` |
 | `reconcile_sales_daily_ignores_cross_batch_ingest_dates` | the `ingest_date` predicate that keeps ingestion batches from cross-reconciling |
+| `reconcile_sales_daily_is_empty_when_both_sides_are_empty` | nothing on either side produces nothing at all, rather than a zero-valued row that would falsely report a reconciled day |
+| `customer_state_daily_partitions_each_day_by_state` | both grouping keys participate, and `orders_cnt` stays distinct-per-group rather than distinct-per-day |
 
 **Data tests** — *do the real rows satisfy the contract?* Enforced model
 contracts cover column shape. Column-level `not_null` / `unique` /
@@ -127,6 +133,13 @@ set found two real issues on adoption: an implicit `join` in
 `v_reconcile_sales_daily` (now `inner join`) and a `select *` of unknown width
 in the roll-up test. It uses the `jinja` templater rather than the `dbt` one, so
 the linter is not coupled to either pinned dbt runtime.
+
+**Mutation gate** — *do the layers above actually kill bugs?* Every layer here
+asserts something; only the mutation gate proves those assertions have teeth. It
+applies known-bad edits to the model SQL — `left join` → `inner join`, dropping
+the `ingest_date` predicate, `COUNT(DISTINCT)` → `COUNT`, reversed
+reconciliation arithmetic — and requires a named unit test to fail for each. See
+[W3 — SQL mutation gate](W3-mutation-gate.md).
 
 Not adopted, deliberately: dbt source freshness — the `stg.*` relations carry no
 `loaded_at_field`, and ingestion is manual-trigger by design.

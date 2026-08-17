@@ -10,6 +10,7 @@ Alongside the pytest suites, the stack itself carries these checkable surfaces:
 - **SQL quality gates** — SQL files in `db/demo_sql/` executed inside the Postgres container by `scripts/run_checks.cmd` / `scripts/run_checks.sh`.
 - **Environment diagnostics** — `scripts/doctor.cmd` / `scripts/doctor.sh` validate Docker, Compose, raw CSV files, and host ports.
 - **Warehouse quality gates** — manual `warehouse_orders_ingestion` requires exact non-empty parity across all four CSV/staging pairs and read-only core readiness before its terminal task emits core events. Asset-triggered `warehouse_marts_validation` then runs marts readiness, payment reconciliation, publication, and the provenance audit. Any upstream failure emits no triggering event and creates no downstream run.
+- **Warehouse dbt tests** — the `dbt/warehouse` project carries 4 models, 79 data tests and 9 unit tests, run together by `dbt build`, plus a SQL mutation gate and a SQLFluff correctness gate. See [Warehouse dbt](#warehouse-dbt) below.
 - **Iceberg verification job** — `spark/jobs/verify_bronze_orders.py` inspects the bronze table, snapshot history, and time travel.
 - **Lakehouse observability** — `marts.lakehouse_metrics` is written by the iceberg writer (per batch) and medallion (per cycle); query it to verify ingestion and transformation runs.
 - **Lakehouse maintenance** — scheduler-serialized mapped tasks run the Trino `optimize`/`expire_snapshots(clean_expired_metadata=false)`/`remove_orphan_files` procedures once and write their own `ok`/`noop` or `failed:<operation>` rows to `marts.maintenance_runs`; failures remain failed.
@@ -80,6 +81,65 @@ boundaries; they do not trigger a DAG or mutate live data:
 ```bash
 uv run --locked pytest tests/features/test_airflow_workflow_behavior.py -m "bdd and airflow"
 ```
+
+### Warehouse dbt
+
+The `dbt/warehouse` project (`warehouse_transform`, PostgreSQL) owns the four
+`marts.v_*` views and is tested in seven layers. This is the *what and how to
+run it*; the rationale for each layer — and for what is deliberately **not**
+tested — lives in
+[W1 — Warehouse dbt ownership](warehouse/W1-dbt-ownership.md#testing-layers),
+which is the source of truth.
+
+| Layer | Question it answers | Where |
+|---|---|---|
+| Unit tests | Does the SQL compute the right thing, on mocked inputs? | `dbt/warehouse/models/marts/unit_tests.yml` |
+| Contracts | Do the published columns keep their shape and types? | `contract: enforced: true` in `models/marts/schema.yml` |
+| Data tests | Do the real rows satisfy the contract? | `schema.yml`, `models/sources.yml`, `macros/` |
+| Property tests | Do invariants that must hold on *any* data still hold? | `dbt/warehouse/tests/` |
+| Reconciliation | Do staging, core and marts agree on the money? | `tests/mart_reconciliation.sql`, `tests/payment_reconciliation.sql` |
+| Integration + replay parity | Does the whole chain line up, and is a rerun safe? | `tests/fixtures/warehouse/`, driven by `ci-pr.yml` |
+| Mutation gate | Do the layers above actually kill bugs? | `scripts/mutation_test.py`, see [W3](warehouse/W3-mutation-gate.md) |
+
+Invoke dbt through the project venv, never a bare `dbt` — see the
+[CLAUDE.md](../CLAUDE.md) note on the unrelated Anaconda install. Paths below
+are Windows; on macOS/Linux use `.venv-dbt-warehouse/bin/dbt`.
+
+Models, data tests and unit tests together (**stack must be running**, since
+dbt executes against `dwh`):
+
+```bash
+.venv-dbt-warehouse\Scripts\dbt.exe build --project-dir dbt\warehouse --profiles-dir dbt\warehouse
+```
+
+Unit tests only:
+
+```bash
+.venv-dbt-warehouse\Scripts\dbt.exe test --project-dir dbt\warehouse --profiles-dir dbt\warehouse --select "test_type:unit"
+```
+
+Static correctness gate and repository contracts (**no database needed**):
+
+```bash
+uv run --locked sqlfluff lint dbt/warehouse/models dbt/warehouse/tests dbt/models
+uv run --locked pytest tests/test_warehouse_dbt.py tests/test_mutation_harness.py
+```
+
+SQL mutation gate — applies known-bad edits and requires a named unit test to
+fail for each (**stack must be running**; it runs dbt once per mutation):
+
+```bash
+DBT_EXECUTABLE=.venv-dbt-warehouse/bin/dbt uv run --locked python scripts/mutation_test.py --json mutation-report.json
+```
+
+The integration and replay-parity layers are driven by the
+`warehouse-dbt-contract` job in `ci-pr.yml` rather than by a local command:
+it seeds `tests/fixtures/warehouse/seed_staging.sql`, runs the production
+`db/pipeline_sql/10_rebuild_core.sql`, builds, asserts the exact expected mart
+tuples, then rebuilds a second time and requires the business result to be
+unchanged. The seed is destructive — it truncates `stg.*` and the rebuild
+truncates `core.*`, and it aborts if `marts.pipeline_runs` already holds rows.
+Run it only against an ephemeral database.
 
 ### Deterministic E2E
 
@@ -161,6 +221,7 @@ Verify quality checks are active: the medallion logs a "quality checks" line eac
 - **New SQL check.** Add a file to `db/demo_sql/` following the existing numbering, then append its container path (e.g. `/demo_sql/06_my_check.sql`) to the array in `scripts/run_checks.cmd` and the list in `scripts/run_checks.sh`.
 - **New Iceberg verification.** Add a Spark job under `spark/jobs/` mirroring `verify_bronze_orders.py`, then submit it from the `spark-worker` container.
 - **New DAG quality gate.** Add a `@task` to the appropriate TaskGroup in `dags/warehouse_orders.py`. Keep ingestion gates before `core.publish_core_assets`; keep downstream validation before mart publication/audit. Do not add outlets to a predecessor that can still fail.
+- **New warehouse dbt test.** Pick the layer by the question it answers: a *unit test* in `models/marts/unit_tests.yml` if you are pinning transformation semantics against fixed inputs, a *column or generic data test* in `schema.yml` / `sources.yml` if the business genuinely forbids the value, or a *singular test* in `dbt/warehouse/tests/` for a cross-model invariant. Tier-1 tests should set `store_failures=true` so a red test names the offending rows. If the new test guards a specific SQL construct, add the matching mutation to `scripts/mutation_test.py` — see [W3](warehouse/W3-mutation-gate.md#adding-a-mutation).
 
 ## Coverage requirements
 
@@ -170,8 +231,11 @@ The PR workflow contains a **>= 90%** statement coverage check for the `iceberg/
 
 GitHub Actions workflows under `.github/workflows/`:
 
-- `ci-pr.yml` — pull requests and pushes to `main`: compose validation, `ruff`, `black --check`, the currently failing 90% coverage check, Airflow DagBag validation, and Gherkin workflow features (the Airflow checks run against `de-demo-airflow`).
+- `ci-pr.yml` — pull requests and pushes to `main`: compose validation, `ruff`, `black --check`, SQLFluff, the stale-lock check, the 90% `iceberg/` coverage gate, Airflow DagBag validation, and Gherkin workflow features (the Airflow checks run against `de-demo-airflow`). Its separate `warehouse-dbt-contract` job runs the whole warehouse dbt layer: `dbt build`, the seeded staging→core→marts integration fixture, replay parity, the repository contracts, and the SQL mutation gate.
 - `ci-integration.yml` — live Iceberg/Trino integration layer (9 tests), manual trigger and on push to `main`. Kept out of the PR gate: it needs the real MinIO/REST-catalog/Trino stack.
 - `ci-nightly.yml` — scheduled (02:15 UTC): full stack, integration layer, deterministic Kafka/Spark E2E (when `tests/e2e/` exists), and the maintenance DAG end-to-end check (`scripts/verify_maintenance_dag.py`).
+- `ci-m5-gates.yml` — PRs touching `iceberg/**` or `tests/test_*.py`: M3/M4 recovery and cutover gates on a minimal Iceberg stack.
+- `ci-h1-clean.yml` — manual, and PRs touching the runtime environment: clean reproducible-runtime rebuild.
+- `ci-s1-dbt.yml` — manual, and PRs touching `dbt/**`: parse/compile/docs for the `lakehouse_semantic` Trino project plus its contract fixture. Note this is the *semantic* dbt project; the warehouse project is gated by `ci-pr.yml` instead.
 
 Local runs follow the same `uv run --locked ...` commands as the workflows.
