@@ -15,6 +15,7 @@ from validate_runtime_config import read_env_file
 PIPELINE_PROVENANCE_MIGRATION = (
     "/docker-entrypoint-initdb.d/007_pipeline_runs_ingestion_provenance.sql"
 )
+STG_LOADED_AT_MIGRATION = "/docker-entrypoint-initdb.d/008_stg_loaded_at.sql"
 
 
 def _run(*args: str) -> subprocess.CompletedProcess[str]:
@@ -111,6 +112,18 @@ def bootstrap(values: dict[str, str], deadline: float) -> None:
         values["POSTGRES_DB"],
         "--file",
         PIPELINE_PROVENANCE_MIGRATION,
+    )
+    _docker_exec(
+        "de-demo-postgres",
+        "psql",
+        "-X",
+        "--set=ON_ERROR_STOP=1",
+        "--username",
+        values["POSTGRES_USER"],
+        "--dbname",
+        values["POSTGRES_DB"],
+        "--file",
+        STG_LOADED_AT_MIGRATION,
     )
     print(
         "[OK] H1 bootstrap: network, MinIO bucket, catalog schemas, "
