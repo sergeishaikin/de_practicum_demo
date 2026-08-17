@@ -109,7 +109,7 @@ failures, and no in-flight work. 01-07 is the next plan and was not executed.
 |-------|-----------|----------------|--------|-----------|
 | 1. B2 Controlled Rollout | Current | 8/12 | In Progress|  |
 | 2. Warehouse Asset-Orchestrated Batch Split | Airflow Orchestration Boundaries | 1/1 | Complete   | 2026-08-16 |
-| 3. Staging Source Freshness Gate | Airflow Orchestration Boundaries | 3/4 | In Progress|  |
+| 3. Staging Source Freshness Gate | Airflow Orchestration Boundaries | 4/4 | Executed   | 2026-08-17 |
 
 Historical milestones are intentionally summarized above rather than
 replayed as unfinished GSD phases.
@@ -175,7 +175,7 @@ Plans:
 - [x] 03-01-PLAN.md — Arrival signal: `loaded_at` migration and bootstrap replay (wave 1) (completed 2026-08-17)
 - [x] 03-02-PLAN.md — Activate freshness: dbt source config, the Airflow gate, and the W1/W2 rewrite (wave 2) (completed 2026-08-17)
 - [x] 03-03-PLAN.md — Live proof in CI: fresh passes, stale fails closed, one batch one timestamp (wave 3) (written 2026-08-17; executes on next CI run)
-- [ ] 03-04-PLAN.md — Live phase gate: DagBag mapping, BDD fail-closed scenario, threshold basis (wave 4, not autonomous)
+- [x] 03-04-PLAN.md — Live phase gate: DagBag mapping, BDD fail-closed scenario (wave 4) (completed read-only 2026-08-17; threshold measurement declined)
 
 **Wave order is sequential by design.** The operator requires small commits with
 verification after each meaningful step, and each wave depends on the previous

@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: 03-03 complete (unexecuted in CI); 03-04 next (wave 4, needs live stack)
+stopped_at: 03-04 complete read-only; phase EXECUTED, CI run still owes R1/R2/R3/R10/R11
 last_updated: "2026-08-17T12:00:00.000Z"
-last_activity: 2026-08-17 -- Phase 3 wave 3 (03-03) complete; CI proof written, unexecuted
+last_activity: 2026-08-17 -- Phase 3 wave 4 complete; live read-only verification passed, dwh untouched
 progress:
   total_phases: 2
   completed_phases: 1
@@ -21,16 +21,16 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-08-09)
 
 **Core value:** Business-key current state must remain correct and recoverable while the pipeline processes only committed incremental work.
-**Current focus:** Phase 3 — Staging Source Freshness Gate (wave 3 of 4 complete)
+**Current focus:** Phase 3 — Staging Source Freshness Gate (all 4 waves executed)
 
 ## Current Position
 
-Phase: 3 (Staging Source Freshness Gate) — IN PROGRESS, wave 3 of 4 complete
-Plan: 03-03 complete; 03-04 next
-Status: Gate configured and CI proof written but NEVER EXECUTED - no stack started all phase. 03-04 needs a live stack and a threshold-measurement decision.
-Last activity: 2026-08-17 -- Phase 3 wave 3 (03-03) complete
+Phase: 3 (Staging Source Freshness Gate) — EXECUTED, awaiting CI evidence
+Plan: 4 of 4 complete
+Status: Gate built, topology and fail-closed chain proven live read-only. dbt source freshness has still never executed; R1/R2/R3/R10/R11 close on the first CI run. Thresholds provisional and unmeasured by decision.
+Last activity: 2026-08-17 -- Phase 3 wave 4 (03-04) complete
 
-Progress: ▓▓▓▓▓▓▓░░░ 75% of Phase 3 (3 of 4 plans)
+Progress: ▓▓▓▓▓▓▓▓▓▓ 100% of Phase 3 (4 of 4 plans executed)
 
 ## Performance Metrics
 
