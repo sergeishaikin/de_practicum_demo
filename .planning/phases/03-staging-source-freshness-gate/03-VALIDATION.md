@@ -61,7 +61,7 @@ planner must bind each task to a row.
 | R7 | `core.*` declares no freshness | static contract | `pytest -q tests/test_warehouse_dbt.py::test_staging_sources_declare_load_recency_freshness` | 03-02 T1 + T2 | ❌ new |
 | R8 | SQL style, lint scope not widened | static | `sqlfluff lint dbt/warehouse/models dbt/warehouse/tests dbt/models` | 03-01 scope guard, 03-03 T1 | ✅ existing |
 | R9 | dbt project still parses | offline + live | `.venv-dbt-warehouse/Scripts/dbt.exe parse` locally, `ci-pr.yml` `dbt parse` in CI | 03-02 T1 | ✅ existing |
-| R10 | 9 dbt unit tests unaffected | live | `ci-pr.yml` `dbt build` — where assumption A3 is confirmed empirically | 03-02 verification note, 03-03 T2 | ✅ must stay green |
+| R10 | 9 dbt unit tests unaffected | live | `ci-pr.yml` `dbt build` — where assumption A3 is confirmed empirically. **Executable proof is 03-03's**; 03-02 only ran `dbt parse`, which does not connect, so 03-02 cannot close this. | 03-03 T2 | ⬜ pending |
 | R11 | Mutation gate unaffected | live + static | `ci-pr.yml` mutation step; plus `dbt source freshness` asserted absent from `scripts/mutation_test.py` | 03-03 T2 | ✅ must stay green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*

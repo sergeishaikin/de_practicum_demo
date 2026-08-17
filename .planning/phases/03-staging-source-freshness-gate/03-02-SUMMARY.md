@@ -39,7 +39,15 @@ patterns-established:
   - "Manifest assertions key by (source_name, table) — orders and order_items exist under both staging and core, so bare-name comparison gives false positives."
   - "Exact-set assertions over count assertions where a later addition could slip through."
 
-requirements-completed: [R2d, R7, R9, R10]
+requirements-completed: [R2d, R7, R9]
+requirements-pending:
+  - id: R10
+    reason: >-
+      R10 is the database-backed requirement that the nine dbt unit tests remain
+      unaffected. Only `dbt parse` ran in this plan, and parse does not connect.
+      Its executable proof is `dbt build` against the ephemeral PostgreSQL
+      fixture, which belongs to 03-03.
+    owned_by: "03-03"
 
 duration: ~25min
 completed: 2026-08-17

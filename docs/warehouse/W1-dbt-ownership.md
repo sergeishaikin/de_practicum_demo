@@ -199,12 +199,22 @@ wide, and the failure mode is a false pass rather than a false failure. A
 nullable transitional column or a sentinel timestamp would add permanent schema
 complexity to guard a one-time state.
 
-*Result status, not exit code.* Cosmos runs dbt in-process
-(`InvocationMode.DBT_RUNNER`, because dbt-core is pinned into the Airflow
-image's own Python), so `dbt_executable_path` is discarded and the Airflow
-signal is `dbtRunnerResult.success`. The CLI's exit code 1 and that boolean come
-from the same `FreshnessTask.interpret_results`, so the CI proof and the Airflow
-runtime cannot diverge. Do not "fix" the gate by swapping `DBT_EXECUTABLE`.
+*One result status, two runtime surfaces.* dbt's freshness **result status** is
+the authoritative thing, computed once by `FreshnessTask.interpret_results`. It
+then surfaces two ways, and both are real:
+
+- as the **CLI exit code** — 1 on an error-level result, 0 on warn or pass. This
+  is exactly what the CI steps assert, and it is the surface the executable
+  proof relies on;
+- as **`dbtRunnerResult.success`** under Cosmos, which runs dbt in-process here
+  (`InvocationMode.DBT_RUNNER`, because dbt-core is pinned into the Airflow
+  image's own Python) and therefore discards `dbt_executable_path`.
+
+Because both derive from the same computation, the CI proof and the Airflow
+runtime cannot disagree about whether a batch is stale — which is what makes the
+cheap CI assertion meaningful evidence about the expensive runtime path. Do not
+"fix" the gate by swapping `DBT_EXECUTABLE`; under the in-process runner it is
+not what makes dbt run.
 
 *Two adjacent behaviours worth knowing.* A warn exits zero and gates nothing —
 which is why `warn_error` must stay false and why no test asserts the warn
