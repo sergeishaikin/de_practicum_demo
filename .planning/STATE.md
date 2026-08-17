@@ -49,6 +49,7 @@ Progress: ▓▓▓▓▓▓▓▓▓▓ 100% of Phase 3 (4 of 4 plans executed)
 ### Roadmap Evolution
 
 - Phase 2 added: Warehouse Asset-Orchestrated Batch Split. This is Phase 1 of the Airflow orchestration roadmap; Airflow-owned medallion remains an unapproved seed.
+- Phase 4 added: Medallion Telemetry and Redundant Work Elimination. Opened after a Rust feasibility investigation found no justified Rust candidate but did expose a metric-identity defect and redundant full-state work.
 - Phase 3 added: Staging Source Freshness Gate. Closes the one remaining dbt data-quality dimension. Design approved in `docs/superpowers/specs/2026-08-17-warehouse-source-freshness-design.md`; scope is fixed by that spec.
 
 ### Decisions

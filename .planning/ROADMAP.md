@@ -182,3 +182,36 @@ verification after each meaningful step, and each wave depends on the previous
 one: the column must exist before freshness can be declared, freshness must be
 declared before CI can prove it, and the DAG task must exist before the live
 DagBag can be observed. There is no parallelism to recover here.
+
+### Phase 4: Medallion Telemetry and Redundant Work Elimination
+
+**Goal:** Make medallion execution telemetry trustworthy, then use that evidence to
+eliminate redundant full-state work on unchanged Iceberg state — while preserving
+every existing B2, shadow-comparison, recovery, FF-14, Gold and rollout guarantee.
+
+**Why now.** `marts.lakehouse_metrics` records nested `run_b2` and outer `_run_m4`
+executions under the same `source`/`status` identity, and the outer
+`silver_duration_ms` already contains the nested B2 duration. Historical rows can
+therefore be read as separate cycles and B2 time can be double-counted — a defect
+that already misled one investigation. Separately, the shadow path performs a full
+Bronze scan plus legacy Silver projection plus business-state comparison on every
+cycle while `SHADOW_COMPARE=1`, and Gold is overwritten even when persisted Silver
+has not moved.
+
+**Explicitly out of scope:** Rust, or any new language or toolchain. No Rust rewrite
+is justified by current evidence; the Bronze writer question is unmeasured, not
+rejected, and may be reopened on its own measurements later.
+
+**Sequence:** P0 telemetry semantics → P1 shadow fast path (receipt-based) and Gold
+provenance → P2 steady-state shadow policy → P3 Arrow/Python profiling, only if still
+measurable.
+
+**Requirements**: [TEL-01 cycle_id and phase separation, TEL-02 documented historical
+interpretation rule, SHD-01 receipt-based shadow fast path, GLD-01 Gold source
+provenance, POL-01 steady-state shadow policy, PRF-01 Arrow boundary profiling]
+**Depends on:** Phase 3
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 4 to break down)
