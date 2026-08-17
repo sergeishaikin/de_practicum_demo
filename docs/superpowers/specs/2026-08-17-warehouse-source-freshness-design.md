@@ -9,9 +9,10 @@ Scope: `dbt/warehouse`, `stg.*` schema, `warehouse_marts_validation`
 The warehouse dbt project covers unit tests, enforced contracts, data tests,
 property tests, source-to-mart and staging-to-core reconciliation, replay
 parity, a SQL mutation gate, and an integration fixture. One data-quality
-dimension is absent: nothing asserts *when the staging data physically
-arrived*. A marts run triggered hours after ingestion certifies and publishes
-marts from a stale slice with every existing gate green.
+dimension is absent: nothing asserts *how old the staging slice is at the
+moment marts are certified from it*. A marts run triggered hours after
+ingestion certifies and publishes marts from a stale slice with every existing
+gate green.
 
 `docs/warehouse/W1-dbt-ownership.md` currently records freshness as
 deliberately not adopted, on the grounds that `stg.*` carries no
@@ -40,15 +41,39 @@ circular — the signal is produced after the step it is meant to guard.
 **`stg.*` has no timestamp column.** `db/init/002_stg_tables.sql` defines four
 tables of business columns plus `ingest_date date not null`.
 
-The arrival signal therefore has to be created. It does not already exist in
-any usable form.
+The load-recency signal therefore has to be created. It does not already exist
+in any usable form.
 
 ## Decision
 
-Add a physical arrival timestamp to the four staging tables, declare
+Add a batch-load transaction timestamp to the four staging tables, declare
 `loaded_at_field` freshness on all four dbt sources, and enforce it as an
 Airflow task in `warehouse_marts_validation` that runs before the Cosmos dbt
 build.
+
+### What this does and does not promise
+
+The gate's promise is deliberately narrow:
+
+> Prevent downstream certification from consuming staging whose most recent
+> successful load is outside the permitted age.
+
+It is **not** an external arrival SLA, and it cannot detect a missing batch.
+The timestamp is written by the staging load itself, and the marts DAG is
+Asset-triggered by that same pipeline. If ingestion never runs, no timestamp is
+written — but the marts DAG never starts either, so freshness never evaluates.
+With manual-trigger ingestion there is no expected-arrival schedule for it to
+violate. Real missing-batch detection would require an independent expected
+-arrival schedule or an upstream arrival signal, and is out of scope.
+
+What it does catch, all of which are real:
+
+- a marts re-trigger against a staging slice loaded hours ago;
+- an accidentally no-op or stale staging load;
+- staging consumed after abnormal orchestration delay;
+- a regression where staging validation passes against old same-sized data —
+  exact-count parity cannot distinguish yesterday's batch from today's if the
+  row counts match.
 
 ### Rejected alternatives
 
@@ -91,14 +116,39 @@ Two properties make this work without touching the ingestion DAG:
 
 - `_copy_csv` builds an explicit column list that does not name `loaded_at`, so
   the column default applies on every `COPY`.
-- `now()` in PostgreSQL is transaction-start time, and `load_raw_csv_to_stg`
-  wraps the truncate and all four `COPY` calls in one `with _connect() as conn:`
-  block over a `psycopg2` connection with default `autocommit=False`
-  (`dags/warehouse_orders.py:254`). The whole load is therefore a single
-  transaction, and every row of **all four tables** receives an identical
-  `loaded_at`. This gives batch-arrival semantics rather than a per-row smear,
-  and makes the four sources' freshness consistent by construction rather than
-  by coincidence. `clock_timestamp()` would be wrong here.
+- `now()` in PostgreSQL is transaction-start time and is constant for the whole
+  transaction, and `load_raw_csv_to_stg` wraps the truncate and all four `COPY`
+  calls in one `with _connect() as conn:` block over a `psycopg2` connection
+  with default `autocommit=False` (`dags/warehouse_orders.py:254`). The whole
+  load is therefore a single transaction, and every row of **all four tables**
+  receives an identical value.
+
+The precise name for what this records is a **batch-load transaction
+timestamp** — when the load transaction started — not literal row-arrival time.
+For a full-refresh pipeline that is the stronger and cleaner invariant: one
+batch has exactly one timestamp, shared across all four sources by
+construction rather than by coincidence, so the four sources can never report
+inconsistent freshness. `clock_timestamp()` would break this by varying per
+row.
+
+**The migration leaves a false-fresh window, and that is accepted.**
+`ALTER TABLE ... ADD COLUMN loaded_at timestamptz NOT NULL DEFAULT now()`
+assigns the evaluated default to existing rows as well as future ones. So
+immediately after the migration, staging rows that were loaded days ago report
+as freshly loaded.
+
+This is harmless here, on one condition that must hold and is worth stating
+rather than assuming: **the freshness gate is only ever trusted after
+`load_raw_csv_to_stg` has run**, because that task truncates those rows before
+copying the real batch. Since the gate lives in the Asset-triggered marts DAG,
+which cannot run without a successful ingestion upstream, the condition holds
+structurally.
+
+The design deliberately does **not** complicate the migration with a nullable
+transitional column or a sentinel timestamp to close this window. The window is
+one ingestion run wide, the failure mode is a false pass rather than a false
+failure, and the alternative adds permanent schema complexity to guard a
+one-time state.
 
 **Migration delivery.** `db/init/` is mounted at
 `/docker-entrypoint-initdb.d` (`docker-compose.yml`), which PostgreSQL runs
@@ -121,6 +171,9 @@ config:
     error_after: {count: 2,  period: hour}
 ```
 
+The two threshold values are **provisional starting points to be measured**,
+not settled design — see *Verification carried into implementation*.
+
 Verified available in the pinned runtime: `SourceConfig` in
 `.venv-dbt-warehouse/Lib/site-packages/dbt/artifacts/resources/v1/source_definition.py`
 declares `freshness`, `loaded_at_field`, and `loaded_at_query` under dbt-core
@@ -139,6 +192,25 @@ A `check_source_freshness` task, wired upstream of the existing task group:
 freshness_task >> dbt_group
 ```
 
+The gate sits at the **point of consumption**, not immediately after the
+staging load:
+
+```text
+successful ingestion
+  → core publication
+  → Asset-triggered marts DAG
+  → SOURCE FRESHNESS        ← here
+  → dbt build
+  → validation
+  → mart / audit publication
+```
+
+Placed straight after the load it would be close to tautological — *I just
+inserted these rows; are they recent?* Placed at consumption it asks the
+question that can actually fail, and becomes one more fail-closed prerequisite
+to certification alongside the existing rule that marts are not published
+unless dbt validation succeeded.
+
 `dbt source freshness` is a distinct command from `dbt build`; the build does
 not invoke it and remains independently runnable. On an error-level result the
 task fails, `dbt_group` never starts, and therefore `validate_dbt_artifacts`
@@ -148,8 +220,21 @@ never certifies and `publish_mart_assets` never emits — no mart Asset and no
 Existing constants to reuse rather than redefine: `DBT_PROJECT_PATH`,
 `DBT_PROFILE_PATH`, `DBT_EXECUTABLE`, `DBT_ENV`, and `_profile_config()`.
 
-Operator choice is deliberately left to the implementation plan's first task —
-see *Must be verified before implementation* below.
+**Operator:** Cosmos `DbtSourceLocalOperator`, consistent with the existing
+`DbtDocsOperator` usage.
+
+Cosmos 1.15's Watcher mode can run source freshness as part of the
+`DbtTaskGroup` itself, but that behaviour is flagged experimental. This design
+uses an **explicit, separate freshness task** instead, so the semantics of the
+existing `DbtTaskGroup` are not silently changed and the gate is visible as its
+own node in the Airflow graph.
+
+**No `sources.json` parsing.** An earlier draft carried a fallback that read
+`target/sources.json` and failed on `status == "error"` in case the exit code
+proved unreliable. That is defensive machinery for a failure mode nobody has
+observed, so it is removed. The task relies on the exit code. If the pinned
+-runtime test below demonstrates an actual CLI problem, adding the fallback
+then is a small change.
 
 ### 4. Tests
 
@@ -181,7 +266,11 @@ Migration idempotency: applying `008` twice must be a no-op.
 
 - `docs/warehouse/W1-dbt-ownership.md` — replace the "Not adopted,
   deliberately: dbt source freshness" paragraph with the adopted design, the
-  arrival-versus-business-time rationale, and the rejected alternatives.
+  arrival-versus-business-time rationale, the rejected alternatives, the
+  narrowed promise (it is not missing-batch detection), and the measured basis
+  for the threshold values. This must land in the **same commit** as the
+  implementation, so the documentation never describes an intermediate
+  architecture.
 - `docs/warehouse/W2-execution-contract.md` — add a freshness row to the
   "Where each layer is exercised" table.
 
@@ -193,7 +282,7 @@ Migration idempotency: applying `008` twice must be a no-op.
 | Represents physical arrival, not business event time | `loaded_at timestamptz default now()` set at `COPY` time; `ingest_date` and `order_purchase_timestamp` explicitly not used |
 | Fresh batch → PASS | CI seeds and checks in the same job; asserted by exit code |
 | Deliberately stale batch → WARN/ERROR | CI backdates `loaded_at` by 3 hours, exceeding `error_after`, and asserts non-zero exit. **The `warn_after` threshold is not separately asserted**: a warn is advisory, exits zero, and gates nothing, so a test for it would assert on log text rather than behaviour. |
-| Missing batch → detected | **Partly pre-existing.** The ingestion DAG already enforces exact non-empty parity across all four CSV/staging pairs before emitting core events. Freshness adds arrival *recency*, which is genuinely new; it is not net-new missing-batch detection. |
+| ~~Missing batch → detected~~ | **Withdrawn — this design cannot deliver it.** The timestamp is written by the load itself and the marts DAG is Asset-triggered by the same pipeline, so if ingestion never runs the gate never evaluates. See *What this does and does not promise*. The narrowed criterion that replaces it: **staging older than `error_after` at the point of consumption blocks certification.** |
 | `dbt build` remains independent | Separate command, separate task; the build never invokes freshness |
 | Fixture tests do not become time-dependent | `loaded_at` is test-controlled; the stale case is an explicit `update`, not a wait |
 | Airflow surfaces failure before mart certification | `freshness_task >> dbt_group`; nothing downstream runs on failure |
@@ -219,22 +308,34 @@ own scoped task.
 - No change to `dbt build`, the mutation gate, or any existing test.
 - No `loaded_at_query`, and no new audit table.
 
-## Must be verified before implementation
+## Verification carried into implementation
 
-These are stated as checks rather than assertions because the stack was not
-running and Cosmos is not installed on the host.
+`DbtSourceLocalOperator` is documented in Cosmos 1.15 and the operator question
+is closed. Exit-code behaviour — error-level staleness returning a non-zero
+code that stops subsequent steps, warn-level not doing so — is well founded in
+dbt's own issue history. Neither needs a spike.
 
-1. **Exit-code semantics.** Confirm `dbt source freshness` exits non-zero on an
-   error-level source and zero on `warn`/`pass` under dbt-core 1.12.2. The gate
-   depends on this. If it does not hold, read `target/sources.json` and fail on
-   `status == "error"` instead.
-2. **Operator choice.** Confirm whether `DbtSourceLocalOperator` exists in
-   astronomer-cosmos 1.15.0 and accepts the project's `ProfileConfig`. If it
-   does, use it, consistent with the existing `DbtDocsOperator` usage. If not,
-   use an `@task` that shells out via `subprocess.run` with `DBT_ENV`.
-3. **Threshold realism.** Confirm that on a real stack the Asset-triggered
-   marts run starts well inside 30 minutes of ingestion, so `warn_after` does
-   not fire on healthy runs.
+One test and one measurement remain:
+
+1. **Pinned-runtime integration test.** Exercise the exit-code contract against
+   **dbt-core 1.12.2** specifically, rather than trusting documented behaviour
+   from another version. This is the CI stale-batch step already specified
+   under *Tests*; it doubles as the runtime proof. Only if it demonstrates an
+   actual CLI problem does the `sources.json` fallback come back.
+
+2. **Measure the threshold; do not assume it.** `warn_after: 30m` is a
+   *starting value to validate*, not a design commitment. The marts DAG carries
+   `dagrun_timeout=timedelta(minutes=45)` (`dags/warehouse_dbt.py:329`) and
+   `execution_timeout=timedelta(minutes=40)` on `validate_dbt_artifacts`, so a
+   30-minute warn sits inside the window the pipeline already tolerates for
+   scheduler and resource delay. Chosen blindly, it converts ordinary
+   orchestration lag into a data-quality warning.
+
+   Before the thresholds are treated as settled, measure the elapsed time from
+   ingestion completion to the freshness task across several healthy
+   Asset-triggered runs, and set `warn_after` with real margin above the
+   observed spread. Record the measurement in W1 so the number has a stated
+   basis rather than looking arbitrary to the next reader.
 
 ## Verification
 
