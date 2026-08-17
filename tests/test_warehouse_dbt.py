@@ -35,6 +35,32 @@ def test_sources_keep_airflow_owned_boundaries_explicit() -> None:
     assert "owner:airflow" in sources
 
 
+def test_staging_sources_declare_load_recency_freshness() -> None:
+    """Freshness is only a gate if *every* staging source carries it, and it is
+    only *narrow* if `core.*` does not.
+
+    A staging table without thresholds is silently skipped by dbt — no error, no
+    warning — so a fifth table added later without freshness would quietly open a
+    hole. The count-of-four is what catches that. The core half is what keeps the
+    guarantee narrow: `core.*` is a derived projection, not an arrival point, and
+    declaring freshness there would claim something this design does not.
+    """
+
+    sources = (PROJECT / "models" / "sources.yml").read_text(encoding="utf-8")
+    staging, _, core = sources.partition("- name: core")
+
+    assert staging.count("loaded_at_field: loaded_at") == 4
+    assert staging.count("warn_after") == 4
+    assert staging.count("error_after") == 4
+
+    assert "loaded_at_field" not in core
+    assert "freshness" not in core
+    assert "warn_after" not in core
+
+    # The design uses a physical column, never a derived query.
+    assert "loaded_at_query" not in sources
+
+
 def test_marts_preserve_existing_relation_names_and_sql_boundaries() -> None:
     expected = {
         "v_order_items_wide": "v_order_items_wide",
@@ -280,3 +306,54 @@ def test_cosmos_warehouse_dag_uses_watcher_and_explicit_publication() -> None:
     assert "publish_mart_assets" in source
     assert "PIPELINE_AUDIT_ASSET" in source
     assert "get_current_context" in source
+
+
+def test_marts_dag_gates_dbt_build_on_source_freshness() -> None:
+    """The import path is the load-bearing assertion here.
+
+    `DbtSourceLocalOperator` is not re-exported from `cosmos.operators` in
+    astronomer-cosmos 1.15.0, so the shorter, obvious-looking import raises
+    ImportError at parse time and takes down the entire DagBag — not just this
+    DAG. The fast suite would never notice on its own, because it does not import
+    Airflow or Cosmos at all. Hence a source-text assertion.
+    """
+
+    source = read("dags/warehouse_dbt.py")
+
+    assert "from cosmos.operators.local import DbtSourceLocalOperator" in source
+    assert (
+        "from cosmos.operators import DbtDocsOperator, DbtSourceLocalOperator"
+        not in source
+    )
+    assert 'task_id="check_source_freshness"' in source
+    # Source-level wiring only. Whether the rendered producer edge exists in a
+    # real DagBag is proven by observing a live one, not by this assertion.
+    assert "check_source_freshness >> dbt_group" in source
+
+    # Each of these would weaken the gate rather than break it, which is the
+    # dangerous kind of regression: the DAG would still import and still be
+    # green.
+    #   source_rendering_behavior -> activates Cosmos' experimental Watcher
+    #                                freshness path, which this design rejects
+    #   warn_error                -> promotes the advisory warn into an error and
+    #                                collapses the two thresholds into one
+    #   on_warning_callback       -> a warn-level hook that gates nothing, so it
+    #                                reads as protection while providing none
+    #   skip_exit_code            -> dbt only exits 0, 1 or 2, so the default is
+    #                                unreachable; changing it adds an
+    #                                unexplained parameter
+    for weakening in (
+        "source_rendering_behavior",
+        "warn_error",
+        "on_warning_callback",
+        "skip_exit_code",
+    ):
+        assert weakening not in source, f"{weakening} weakens the freshness gate"
+
+    # Keeps the documentation from drifting back behind the code.
+    w1 = read("docs/warehouse/W1-dbt-ownership.md")
+    assert "Not adopted, deliberately: dbt source freshness" not in w1
+    assert (
+        "Prevent downstream certification from consuming staging "
+        "whose most recent successful load is outside the permitted age." in w1
+    )
