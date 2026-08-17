@@ -123,6 +123,19 @@ jobs:
             echo "$violations"
             exit 1
           fi
+      - name: Assert replay parity — reprocessing the same batch must not change results
+        run: |
+          docker exec -i de-demo-postgres psql -U app -d dwh -v ON_ERROR_STOP=1 \
+            < tests/fixtures/warehouse/replay_snapshot.sql
+          docker exec -i de-demo-postgres psql -U app -d dwh -v ON_ERROR_STOP=1 \
+            < db/pipeline_sql/10_rebuild_core.sql
+          violations=$(docker exec -i de-demo-postgres psql -U app -d dwh \
+            -v ON_ERROR_STOP=1 -At -F '|' < tests/fixtures/warehouse/assert_replay_parity.sql)
+          if [ -n "$violations" ]; then
+            echo "Replaying the same staging batch changed the business result:"
+            echo "$violations"
+            exit 1
+          fi
       - name: Verify repository contracts
         run: uv run --locked pytest -q tests/test_warehouse_dbt.py
       - name: Upload warehouse dbt artifacts

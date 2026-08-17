@@ -96,6 +96,27 @@ The seed is destructive — it truncates `stg.*` and the rebuild truncates
 `core.*` — so it aborts if `marts.pipeline_runs` already holds rows. Run it
 only against an ephemeral database.
 
+**Replay parity** — *is reprocessing the same batch safe?* This is the property
+that makes an Airflow retry, a manual re-trigger, or a rerun after a partial
+failure safe: all of them replay the same staging slice through
+`db/pipeline_sql/10_rebuild_core.sql`. CI seeds staging, rebuilds, snapshots
+core and all four marts into a `replay_check` schema, rebuilds a second time,
+then requires `tests/fixtures/warehouse/assert_replay_parity.sql` to return zero
+rows. It symmetric-differences both directions, so rows that *appeared* and rows
+that *vanished* are each named, with explicit row-count guards because `EXCEPT`
+is set-based and would not see a duplicated row.
+
+**Failure diagnosis** — the four Tier-1 tests (both reconciliations, the mart
+grain, and the roll-up invariant) set `store_failures=true`, so a red test
+leaves its violating rows in `dbt_test__audit.<test_name>` instead of only a
+count. This is deliberately *not* enabled on all 79 tests, which would clutter
+the database for no diagnostic gain.
+
+Note that `payment_reconciliation` compares per `(order_id, ingest_date)` — the
+exact grain the payment aggregation groups by — rather than as one global `SUM`.
+A global total passes whenever two errors cancel out (`-10` on one order, `+10`
+on another), which is precisely the case a reconciliation test exists to catch.
+
 **Static analysis** — SQLFluff runs in `ci-pr.yml` as a *correctness* gate, not
 a formatter. The default rule set reports ~100 findings here, of which 96 are
 pure layout (74 are 2-space vs 4-space indent alone); enforcing those would

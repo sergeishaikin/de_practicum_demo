@@ -1,3 +1,6 @@
+-- Tier-1: persist violating rows so a failure names which side diverged.
+{{ config(store_failures=true) }}
+
 -- Cross-model invariant: the state-level mart must be a pure partition of the
 -- daily mart. core.order_items carries exactly one customer_state per order, so
 -- summing the state grain by day has to reproduce v_sales_daily exactly.

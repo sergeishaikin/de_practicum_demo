@@ -172,6 +172,60 @@ def test_integration_fixture_runs_the_production_core_rebuild() -> None:
     assert "v_customer_state_daily" in invariant.read_text(encoding="utf-8")
 
 
+def test_replay_parity_is_asserted_against_the_production_rebuild() -> None:
+    """Reprocessing the same staging batch must not change the business result.
+    That is what makes an Airflow retry or manual re-trigger safe."""
+
+    fixtures = ROOT / "tests" / "fixtures" / "warehouse"
+    snapshot = (fixtures / "replay_snapshot.sql").read_text(encoding="utf-8")
+    assert "create schema replay_check" in snapshot
+    # The snapshot must capture core *and* every mart, or a divergence could hide.
+    for relation in (
+        "core.orders",
+        "core.order_items",
+        "marts.v_sales_daily",
+        "marts.v_customer_state_daily",
+        "marts.v_order_items_wide",
+        "marts.v_reconcile_sales_daily",
+    ):
+        assert relation in snapshot
+
+    parity = (fixtures / "assert_replay_parity.sql").read_text(encoding="utf-8")
+    # Symmetric difference: rows that appeared and rows that vanished.
+    assert "appeared on replay" in parity
+    assert "lost on replay" in parity
+    # EXCEPT is set-based, so duplicated rows need an explicit count guard.
+    assert "row count changed" in parity
+    assert "{%" not in parity, "this file runs through psql, not dbt"
+
+    workflow = read(".github/workflows/ci-pr.yml")
+    assert "tests/fixtures/warehouse/replay_snapshot.sql" in workflow
+    assert "tests/fixtures/warehouse/assert_replay_parity.sql" in workflow
+    # The replay must go through the real transform, twice.
+    assert workflow.count("db/pipeline_sql/10_rebuild_core.sql") >= 2
+
+
+def test_tier1_tests_persist_their_failure_rows() -> None:
+    """A red Tier-1 test must say *which* rows broke, not just that something did."""
+
+    for name in (
+        "mart_reconciliation.sql",
+        "payment_reconciliation.sql",
+        "order_items_wide_grain.sql",
+        "customer_state_rolls_up_to_sales_daily.sql",
+    ):
+        sql = (PROJECT / "tests" / name).read_text(encoding="utf-8")
+        assert "store_failures=true" in sql, f"{name} discards its failure rows"
+
+    # Payment reconciliation must compare per order, not as one global SUM -
+    # a global total passes whenever two errors cancel out.
+    payments = (PROJECT / "tests" / "payment_reconciliation.sql").read_text(
+        encoding="utf-8"
+    )
+    assert "group by order_id, ingest_date" in payments
+    assert "full join" in payments
+
+
 def test_generate_schema_name_keeps_the_legacy_marts_relation_names() -> None:
     """The macro deliberately discards `target.schema`, which is the opposite of
     dbt's default. That is load-bearing: `dags/warehouse_dbt.py` reads the mart
