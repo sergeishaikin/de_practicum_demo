@@ -38,22 +38,8 @@ patterns-established:
   - "Start the existing container directly rather than via compose when compose would recreate networks or volumes."
 
 requirements-completed: [R2b, R2c, R3b, R4, R5]
+requirements-closed-by: "CI run 32056312009, job `warehouse-dbt-contract`, green in 1m31s — R1, R2, R3, R10, R11 all green"
 requirements-pending:
-  - id: R1
-    reason: CI freshness steps written but never executed. Closes on the first CI run.
-    owned_by: "CI execution of warehouse-dbt-contract"
-  - id: R2
-    reason: Same — the stale-batch exit-1 assertion has not run.
-    owned_by: "CI execution of warehouse-dbt-contract"
-  - id: R3
-    reason: The one-batch fixture has never touched PostgreSQL.
-    owned_by: "CI execution of warehouse-dbt-contract"
-  - id: R10
-    reason: dbt build has not run against a database in this phase.
-    owned_by: "CI execution of warehouse-dbt-contract"
-  - id: R11
-    reason: Static half done; the live mutation-gate run has not happened.
-    owned_by: "CI execution of warehouse-dbt-contract"
   - id: threshold-measurement
     reason: Explicitly declined by the operator. W1 states provisional and unmeasured.
     owned_by: "deferred"
@@ -158,10 +144,10 @@ that the guard fires.
 
 ## What remains unproven
 
-Every runtime freshness behaviour. `dbt source freshness` has still never
-executed anywhere — not fresh, not stale. R1, R2, R3, R10 and R11 close on the
-first CI run of `warehouse-dbt-contract`, not before. The thresholds remain
-provisional and unmeasured by explicit decision.
+Only the threshold basis. R1, R2, R3, R10 and R11 closed on CI run 32056312009, job `warehouse-dbt-contract`, green in 1m31s: the fresh batch
+passed, the backdated batch produced `ERROR STALE` and exit exactly 1, and every
+downstream step stayed green. The thresholds remain **provisional and
+unmeasured** by explicit decision.
 
 ## Commits
 

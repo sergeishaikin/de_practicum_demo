@@ -109,7 +109,7 @@ failures, and no in-flight work. 01-07 is the next plan and was not executed.
 |-------|-----------|----------------|--------|-----------|
 | 1. B2 Controlled Rollout | Current | 8/12 | In Progress|  |
 | 2. Warehouse Asset-Orchestrated Batch Split | Airflow Orchestration Boundaries | 1/1 | Complete   | 2026-08-16 |
-| 3. Staging Source Freshness Gate | Airflow Orchestration Boundaries | 4/4 | Executed   | 2026-08-17 |
+| 3. Staging Source Freshness Gate | Airflow Orchestration Boundaries | 4/4 | Complete   | 2026-08-17 |
 
 Historical milestones are intentionally summarized above rather than
 replayed as unfinished GSD phases.

@@ -39,19 +39,8 @@ patterns-established:
   - "Comment-stripped bodies before any count() or forbidden-substring assertion, so prose cannot fail a behavioural check."
   - "Step lookup by ASCII substring; em-dash mismatches must not surface as a bare ValueError."
 
-requirements-completed: [R1, R1c, R2, R3, R8]
-requirements-pending:
-  - id: R10
-    reason: >-
-      Inherited from 03-02. `dbt build` is present in the job but has not been
-      executed here — no stack was started. Closes when CI runs the job.
-    owned_by: "CI execution of warehouse-dbt-contract"
-  - id: R11
-    reason: >-
-      The static half is done — `dbt source freshness` is asserted absent from
-      scripts/mutation_test.py. The live half, that the mutation gate still
-      passes with the new steps present, closes when CI runs the job.
-    owned_by: "CI execution of warehouse-dbt-contract"
+requirements-completed: [R1, R1c, R2, R3, R8, R10, R11]
+requirements-closed-by: "CI run 32056312009, job `warehouse-dbt-contract`, green in 1m31s"
 
 duration: ~30min
 completed: 2026-08-17
@@ -61,8 +50,10 @@ completed: 2026-08-17
 
 **The executable proof is written: a freshly seeded batch must pass freshness, a batch backdated past `error_after` must exit exactly 1, and staging is unconditionally restored afterwards.**
 
-Written, not yet run. These steps have never executed — that happens when CI
-runs the job.
+**Executed and green.** CI run 32056312009, job `warehouse-dbt-contract`, green in 1m31s. Fresh batch: all four sources `PASS freshness`.
+Backdated batch: all four `ERROR STALE` with `Status: error`, exit exactly 1.
+Reset, `dbt build`, mart assertions, replay parity and the mutation gate (8/8
+killed) all green afterwards.
 
 ## What was built
 
@@ -91,13 +82,26 @@ step (44 insertions, 0 deletions).
 | `ruff` / `black` | clean |
 | `pytest tests --cov=iceberg --cov-fail-under=90` | **305 passed**, 93.66% |
 
-## Not verified
+## Execution evidence
 
-**Nothing in this plan has been executed against a database.** No stack was
-started. `dbt source freshness` has never run — not on a fresh batch, not on a
-stale one. The three fixtures have never touched PostgreSQL, so their SQL is
-syntactically unverified beyond mirroring existing fixtures. R10 and R11's live
-halves remain open and close only when CI runs the job.
+At the time this plan was written nothing had run against a database — no stack
+was started locally, and the three fixtures had never touched PostgreSQL.
+
+That gap is now closed. In CI run 32056312009 the fixtures executed against the
+ephemeral PostgreSQL fixture and every step passed:
+
+| Step | Observed |
+|---|---|
+| one-batch assertion | zero violations |
+| fresh `dbt source freshness` | all four sources `PASS freshness`, exit 0 |
+| stale `dbt source freshness` | all four `ERROR STALE`, `Status: error`, exit **exactly 1** |
+| reset | success |
+| `dbt build` | success — **R10** |
+| mart assertions, replay parity | success |
+| mutation gate | success, **8/8 mutations killed** — **R11** |
+
+The stale step's pass is attributable to the dbt result status, read from the
+log, not inferred from a green tick.
 
 ## A recurring friction worth recording
 

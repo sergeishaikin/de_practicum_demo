@@ -19,6 +19,7 @@ run is repeated, interrupted or retried*.
 | Unreadable core | **No Asset metadata** | Scenario *"Core readiness failure publishes no Asset metadata"* |
 | Ambiguous Asset provenance | **Fails closed** | Scenario *"Ambiguous source events fail closed"* |
 | Payment mismatch | **Blocks mart publication** | Scenario *"Payment mismatch prevents mart publication"* |
+| Staging older than `error_after` | **Blocks certification** — no dbt build, no audit row, no Assets | `ci-pr.yml` backdated-batch step (`ERROR STALE`, exit 1) plus scenario *"A stale staging slice stops certification at the validator"* |
 
 ## Why replay is idempotent rather than rejected
 
@@ -70,15 +71,17 @@ state as a clean run.
 | Whole pipeline through Airflow | `airflow dags trigger warehouse_orders_ingestion`, Asset-triggered marts run, then a second trigger of the same batch | minutes, `ci-integration.yml` |
 | Staging load recency — gate topology | `check_source_freshness` observed in a live DagBag as a root and direct upstream of `dbt_warehouse.dbt_producer_watcher` | seconds, `tests/test_dags.py -m airflow` |
 | Staging load recency — fail-closed chain | Real `validate_dbt_artifacts` and `publish_mart_assets` callables driven with `upstream_failed`, database faked | ~10 s, `tests/features/ -m "bdd and airflow"` |
-| Staging load recency — freshness execution | `dbt source freshness` over a freshly seeded batch, then over a backdated one that must exit exactly 1 | **written, not yet executed** — see below |
+| Staging load recency — freshness execution | `dbt source freshness` over a freshly seeded batch, then over a backdated one that must exit exactly 1 | seconds, `ci-pr.yml` `warehouse-dbt-contract` |
 
 The behavioural scenarios run against the **real task callables from the real
 DagBag** — not a reimplementation — with only the database connection faked, so a
 change to the production callable breaks the scenario.
 
-## The load-recency gate, and what is not yet proven about it
+## The load-recency gate, and how each part of it is proven
 
-Two of the three proofs are done; the third is written but has not run.
+Three independent proofs: the gate's position in the rendered graph, the
+fail-closed chain it triggers, and the freshness verdicts themselves. All three
+have now been observed.
 
 **Observed.** A live DagBag renders `check_source_freshness` as a root and as a
 direct upstream of `dbt_warehouse.dbt_producer_watcher`. It also fans out to
@@ -103,10 +106,14 @@ root with no upstream. It polls task state from the metadata database rather
 than sitting on a dependency edge, which is why a freshness failure reaches it
 as `upstream_failed` rather than as a broken dependency.
 
-**Not yet executed.** The freshness commands themselves. The CI steps asserting
-that a freshly seeded batch passes and a backdated batch exits exactly 1 have
-been written but never run; that proof arrives with the first CI run of
-`warehouse-dbt-contract`.
+**Observed.** The freshness commands themselves, on the pinned runtime. In the
+first `warehouse-dbt-contract` run all four staging sources reported
+`PASS freshness` on the freshly seeded batch, and all four reported
+`ERROR STALE` with `Status: error` once backdated three hours — with the step
+requiring an exit code of exactly 1, not merely non-zero, so a dbt crash
+(exit 2) could not have satisfied it. The reset then restored staging, and
+`dbt build`, the mart assertions, replay parity and the mutation gate (8/8
+mutations killed) all stayed green afterwards.
 
 `W1-dbt-ownership.md` remains the source of truth for why the gate exists, what
 it deliberately does not promise, and why its thresholds are still provisional.
