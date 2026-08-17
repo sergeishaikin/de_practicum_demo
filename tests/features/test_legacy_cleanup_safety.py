@@ -16,7 +16,11 @@ from iceberg.medallion.legacy_outbox_reconciliation import (
     classify_manifests,
     cleanup_set_digest,
 )
-from scripts.cleanup_legacy_outbox import APPROVED_COUNT, _pre_delete_gate
+from scripts.cleanup_legacy_outbox import (
+    APPROVED_COUNT,
+    EXPECTED_RECEIPT_SCHEMA,
+    _pre_delete_gate,
+)
 
 scenarios("legacy_cleanup_safety.feature")
 
@@ -64,6 +68,13 @@ def context() -> dict:
         "authoritative": [_row(ORDER_ID, 1)],
         "silver": [_row(ORDER_ID, 1)],
         "approval": {
+            # A well-formed approval of the current receipt format. The schema is
+            # taken from the gate's own expectation so this fixture stays valid
+            # as the format evolves; refusing an unrecognised format is asserted
+            # directly in tests/test_s1_2_cleanup.py.
+            "schema_version": EXPECTED_RECEIPT_SCHEMA,
+            "b2_projection_valid": True,
+            "b2_projection_error": None,
             "in_flight_blocked": 0,
             "blocked": 0,
             "safe_stale": APPROVED_COUNT,
@@ -124,6 +135,24 @@ def approval_reports_in_flight(context: dict) -> None:
 @given("the approval fingerprint does not match the recorded approval")
 def approval_digest_mismatch(context: dict) -> None:
     context["approval"]["cleanup_set_digest"] = "not-the-approved-digest"
+
+
+@given("current state cannot prove the batches are redundant")
+def approval_cannot_prove_redundancy(context: dict) -> None:
+    # This is the state the classifier produces when the authoritative image
+    # cannot be projected at all: candidates are withdrawn, so the approved
+    # count and fingerprint no longer match either. Those are consequences, and
+    # the gate must report the cause instead.
+    context["approval"].update(
+        {
+            "b2_projection_valid": False,
+            "b2_projection_error": "historical migration must complete first",
+            "blocked": APPROVED_COUNT,
+            "safe_stale": 0,
+            "cleanup_set": [],
+            "cleanup_set_digest": cleanup_set_digest([]),
+        }
+    )
 
 
 @given("the approval proposes a batch stored outside the outbox")
@@ -245,3 +274,19 @@ def refused_digest(context: dict) -> None:
     assert (
         "cleanup digest" in context["refusal"]
     ), f"expected a fingerprint refusal, got: {context['refusal']}"
+
+
+@then("cleanup is refused because redundancy cannot be proven")
+def refused_unproven(context: dict) -> None:
+    assert context["refusal"] is not None, "the gate allowed cleanup"
+    assert "the B2 projection is not provable" in context["refusal"]
+    assert "historical migration must complete first" in context["refusal"]
+
+
+@then("the refusal explains the unproven state rather than blaming the approval")
+def refusal_names_the_cause(context: dict) -> None:
+    # An operator told the approval is stale would go re-approve the same
+    # unprovable state; they must be told the proof is missing instead.
+    assert "BLOCKED is non-zero" not in context["refusal"]
+    assert "cleanup digest" not in context["refusal"]
+    assert "SAFE_STALE" not in context["refusal"]

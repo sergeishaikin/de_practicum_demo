@@ -27,6 +27,10 @@ from medallion.legacy_outbox_reconciliation import (  # noqa: E402
 APPROVED_COUNT = 140
 APPROVED_DIGEST = "231cefaadc2a0ceb35dfc6a7dacd6f2f75512650d6e1345ead681c84171939bf"
 OUTBOX_ROOT = "de-practicum/streaming/bronze_outbox/"
+# Pinned as a literal rather than imported from the classifier: a check that
+# reads the same constant it validates can never fail. If the receipt format
+# changes, this script must be reviewed and the evidence re-approved.
+EXPECTED_RECEIPT_SCHEMA = 2
 
 
 def _summary(receipt: dict) -> dict:
@@ -47,6 +51,8 @@ def _summary(receipt: dict) -> dict:
         "authoritative_silver_rows",
         "silver_unique_order_ids",
         "silver_equals_b2_projection",
+        "b2_projection_valid",
+        "b2_projection_error",
         "cleanup_set_digest",
     )
     return {field: receipt.get(field) for field in fields}
@@ -61,6 +67,27 @@ def _live_manifest_paths(receipt: dict) -> set[str]:
 
 
 def _pre_delete_gate(receipt: dict, records: list[dict]) -> list[dict]:
+    # Validate the format before reading any evidence out of it, so an
+    # unrecognised receipt fails closed instead of being read with permissive
+    # defaults for fields this script does not know about.
+    if receipt.get("schema_version") != EXPECTED_RECEIPT_SCHEMA:
+        raise RuntimeError(
+            "S1.2B gate failed: unsupported legacy-outbox receipt schema "
+            f"{receipt.get('schema_version')!r} (expected "
+            f"{EXPECTED_RECEIPT_SCHEMA}); regenerate and re-approve the cleanup "
+            "evidence"
+        )
+    # Root cause before symptoms. An unprovable B2 projection is what withdraws
+    # SAFE_STALE candidates to BLOCKED and empties the cleanup set, so the
+    # BLOCKED and digest gates below would otherwise report a derived failure
+    # and send the operator looking for a stale approval that is not the
+    # problem.
+    if not receipt["b2_projection_valid"]:
+        raise RuntimeError(
+            "S1.2B gate failed: cleanup safety cannot be established because "
+            "the B2 projection is not provable: "
+            f"{receipt['b2_projection_error']}"
+        )
     if receipt["in_flight_blocked"] != 0:
         raise RuntimeError("S1.2B gate failed: IN_FLIGHT_BLOCKED is non-zero")
     if receipt["blocked"] != 0:
@@ -135,6 +162,7 @@ def cleanup(evidence_path: Path) -> dict:
         "bronze_null_versions_zero": post["bronze_null_business_version_rows"] == 0,
         "silver_null_versions_zero": post["silver_null_business_version_rows"] == 0,
         "silver_unique_order_ids": post["silver_unique_order_ids"] is True,
+        "b2_projection_valid": post["b2_projection_valid"] is True,
         "silver_equals_b2_projection": post["silver_equals_b2_projection"] is True,
         "progress_unchanged": progress_after == progress_before,
     }

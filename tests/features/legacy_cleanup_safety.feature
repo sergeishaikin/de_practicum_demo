@@ -52,3 +52,10 @@ Feature: Safe legacy outbox cleanup
     And the approval proposes a batch stored outside the outbox
     When the cleanup gate runs
     Then cleanup is refused because the fingerprint does not match
+
+  Scenario: Cleanup is refused when redundancy cannot be proven at all
+    Given a cleanup approval that matches the approved batch count
+    And current state cannot prove the batches are redundant
+    When the cleanup gate runs
+    Then cleanup is refused because redundancy cannot be proven
+    And the refusal explains the unproven state rather than blaming the approval
