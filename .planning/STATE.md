@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: 01-06 PASS; 01-07 authorized but not executed
+stopped_at: 03-01 complete; 03-02 next (wave 2)
 last_updated: "2026-08-16T11:18:00.000Z"
-last_activity: 2026-08-16 -- Phase 2 verified complete and ready to merge
+last_activity: 2026-08-17 -- Phase 3 wave 1 (03-01) complete; loaded_at signal landed
 progress:
   total_phases: 2
   completed_phases: 1
@@ -25,7 +25,7 @@ See: `.planning/PROJECT.md` (updated 2026-08-09)
 
 ## Current Position
 
-Phase: 2 (Warehouse Asset-Orchestrated Batch Split) — COMPLETE
+Phase: 3 (Staging Source Freshness Gate) — IN PROGRESS, wave 1 of 4 complete
 Plan: 1 of 1
 Status: Verified complete; ready to merge. Airflow roadmap scope is stopped.
 Last activity: 2026-08-16 -- Phase 2 verified complete and ready to merge
