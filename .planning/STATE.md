@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 stopped_at: 03-01 complete; 03-02 next (wave 2)
-last_updated: "2026-08-16T11:18:00.000Z"
+last_updated: "2026-08-17T12:00:00.000Z"
 last_activity: 2026-08-17 -- Phase 3 wave 1 (03-01) complete; loaded_at signal landed
 progress:
   total_phases: 2
@@ -21,16 +21,16 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-08-09)
 
 **Core value:** Business-key current state must remain correct and recoverable while the pipeline processes only committed incremental work.
-**Current focus:** Phase 2 complete — Warehouse Asset-Orchestrated Batch Split
+**Current focus:** Phase 3 — Staging Source Freshness Gate (wave 1 of 4 complete)
 
 ## Current Position
 
 Phase: 3 (Staging Source Freshness Gate) — IN PROGRESS, wave 1 of 4 complete
-Plan: 1 of 1
-Status: Verified complete; ready to merge. Airflow roadmap scope is stopped.
-Last activity: 2026-08-16 -- Phase 2 verified complete and ready to merge
+Plan: 03-01 complete; 03-02 next
+Status: Wave 1 landed (loaded_at signal). Waves 2-3 autonomous; wave 4 needs a live stack.
+Last activity: 2026-08-17 -- Phase 3 wave 1 (03-01) complete
 
-Progress: ▓▓▓▓▓▓▓▓▓▓ 100% of Phase 2
+Progress: ▓▓▓░░░░░░░ 25% of Phase 3 (1 of 4 plans)
 
 ## Performance Metrics
 
