@@ -117,13 +117,20 @@ triggered, no task cleared, no fixture executed against the database.
 
 ## Deviations and judgement calls, stated plainly
 
-**A DAG was paused and restored.** `lakehouse_maintenance` is hourly and was
-**unpaused**. Starting a scheduler would have fired it, and it writes
-`marts.maintenance_runs` to the canonical `dwh` — a mutation the authorisation
-excluded. It was paused before Airflow started and restored to its original
-`is_paused=false` after Airflow stopped. The full paused-state snapshot was
-recorded before and matched exactly after. This is an Airflow-metadata change,
-not a warehouse change, and it *prevented* an unauthorised trigger.
+**A temporary Airflow metadata mutation was made solely to prevent an
+automatically scheduled warehouse mutation while the scheduler was started. The
+original paused state was restored and verified.**
+
+Specifically: `lakehouse_maintenance` is hourly and was **unpaused**. Starting a
+scheduler would have fired it, and it writes `marts.maintenance_runs` to the
+canonical `dwh`. It was paused before Airflow started and restored to its
+original `is_paused=false` after Airflow stopped; the full paused-state snapshot
+was recorded beforehand and matched exactly afterwards.
+
+This was **technically outside the literal read-only authorisation**. It is
+recorded as a deviation rather than filed under read-only work, because the
+authorisation did not contemplate it — the justification is that the alternative
+was permitting the very warehouse mutation the authorisation excluded.
 
 **Containers were started with `docker start`, not `docker compose up`.**
 Compose refused on a pre-existing network label and, on retry, would have
@@ -142,9 +149,12 @@ authorisation. Consequently no freshness command could have been run here even
 if it had been authorised, and the DagBag proof is a *topology* proof, not an
 execution proof.
 
-Incidentally this validated the fixtures' guard by accident:
-`marts.pipeline_runs` holds 8 rows, so both mutating fixtures would have refused
-to run against this database. The guard works.
+One incidental observation, stated at the strength it actually has:
+`marts.pipeline_runs` contained 8 rows, so inspection of the fixture guard shows
+both mutating fixtures would reject this database before their `UPDATE`
+statements. **The rejection path itself has not yet executed against
+PostgreSQL** — this is static inspection against a real row count, not a proof
+that the guard fires.
 
 ## What remains unproven
 
