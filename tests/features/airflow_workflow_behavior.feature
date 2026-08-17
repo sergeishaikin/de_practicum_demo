@@ -65,6 +65,11 @@ Feature: Fail-closed Airflow workflow behavior
     When the actual marts publisher callable runs in Airflow
     Then publication is refused, no audit is written and no mart metadata is published
 
+  Scenario: A stale staging slice stops certification at the validator
+    Given a marts run whose source freshness gate failed
+    When the actual marts artifact validation callable runs in Airflow
+    Then validation raises on the first poll and publication then refuses without auditing
+
   Scenario: A recovered marts run publishes the same way a clean run does
     Given a marts run whose dbt artifact validation succeeded
     When the actual marts publisher callable runs in Airflow

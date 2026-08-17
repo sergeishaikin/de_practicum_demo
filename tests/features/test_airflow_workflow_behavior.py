@@ -210,6 +210,45 @@ elif case in {"publication_blocked_by_failed_validation", "publication_after_rec
     except Exception as exc:
         error = str(exc)
     result.update(error=error, metadata=metadata, audit_calls=audit_calls)
+elif case == "freshness_failure_stops_certification":
+    # The whole chain a stale staging slice must produce. A freshness failure
+    # makes dbt_warehouse.dbt_producer_watcher `upstream_failed`; nothing below
+    # may then certify or publish.
+    validator = bag.dags["warehouse_marts_validation"].task_dict["validate_dbt_artifacts"].python_callable
+    publisher = bag.dags["warehouse_marts_validation"].task_dict["publish_mart_assets"].python_callable
+    task_globals = publisher.__globals__
+    asset = task_globals["CORE_ORDERS_ASSET"]
+    event = SimpleNamespace(source_dag_run=SimpleNamespace(
+        dag_id="warehouse_orders_ingestion", run_id="manual__bdd-ingestion"))
+    task_globals["get_current_context"] = lambda: {
+        "dag_run": SimpleNamespace(run_id="asset_triggered__bdd"),
+        "ti": SimpleNamespace(dag_id="warehouse_marts_validation"),
+    }
+    # Exactly the state a failed freshness gate leaves on the Cosmos producer.
+    task_globals["_metadata_task_state"] = lambda dag_id, run_id, task_id: "upstream_failed"
+    # Count sleeps: without this, a validator that hung and eventually timed out
+    # would be indistinguishable from one that raised immediately.
+    sleeps = []
+    task_globals["time"] = SimpleNamespace(sleep=lambda seconds: sleeps.append(seconds))
+    audit_calls = []
+    def fake_audit(run_id, events):
+        audit_calls.append(run_id)
+        return {"ingestion_run_id": "manual__bdd-ingestion", "stg_orders": 1,
+                "stg_order_items": 1, "core_order_items": 1, "mart_sales_days": 1}
+    task_globals["_audit_and_counts"] = fake_audit
+    validator_error = None
+    try:
+        validator()
+    except Exception as exc:
+        validator_error = str(exc)
+    publisher_error = None
+    metadata = []
+    try:
+        metadata = metadata_rows(list(publisher(triggering_asset_events={asset: [event]})))
+    except Exception as exc:
+        publisher_error = str(exc)
+    result.update(error=validator_error, publisher_error=publisher_error,
+                  metadata=metadata, audit_calls=audit_calls, sleeps=sleeps)
 elif case == "audit_upsert_is_replay_safe":
     task_globals = warehouse_dbt.__dict__
     asset = task_globals["CORE_ORDERS_ASSET"]
@@ -343,6 +382,36 @@ def run_actual_callable(context: dict) -> None:
     context["result"] = json.loads(proc.stdout.splitlines()[-1])
 
 
+@when("the actual marts artifact validation callable runs in Airflow")
+def run_actual_validation_callable(context: dict) -> None:
+    # A distinct phrase from the publisher step on purpose: this scenario runs
+    # validate_dbt_artifacts first and the publisher second, so reusing the
+    # publisher phrase would misdescribe what executes.
+    run_actual_callable(context)
+
+
+@then(
+    "validation raises on the first poll and publication then refuses without auditing"
+)
+def assert_freshness_failure_stops_certification(context: dict) -> None:
+    result = context["result"]
+    # 1. The validator rejects upstream_failed rather than waiting it out.
+    assert "prerequisite failed" in (result["error"] or ""), result["error"]
+    assert "upstream_failed" in (result["error"] or ""), result["error"]
+    # 2. On the FIRST poll. A hang that later timed out would otherwise be
+    #    indistinguishable from an immediate raise.
+    assert result["sleeps"] == [], result["sleeps"]
+    # 3. The publisher then refuses.
+    assert "did not succeed before publication" in (
+        result["publisher_error"] or ""
+    ), result["publisher_error"]
+    # 4. The audit was never even attempted, so no row can claim success for a
+    #    run built on a stale staging slice.
+    assert result["audit_calls"] == []
+    # 5. And nothing downstream can be triggered by it.
+    assert result["metadata"] == []
+
+
 @then("maintenance operations run exactly in the required order")
 def exact_operation_order(context: dict) -> None:
     assert context["result"]["operations"] == [
@@ -447,6 +516,11 @@ def payment_success_published(context: dict) -> None:
 @given("a marts run whose dbt artifact validation failed")
 def publication_blocked(context: dict) -> None:
     _select_case(context, "publication_blocked_by_failed_validation")
+
+
+@given("a marts run whose source freshness gate failed")
+def freshness_gate_failed(context: dict) -> None:
+    _select_case(context, "freshness_failure_stops_certification")
 
 
 @given("a marts run whose dbt artifact validation succeeded")

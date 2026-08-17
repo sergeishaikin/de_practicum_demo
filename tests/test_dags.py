@@ -217,3 +217,16 @@ def test_marts_validation_contract(dag_structure: dict) -> None:
         for task_id, assets in dag["task_assets"].items()
         if task_id in {"publish_mart_assets"}
     } == {"publish_mart_assets": {"inlets": 1, "outlets": 5}}
+
+    # Load-recency gate. Written from an observed DagBag, not from the source
+    # text: `check_source_freshness >> dbt_group` is a source-level statement,
+    # and what Cosmos expands the group into is its own business.
+    #
+    # Only the load-bearing contract is pinned — the gate is a root, and it is a
+    # direct upstream of the Cosmos producer. The observed mapping also fans the
+    # gate out to each model's `.run` task, but those edges are Cosmos-generated
+    # and pinning them would make this test fail on a dbt model rename that
+    # breaks nothing.
+    assert "check_source_freshness" in tasks
+    assert tasks["check_source_freshness"] == []
+    assert "check_source_freshness" in tasks["dbt_warehouse.dbt_producer_watcher"]
