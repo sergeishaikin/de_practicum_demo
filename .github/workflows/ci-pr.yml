@@ -105,6 +105,50 @@ jobs:
             < tests/fixtures/warehouse/seed_staging.sql
           docker exec -i de-demo-postgres psql -U app -d dwh -v ON_ERROR_STOP=1 \
             < db/pipeline_sql/10_rebuild_core.sql
+      # The four steps below must stay between the seed and the dbt build.
+      # Freshness against a truncated-but-unseeded staging schema errors with a
+      # ~2025-year age (NULL max(loaded_at) maps to year 1), and a backdated
+      # timestamp left behind would poison dbt build, the mart assertions,
+      # replay parity and the mutation gate.
+      - name: Source freshness — one batch yields one loaded_at across all four staging tables
+        run: |
+          violations=$(docker exec -i de-demo-postgres psql -U app -d dwh \
+            -v ON_ERROR_STOP=1 -At -F '|' < tests/fixtures/warehouse/assert_loaded_at_is_one_batch.sql)
+          if [ -n "$violations" ]; then
+            echo "The staging load did not produce one timestamp across all four tables:"
+            echo "$violations"
+            exit 1
+          fi
+      - name: Source freshness — a freshly seeded batch must pass
+        run: |
+          .venv-dbt-warehouse/bin/dbt source freshness --project-dir dbt/warehouse --profiles-dir dbt/warehouse
+      - name: Source freshness — a batch older than error_after must fail closed
+        run: |
+          docker exec -i de-demo-postgres psql -U app -d dwh -v ON_ERROR_STOP=1 \
+            < tests/fixtures/warehouse/backdate_staging_loaded_at.sql
+          # Capture the code rather than swallow it: `|| status=$?` records
+          # dbt's exit status, where an unconditional fallback-to-success would
+          # discard it. (The literal swallowing idiom is deliberately not
+          # written anywhere in these four steps — a contract test forbids it by
+          # substring.) The check below is strict on purpose: an error-level
+          # freshness result must exit exactly 1. Accepting any non-zero code
+          # would also accept exit 2, which is a dbt crash or bad invocation,
+          # and would let a broken command masquerade as a working gate.
+          status=0
+          .venv-dbt-warehouse/bin/dbt source freshness --project-dir dbt/warehouse --profiles-dir dbt/warehouse || status=$?
+          if [ "$status" -eq 0 ]; then
+            echo "dbt source freshness exited 0 on a deliberately stale batch"
+            exit 1
+          fi
+          if [ "$status" -ne 1 ]; then
+            echo "expected exit 1 from an error-level freshness result, got $status"
+            exit 1
+          fi
+      - name: Reset staging load timestamps
+        if: always()
+        run: |
+          docker exec -i de-demo-postgres psql -U app -d dwh -v ON_ERROR_STOP=1 \
+            < tests/fixtures/warehouse/reset_staging_loaded_at.sql
       - name: Run warehouse dbt build and docs
         run: |
           .venv-dbt-warehouse/bin/dbt parse --project-dir dbt/warehouse --profiles-dir dbt/warehouse

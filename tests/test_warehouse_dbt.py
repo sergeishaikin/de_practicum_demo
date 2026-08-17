@@ -291,6 +291,82 @@ def test_staging_load_timestamp_fixtures_are_guarded_and_deterministic() -> None
     )
 
 
+def test_ci_proves_the_freshness_gate_on_the_pinned_runtime() -> None:
+    """The *order* of these steps is the load-bearing part.
+
+    Freshness against a truncated-but-unseeded staging schema errors with a
+    ~2025-year age, because a NULL `max(loaded_at)` maps to year 1 — so the
+    checks must sit after the seed. And a backdated timestamp left behind would
+    poison `dbt build`, the mart assertions, replay parity and the mutation
+    gate, all of which run later against the same database — so the reset is
+    unconditional.
+    """
+
+    import yaml
+
+    workflow_text = read(".github/workflows/ci-pr.yml")
+    job = yaml.safe_load(workflow_text)["jobs"]["warehouse-dbt-contract"]
+    steps = job["steps"]
+    names = [s.get("name", "") for s in steps]
+
+    for fixture in (
+        "tests/fixtures/warehouse/assert_loaded_at_is_one_batch.sql",
+        "tests/fixtures/warehouse/backdate_staging_loaded_at.sql",
+        "tests/fixtures/warehouse/reset_staging_loaded_at.sql",
+    ):
+        assert fixture in workflow_text
+    assert workflow_text.count("dbt source freshness") >= 2
+
+    # Locate by ASCII substring, never by exact name: the step names contain em
+    # dashes, and `list.index` on a dash mismatch raises a bare ValueError that
+    # reads like a wiring bug rather than a typo.
+    def at(key: str) -> int | None:
+        return next((i for i, n in enumerate(names) if key in n), None)
+
+    keys = [
+        "Seed staging",
+        "one batch yields",
+        "freshly seeded batch must pass",
+        "must fail closed",
+        "Reset staging load timestamps",
+        "Run warehouse dbt build",
+    ]
+    idx = [at(k) for k in keys]
+    assert None not in idx, list(zip(keys, idx))
+    assert idx == sorted(idx), list(zip(keys, idx))
+
+    new_steps = [
+        s
+        for s in steps
+        if s.get("name", "").startswith("Source freshness")
+        or s.get("name", "") == "Reset staging load timestamps"
+    ]
+    assert len(new_steps) == 4, names
+
+    stale = [s for s in new_steps if "must fail closed" in s.get("name", "")][0]["run"]
+    assert "exited 0 on a deliberately stale batch" in stale
+    # Strict on the code: an error-level result exits exactly 1. Accepting any
+    # non-zero would also accept 2, a dbt crash, letting a broken command
+    # masquerade as a working gate.
+    assert '"$status" -ne 1' in stale
+
+    reset = [s for s in new_steps if s.get("name") == "Reset staging load timestamps"][
+        0
+    ]
+    assert reset.get("if") == "always()"
+
+    # Scoped to the four NEW steps only. The job's pre-existing Cleanup step
+    # legitimately ends in `|| true`, so a job-wide or file-wide form of this
+    # assertion is wrong and could only ever be made green by weakening the gate
+    # it exists to protect.
+    for step in new_steps:
+        assert "|| true" not in step.get("run", ""), step.get("name")
+        assert "continue-on-error" not in step, step.get("name")
+
+    # R11: the mutation gate must stay indifferent to load recency.
+    assert "dbt source freshness" not in read("scripts/mutation_test.py")
+
+
 def test_tier1_tests_persist_their_failure_rows() -> None:
     """A red Tier-1 test must say *which* rows broke, not just that something did."""
 
