@@ -4,6 +4,11 @@
 **Status:** Ready for planning
 **Source:** PRD Express Path (operator brief) + pre-planning code verification
 
+**Requirement IDs:** `MTL-01`, `MTL-02`, `SHD-01`, `GLD-01`, `POL-01`, `PRF-01`,
+`BENCH-01`. The brief's `TEL-01` was renamed to `MTL-01` — `TEL-01` is already
+taken by a **Complete** Phase-1 requirement (`REQUIREMENTS.md:30,76`) and reusing
+it would corrupt the traceability table.
+
 <domain>
 ## Phase Boundary
 
@@ -101,7 +106,12 @@ Two consequences the plan must carry:
 - Recovery must not let stale Gold provenance masquerade as current.
 - Note: the writer already stamps `snapshot_properties={"load-id": ...}` and
   re-checks it against snapshot summaries during recovery. Gold provenance is the
-  same in-repo idiom, not a new mechanism.
+  same in-repo idiom, not a new mechanism. **Research confirmed the medallion
+  already does exactly this on `overwrite`** — `iceberg_medallion.py:562-571`
+  stamps `silver-work-id` and `:307-315` reads it back from snapshot summaries in
+  a fresh process. `Table.overwrite()` accepts `snapshot_properties` in the pinned
+  0.11.1. Two traps: a full overwrite writes **two** snapshots (delete + append,
+  both stamped), and the append half is not elided for an empty frame.
 
 ### P2 — Steady-state shadow policy
 
@@ -128,6 +138,14 @@ Two consequences the plan must carry:
 - Plan/task decomposition and commit boundaries.
 - Whether the shadow receipt lives in Postgres, as Iceberg snapshot properties,
   or in writer-style state — provided it is durable and survives restart.
+  **Correction:** the pre-planning claim that "the medallion has no durable state
+  of its own" is **false**. It owns `streaming/medallion/progress.json` and an
+  immutable per-load completion ledger in MinIO. What it lacks is a Docker volume.
+  Research recommends: Gold provenance via a Gold snapshot property (reading
+  `current_snapshot()` only, so Trino maintenance rewrites fail *safe*); shadow
+  receipt in a new Postgres table on the `marts.maintenance_runs` precedent,
+  because its identity spans three things and stamping it on Silver would violate
+  the "Silver is not rewritten" contract.
 - Metric schema mechanics (new columns vs a new table), provided historical rows
   stay interpretable.
 - Test names and placement within the existing suite layout.

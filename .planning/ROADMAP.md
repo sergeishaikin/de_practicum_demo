@@ -206,9 +206,11 @@ rejected, and may be reopened on its own measurements later.
 provenance → P2 steady-state shadow policy → P3 Arrow/Python profiling, only if still
 measurable.
 
-**Requirements**: [TEL-01 cycle_id and phase separation, TEL-02 documented historical
+**Requirements**: [MTL-01 cycle_id and phase separation, MTL-02 documented historical
 interpretation rule, SHD-01 receipt-based shadow fast path, GLD-01 Gold source
-provenance, POL-01 steady-state shadow policy, PRF-01 Arrow boundary profiling]
+provenance, POL-01 steady-state shadow policy, PRF-01 Arrow boundary profiling,
+BENCH-01 before/after measurement]. `TEL-01` renamed to `MTL-01`: TEL-01 is an
+already-Complete Phase-1 requirement.
 **Depends on:** Phase 3
 **Plans:** 0 plans
 
