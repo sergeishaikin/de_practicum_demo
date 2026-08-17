@@ -141,8 +141,97 @@ the `ingest_date` predicate, `COUNT(DISTINCT)` → `COUNT`, reversed
 reconciliation arithmetic — and requires a named unit test to fail for each. See
 [W3 — SQL mutation gate](W3-mutation-gate.md).
 
-Not adopted, deliberately: dbt source freshness — the `stg.*` relations carry no
-`loaded_at_field`, and ingestion is manual-trigger by design.
+**Load recency** — *is the staging slice we are about to certify from recent
+enough?* `db/init/008_stg_loaded_at.sql` adds
+`loaded_at timestamptz not null default now()` to the four `stg.*` tables;
+`sources.yml` declares `loaded_at_field: loaded_at` with `warn_after` and
+`error_after` under `config:` on those four sources only; and
+`warehouse_marts_validation` runs a distinct `check_source_freshness` task
+upstream of the `dbt_warehouse` group, so the gate sits at the point of
+consumption rather than immediately after the load, where it would be close to
+tautological.
+
+*Why not the columns already present.* `ingest_date` cannot serve: it is a CSV
+column, named in `_copy_csv`'s explicit `COPY` column list, so its value is
+whatever the input file says and it carries no relationship to load time.
+`order_purchase_timestamp` cannot serve either — that is business event time,
+which answers "what date does the newest record describe?", not "when did this
+slice arrive?".
+
+*What the signal actually is.* A **batch-load transaction timestamp**, not
+literal row-arrival time. `now()` is transaction-start time, and
+`load_raw_csv_to_stg` wraps the truncate and all four `COPY` calls in one
+transaction, so one batch yields one identical value across all four sources by
+construction rather than by coincidence — the four can never report inconsistent
+freshness. `clock_timestamp()` would vary per row and is rejected.
+
+*Rejected alternatives.* An audit-table-backed `loaded_at_query` — the audit
+table does not exist, and the one arrival-shaped timestamp that does,
+`marts.pipeline_runs.run_ts`, is written by the marts DAG *after* the step it
+would guard, so gating on it is circular. Freshness inside the ingestion DAG —
+it would catch staleness earlier but crosses the dbt ownership boundary this
+document draws, and would need the dbt runtime in the ingestion image. A
+standalone nightly job — ingestion is manual-trigger, so it would be permanently
+red and get muted.
+
+*The promise, exactly:*
+
+> Prevent downstream certification from consuming staging whose most recent successful load is outside the permitted age.
+
+This is **not**
+an external arrival SLA and **not** missing-batch detection. The timestamp is
+written by the load itself and the marts DAG is Asset-triggered by the same
+pipeline, so if ingestion never runs the gate never evaluates. Real
+missing-batch detection would need an independent expected-arrival schedule or
+an upstream arrival signal, and is out of scope.
+
+*What it does catch, all of which are real.* A marts re-trigger against a slice
+loaded hours ago; an accidentally no-op or stale staging load; consumption after
+abnormal orchestration delay; and a same-sized stale batch, which the exact-count
+parity gate structurally cannot distinguish from today's.
+
+*The migration's false-fresh window is accepted, not fixed.*
+`add column ... not null default now()` assigns the evaluated default to
+pre-existing rows, so immediately after the migration old staging rows report as
+freshly loaded. Harmless here: the gate is only ever reached after
+`load_raw_csv_to_stg` has truncated those rows, the window is one ingestion run
+wide, and the failure mode is a false pass rather than a false failure. A
+nullable transitional column or a sentinel timestamp would add permanent schema
+complexity to guard a one-time state.
+
+*Result status, not exit code.* Cosmos runs dbt in-process
+(`InvocationMode.DBT_RUNNER`, because dbt-core is pinned into the Airflow
+image's own Python), so `dbt_executable_path` is discarded and the Airflow
+signal is `dbtRunnerResult.success`. The CLI's exit code 1 and that boolean come
+from the same `FreshnessTask.interpret_results`, so the CI proof and the Airflow
+runtime cannot diverge. Do not "fix" the gate by swapping `DBT_EXECUTABLE`.
+
+*Two adjacent behaviours worth knowing.* A warn exits zero and gates nothing —
+which is why `warn_error` must stay false and why no test asserts the warn
+threshold. And an **empty** staging schema produces an error rather than a pass,
+because a NULL `max(loaded_at)` maps to year 1; freshness must therefore never
+run before the load or before the CI seed, and must never be added to the
+mutation gate.
+
+*Threshold basis — provisional and unmeasured.* The values
+`warn_after: 30 minutes` / `error_after: 2 hours` are starting points. **No
+measurement has been taken.** What would have to be measured is the elapsed time
+from the **ingestion DagRun's end to the `check_source_freshness` TaskInstance's
+start**, across several healthy Asset-triggered runs, with `warn_after` then set
+with real margin above the observed spread. Note what is *not* the measurement
+basis: `marts.pipeline_runs.run_ts` records when the marts audit wrote its row,
+which is after the gate, and the marts DAG's own `dagrun_timeout=45 minutes` and
+`validate_dbt_artifacts`'s `execution_timeout=40 minutes` are downstream budgets,
+not arrival latencies. Those two timeouts are still worth knowing as risk
+context — a 30-minute warn sits inside delay the pipeline already tolerates
+elsewhere — but they cannot substitute for the measurement.
+
+*Operational consequence.* A manual re-trigger of `warehouse_marts_validation`
+more than `error_after` after ingestion will now fail. That is arguably correct —
+marts should not be re-certified against a stale slice — but it changes operator
+workflow: after redeploying dbt models, re-run ingestion rather than
+re-triggering marts alone. An Airflow Param escape hatch was discussed and is
+deliberately **not** part of this design; revisit only if the cost proves real.
 
 ## Schema naming is intentional
 

@@ -68,10 +68,40 @@ state as a clean run.
 | Task callables with injected failures | Real DagBag loaded inside `de-demo-airflow`, fakes for the database | ~11 s per scenario, `ci-pr.yml` fast suite |
 | SQL replay parity | Seed → real `10_rebuild_core.sql` → snapshot → rebuild → diff | seconds, `ci-pr.yml` |
 | Whole pipeline through Airflow | `airflow dags trigger warehouse_orders_ingestion`, Asset-triggered marts run, then a second trigger of the same batch | minutes, `ci-integration.yml` |
+| Staging load recency | `dbt source freshness` over `loaded_at`, configured on the four `stg.*` sources and wired as `check_source_freshness` upstream of the dbt build | **configured; not yet exercised** — see below |
 
 The behavioural scenarios run against the **real task callables from the real
 DagBag** — not a reimplementation — with only the database connection faked, so a
 change to the production callable breaks the scenario.
+
+## The load-recency gate, and what is not yet proven about it
+
+The gate is **configured, not yet exercised**. `check_source_freshness` is
+declared upstream of the `dbt_warehouse` group in `warehouse_marts_validation`,
+and the four staging sources carry `loaded_at_field` with both thresholds. Two
+proofs are deliberately still outstanding, and this document must not be read as
+claiming either:
+
+- the executable CI proof — a freshly seeded batch passing and a deliberately
+  backdated batch exiting non-zero — lands with the CI steps, not here;
+- the **runtime** dependency edge. `check_source_freshness >> dbt_group` is
+  source-level wiring. What task set Cosmos actually expands `dbt_group` into,
+  and therefore whether the real producer edge exists in the rendered DagBag, is
+  proven only by observing a live DagBag. Until then this is a designed chain,
+  not an observed one.
+
+The chain it is designed to produce needs **no modification to any existing
+guard**: a freshness failure makes the Cosmos producer `upstream_failed`;
+`validate_dbt_artifacts` already treats `upstream_failed` as terminal and
+raises; and `publish_mart_assets`, on trigger rule `ALL_DONE`, re-reads that
+validation state and refuses before `_audit_and_counts` is ever called. So no
+`marts.pipeline_runs` row and no mart Asset can claim success for a stale slice.
+That the existing failure boundary already absorbs a new upstream failure
+unchanged is the strongest argument for placing the gate here rather than in the
+ingestion DAG.
+
+`W1-dbt-ownership.md` remains the source of truth for why the gate exists, what
+it deliberately does not promise, and why its thresholds are still provisional.
 
 ## Known gap
 

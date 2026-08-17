@@ -17,9 +17,20 @@ sources:
     schema: stg
     database: "{{ env_var('DBT_POSTGRES_DB', 'dwh') }}"
     tables:
+      # Load recency is declared per table rather than hoisted to the source,
+      # matching how `tags:` is already repeated here.
+      #
+      # The two threshold values are PROVISIONAL starting points, not settled
+      # design. No measurement has been taken. W1 holds the basis and names what
+      # would have to be measured before they can be treated as evidence-based.
       - name: orders
         description: One CSV ingestion slice of order headers.
         tags: [domain:orders, layer:staging, owner:airflow]
+        config:
+          loaded_at_field: loaded_at
+          freshness:
+            warn_after: {count: 30, period: minute}
+            error_after: {count: 2, period: hour}
         columns:
           - name: order_id
             data_tests: [not_null]
@@ -34,6 +45,11 @@ sources:
       - name: order_items
         description: One CSV ingestion slice of order line items.
         tags: [domain:orders, layer:staging, owner:airflow]
+        config:
+          loaded_at_field: loaded_at
+          freshness:
+            warn_after: {count: 30, period: minute}
+            error_after: {count: 2, period: hour}
         columns:
           - name: order_id
             data_tests: [not_null]
@@ -46,6 +62,11 @@ sources:
       - name: order_payments
         description: One CSV ingestion slice of order payments.
         tags: [domain:orders, layer:staging, owner:airflow]
+        config:
+          loaded_at_field: loaded_at
+          freshness:
+            warn_after: {count: 30, period: minute}
+            error_after: {count: 2, period: hour}
         columns:
           - name: order_id
             data_tests: [not_null]
@@ -56,6 +77,11 @@ sources:
       - name: customers
         description: One CSV ingestion slice of customers.
         tags: [domain:orders, layer:staging, owner:airflow]
+        config:
+          loaded_at_field: loaded_at
+          freshness:
+            warn_after: {count: 30, period: minute}
+            error_after: {count: 2, period: hour}
         columns:
           - name: customer_id
             data_tests: [not_null]
@@ -65,6 +91,12 @@ sources:
           - name: ingest_date
             data_tests: [not_null]
 
+  # No freshness on `core.*`, deliberately. It is a derived, transactionally
+  # rebuilt projection rather than an arrival point; its recency is a function of
+  # the staging slice it was rebuilt from, which the staging thresholds above
+  # already measure. dbt simply does not select a source that declares no
+  # thresholds, so an empty `freshness: {}` here would be both unnecessary and
+  # misleading about what is being checked.
   - name: core
     description: Transactionally rebuilt relations owned by the ingestion DAG.
     schema: core
