@@ -457,3 +457,171 @@ def test_snapshot_identities_are_recorded_where_they_are_meaningful(
     assert {"bronze_snapshot_id", "silver_snapshot_id", "gold_snapshot_id"} <= set(
         cycle
     )
+
+
+# --- GLD-01: Gold provenance and the elided rebuild --------------------------
+#
+# The double's snapshot ids are small integers, so a test that wants "Silver
+# moved" says `add_snapshot()` and a test that wants "Silver has never been
+# committed" simply says nothing. `setup_gold_run` deliberately leaves the Silver
+# double snapshotless, which is why the four pre-existing Gold contracts above
+# still write Gold on every run: a `None` snapshot id can never certify anything.
+
+
+def test_unchanged_persisted_silver_skips_the_gold_rebuild(monkeypatch, capsys) -> None:
+    """GLD-01a: a second cycle over an unmoved Silver snapshot writes no Gold."""
+
+    catalog, persisted_silver, gold, metrics = setup_gold_run(
+        monkeypatch, gold_source="persisted_silver", shadow=True
+    )
+    persisted_silver.df = table([row("a", 1)])
+    persisted_silver.add_snapshot()
+
+    m.run(catalog, metrics, "b2")
+    second = FakeMetrics()
+    m.run(catalog, second, "b2")
+
+    assert gold.overwrite_calls == 1
+    assert metrics.phase("gold")["gold_skipped"] is False
+    assert second.phase("gold")["gold_skipped"] is True
+    assert second.cycle()["gold_skipped"] is True
+    # A skip must never be indistinguishable from a write in the evidence.
+    assert "gold=skipped" in capsys.readouterr().out
+
+
+def test_a_moved_silver_snapshot_rebuilds_gold(monkeypatch) -> None:
+    """GLD-01b: any persisted Silver change rebuilds Gold."""
+
+    catalog, persisted_silver, gold, metrics = setup_gold_run(
+        monkeypatch, gold_source="persisted_silver", shadow=True
+    )
+    persisted_silver.df = table([row("a", 1)])
+    persisted_silver.add_snapshot()
+
+    m.run(catalog, metrics, "b2")
+    persisted_silver.add_snapshot()
+    second = FakeMetrics()
+    m.run(catalog, second, "b2")
+
+    assert gold.overwrite_calls == 2
+    assert metrics.phase("gold")["gold_skipped"] is False
+    assert second.phase("gold")["gold_skipped"] is False
+
+
+def test_a_gold_write_stamps_the_silver_snapshot_it_was_built_from(monkeypatch) -> None:
+    """GLD-01c: the provenance the next cycle reads is written by this one."""
+
+    catalog, persisted_silver, gold, metrics = setup_gold_run(
+        monkeypatch, gold_source="persisted_silver", shadow=True
+    )
+    persisted_silver.df = table([row("a", 1)])
+    persisted_silver.add_snapshot()
+
+    m.run(catalog, metrics, "b2")
+
+    silver_snapshot_id = persisted_silver.current_snapshot().snapshot_id
+    assert gold.snapshot_properties[0] == {
+        "source-silver-snapshot-id": str(silver_snapshot_id)
+    }
+    assert m.GOLD_SOURCE_SILVER_SNAPSHOT_KEY == "source-silver-snapshot-id"
+
+
+def test_gold_without_provenance_is_rebuilt(monkeypatch) -> None:
+    """GLD-01d: a Gold snapshot that says nothing certifies nothing.
+
+    This is the post-maintenance shape: Trino ``optimize`` rewrites Gold's files
+    and leaves a current snapshot carrying no ``source-silver-snapshot-id``.
+    """
+
+    catalog, persisted_silver, gold, metrics = setup_gold_run(
+        monkeypatch, gold_source="persisted_silver", shadow=True
+    )
+    persisted_silver.df = table([row("a", 1)])
+    persisted_silver.add_snapshot()
+    gold.add_snapshot()
+
+    m.run(catalog, metrics, "b2")
+
+    assert gold.overwrite_calls == 1
+    assert metrics.phase("gold")["gold_skipped"] is False
+
+
+def test_provenance_is_read_from_the_current_snapshot_only(monkeypatch) -> None:
+    """GLD-01e: an older matching snapshot must not vouch for a newer Gold state.
+
+    Walking snapshot history would find the matching stamp and skip, certifying
+    Gold against a Silver snapshot that no longer produced the current files.
+    """
+
+    catalog, persisted_silver, gold, metrics = setup_gold_run(
+        monkeypatch, gold_source="persisted_silver", shadow=True
+    )
+    persisted_silver.df = table([row("a", 1)])
+    persisted_silver.add_snapshot()
+    silver_snapshot_id = persisted_silver.current_snapshot().snapshot_id
+    gold.add_snapshot(**{"source-silver-snapshot-id": str(silver_snapshot_id)})
+    gold.add_snapshot()
+
+    m.run(catalog, metrics, "b2")
+
+    assert gold.overwrite_calls == 1
+    assert metrics.phase("gold")["gold_skipped"] is False
+
+
+def test_a_silver_table_with_no_snapshots_is_never_certified(monkeypatch) -> None:
+    """``None == None`` must not certify Gold against an empty lake."""
+
+    catalog, persisted_silver, gold, metrics = setup_gold_run(
+        monkeypatch, gold_source="persisted_silver", shadow=True
+    )
+    persisted_silver.df = table([row("a", 1)])
+    assert m._snapshot_id(persisted_silver) is None
+
+    m.run(catalog, metrics, "b2")
+    second = FakeMetrics()
+    m.run(catalog, second, "b2")
+
+    assert gold.overwrite_calls == 2
+    # Not merely "rebuilt": with no basis there is nothing truthful to stamp,
+    # so a later cycle cannot be certified by this one either.
+    assert gold.snapshot_properties == [{}, {}]
+
+
+def test_unparsable_provenance_is_treated_as_absent(monkeypatch) -> None:
+    """A snapshot property is a string written by whoever last committed."""
+
+    catalog, persisted_silver, gold, metrics = setup_gold_run(
+        monkeypatch, gold_source="persisted_silver", shadow=True
+    )
+    persisted_silver.df = table([row("a", 1)])
+    persisted_silver.add_snapshot()
+    gold.add_snapshot(**{"source-silver-snapshot-id": "snapshot-one"})
+
+    m.run(catalog, metrics, "b2")
+
+    assert gold.overwrite_calls == 1
+    assert metrics.phase("gold")["gold_skipped"] is False
+
+
+def test_legacy_gold_source_writes_every_cycle_and_stamps_nothing(monkeypatch) -> None:
+    """The skip is scoped to Gold served from persisted Silver.
+
+    Under ``GOLD_SOURCE=legacy`` the Gold input is the in-memory rebuild derived
+    from Bronze, so a persisted-Silver stamp would not describe it - even though
+    the Silver snapshot here does not move between the two cycles.
+    """
+
+    catalog, persisted_silver, gold, metrics = setup_gold_run(
+        monkeypatch, gold_source="legacy", shadow=True
+    )
+    persisted_silver.df = table([row("a", 1)])
+    persisted_silver.add_snapshot()
+
+    m.run(catalog, metrics, "b2")
+    second = FakeMetrics()
+    m.run(catalog, second, "b2")
+
+    assert gold.overwrite_calls == 2
+    assert gold.snapshot_properties == [{}, {}]
+    assert metrics.phase("gold")["gold_skipped"] is False
+    assert second.phase("gold")["gold_skipped"] is False
