@@ -54,6 +54,7 @@ jobs:
           sed -i 's/^AIRFLOW_API_SECRET_KEY=.*/AIRFLOW_API_SECRET_KEY=h1-airflow-api-secret/' .env
           sed -i 's/^AIRFLOW_JWT_SECRET=.*/AIRFLOW_JWT_SECRET=h1-airflow-jwt-secret/' .env
           sed -i 's/^GRAFANA_ADMIN_PASSWORD=.*/GRAFANA_ADMIN_PASSWORD=h1-grafana-secret/' .env
+          sed -i 's/^AIRFLOW_DB_PASSWORD=.*/AIRFLOW_DB_PASSWORD=h1-airflow-db-secret/' .env
       - name: Validate configuration and Compose graph
         run: |
           uv run --locked python scripts/validate_runtime_config.py --env-file .env --profile clean
