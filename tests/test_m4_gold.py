@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import date, datetime
 from types import SimpleNamespace
 
@@ -8,6 +9,7 @@ import pytest
 
 from medallion import iceberg_medallion as m
 from tests.support.b2_fakes import FakeFS
+from tests.support.fakes import FakeCatalog as SharedFakeCatalog
 from tests.support.fakes import FakeMetrics, scripted_monotonic
 
 TS = datetime(2026, 1, 1, 12, 0, 0)
@@ -804,3 +806,266 @@ def test_a_failed_receipt_write_never_breaks_the_cycle(capsys) -> None:
     m.save_shadow_receipt(ExplodingWriteFS({}), receipt())
 
     assert "shadow certification receipt" in capsys.readouterr().err.lower()
+
+
+# --- SHD-01: the receipt-gated fast path -------------------------------------
+#
+# `setup_gold_run` leaves both doubles snapshotless, which is why every contract
+# above still does the full work: an unknown snapshot id can never certify
+# anything. These give Bronze and Silver a snapshot each, so a certificate can
+# exist, and then specify what does and does not follow from one.
+
+
+class RecordingFS(FakeFS):
+    """A ``FakeFS`` that counts every object it was asked to read or write."""
+
+    def __init__(self, objects: dict[str, bytes] | None = None) -> None:
+        super().__init__(objects if objects is not None else {})
+        self.reads = 0
+        self.writes = 0
+
+    def open_input_file(self, path: str):
+        self.reads += 1
+        return super().open_input_file(path)
+
+    def open_output_stream(self, path: str):
+        self.writes += 1
+        return super().open_output_stream(path)
+
+
+class Calls:
+    """Count calls to named medallion functions without changing what they do.
+
+    Same monkeypatch-capture idiom as `capture_gold_input` above: a skip is only
+    observable as work that did not happen, so the specification has to count
+    the calls rather than inspect the result.
+    """
+
+    def __init__(self, monkeypatch, *names: str) -> None:
+        self.counts = dict.fromkeys(names, 0)
+        for name in names:
+            monkeypatch.setattr(m, name, self._counting(name, getattr(m, name)))
+
+    def _counting(self, name: str, real):
+        def wrapper(*args, **kwargs):
+            self.counts[name] += 1
+            return real(*args, **kwargs)
+
+        return wrapper
+
+
+def setup_certified_run(monkeypatch, *, gold_source: str = "persisted_silver"):
+    """A shadow-validated run whose Bronze and Silver both carry a snapshot."""
+
+    catalog, persisted_silver, gold, metrics = setup_gold_run(
+        monkeypatch, gold_source=gold_source, shadow=True
+    )
+    persisted_silver.df = table([row("a", 1)])
+    persisted_silver.add_snapshot()
+    catalog.tables["bronze.orders"].add_snapshot()
+    return catalog, persisted_silver, gold, metrics, RecordingFS()
+
+
+def stored_receipt(filesystem: FakeFS) -> dict:
+    return json.loads(filesystem.objects[m._shadow_receipt_path()])
+
+
+def test_an_uncertified_cycle_compares_and_leaves_a_certificate(monkeypatch) -> None:
+    catalog, persisted_silver, _gold, metrics, filesystem = setup_certified_run(
+        monkeypatch
+    )
+    calls = Calls(monkeypatch, "compare_business_state")
+
+    m.run(catalog, metrics, "b2", fs=filesystem)
+
+    assert calls.counts["compare_business_state"] == 1
+    receipt = stored_receipt(filesystem)
+    silver_snapshot_id = persisted_silver.current_snapshot().snapshot_id
+    assert receipt["result"] == "equal"
+    assert receipt["version"] == m.SHADOW_RECEIPT_VERSION
+    assert receipt["bronze_snapshot_id"] == 1
+    assert receipt["silver_snapshot_id"] == silver_snapshot_id
+    assert receipt["runtime_identity"] == m._runtime_identity("b2")
+    assert receipt["projection_identity"] == m._shadow_projection_identity()
+    assert receipt["compared_keys"] == 1
+    assert receipt["cycle_id"] == metrics.cycle()["cycle_id"]
+    assert receipt["certified_at"]
+
+
+def test_a_certified_cutover_cycle_does_no_validation_work(monkeypatch) -> None:
+    """SHD-01: unmoved state under a matching contract costs nothing to revalidate."""
+
+    catalog, persisted_silver, _gold, metrics, filesystem = setup_certified_run(
+        monkeypatch, gold_source="persisted_silver"
+    )
+    m.run(catalog, metrics, "b2", fs=filesystem)
+
+    calls = Calls(
+        monkeypatch, "_pin_bronze_boundary", "build_silver", "compare_business_state"
+    )
+    gold_inputs = []
+    real_build_gold = m.build_gold
+
+    def capture_gold_input(df):
+        gold_inputs.append(df)
+        return real_build_gold(df)
+
+    monkeypatch.setattr(m, "build_gold", capture_gold_input)
+    second = FakeMetrics()
+    m.run(catalog, second, "b2", fs=filesystem)
+
+    assert calls.counts == {
+        "_pin_bronze_boundary": 0,
+        "build_silver": 0,
+        "compare_business_state": 0,
+    }
+    assert second.cycle()["status"] == "success"
+    # The cycle still completes, and Gold is still served from persisted Silver.
+    assert gold_inputs and gold_inputs[0] is persisted_silver.df
+
+
+def test_a_certified_shadow_cycle_still_builds_the_projection_gold_needs(
+    monkeypatch,
+) -> None:
+    """Under GOLD_SOURCE=legacy the rebuild is Gold's input, not validation work."""
+
+    catalog, _persisted_silver, gold, metrics, filesystem = setup_certified_run(
+        monkeypatch, gold_source="legacy"
+    )
+    m.run(catalog, metrics, "b2", fs=filesystem)
+
+    calls = Calls(
+        monkeypatch, "_pin_bronze_boundary", "build_silver", "compare_business_state"
+    )
+    second = FakeMetrics()
+    m.run(catalog, second, "b2", fs=filesystem)
+
+    assert calls.counts["_pin_bronze_boundary"] == 1
+    assert calls.counts["build_silver"] == 1
+    assert calls.counts["compare_business_state"] == 0
+    assert gold.overwrite_calls == 2
+
+
+def test_a_moved_bronze_snapshot_forces_revalidation(monkeypatch) -> None:
+    catalog, _persisted_silver, _gold, metrics, filesystem = setup_certified_run(
+        monkeypatch
+    )
+    m.run(catalog, metrics, "b2", fs=filesystem)
+
+    catalog.tables["bronze.orders"].add_snapshot()
+    calls = Calls(monkeypatch, "compare_business_state")
+    second = FakeMetrics()
+    m.run(catalog, second, "b2", fs=filesystem)
+
+    assert calls.counts["compare_business_state"] == 1
+    assert second.cycle()["shadow_comparisons"] == 1
+
+
+def test_a_silver_snapshot_that_moved_independently_forces_revalidation(
+    monkeypatch,
+) -> None:
+    """The B2 recovery case: Silver can move without Bronze moving."""
+
+    catalog, persisted_silver, _gold, metrics, filesystem = setup_certified_run(
+        monkeypatch
+    )
+    m.run(catalog, metrics, "b2", fs=filesystem)
+
+    persisted_silver.add_snapshot()
+    calls = Calls(monkeypatch, "compare_business_state")
+    second = FakeMetrics()
+    m.run(catalog, second, "b2", fs=filesystem)
+
+    assert calls.counts["compare_business_state"] == 1
+    assert second.cycle()["shadow_comparisons"] == 1
+
+
+@pytest.mark.parametrize("identity", ["runtime_identity", "projection_identity"])
+def test_a_changed_identity_forces_revalidation(monkeypatch, identity: str) -> None:
+    catalog, _persisted_silver, _gold, metrics, filesystem = setup_certified_run(
+        monkeypatch
+    )
+    m.run(catalog, metrics, "b2", fs=filesystem)
+
+    receipt = stored_receipt(filesystem)
+    receipt[identity] = "from-another-contract"
+    filesystem.objects[m._shadow_receipt_path()] = json.dumps(receipt).encode("utf-8")
+    calls = Calls(monkeypatch, "compare_business_state")
+    second = FakeMetrics()
+    m.run(catalog, second, "b2", fs=filesystem)
+
+    assert calls.counts["compare_business_state"] == 1
+
+
+def test_a_shadow_mismatch_still_fails_closed_and_certifies_nothing(
+    monkeypatch,
+) -> None:
+    catalog, persisted_silver, gold, metrics, filesystem = setup_certified_run(
+        monkeypatch
+    )
+    persisted_silver.df = table([row("a", 9, amount=99)])
+
+    with pytest.raises(ValueError, match="Shadow comparison failed"):
+        m.run(catalog, metrics, "b2", fs=filesystem)
+
+    assert gold.overwrite_calls == 0
+    assert filesystem.objects == {}
+    assert filesystem.writes == 0
+
+
+def test_unknown_snapshot_ids_never_touch_the_filesystem(monkeypatch) -> None:
+    """No id, no certificate, no object-store call, and the full work runs."""
+
+    catalog, persisted_silver, _gold, metrics = setup_gold_run(
+        monkeypatch, gold_source="persisted_silver", shadow=True
+    )
+    persisted_silver.df = table([row("a", 1)])
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("a filesystem was constructed for an uncertifiable cycle")
+
+    monkeypatch.setattr(m, "get_fs", refuse)
+    filesystem = RecordingFS()
+    calls = Calls(monkeypatch, "compare_business_state")
+
+    m.run(catalog, metrics, "b2", fs=filesystem)
+
+    assert m._bronze_snapshot_id(catalog) is None
+    assert filesystem.reads == 0
+    assert filesystem.writes == 0
+    assert calls.counts["compare_business_state"] == 1
+
+
+def test_shadow_skipped_is_the_inverse_of_a_comparison_that_ran(
+    monkeypatch, capsys
+) -> None:
+    catalog, _persisted_silver, _gold, metrics, filesystem = setup_certified_run(
+        monkeypatch
+    )
+    m.run(catalog, metrics, "b2", fs=filesystem)
+    second = FakeMetrics()
+    m.run(catalog, second, "b2", fs=filesystem)
+
+    assert metrics.phase("shadow")["shadow_comparisons"] == 1
+    assert metrics.phase("shadow")["shadow_skipped"] is False
+    assert metrics.cycle()["shadow_comparisons"] == 1
+    assert metrics.cycle()["shadow_skipped"] is False
+
+    assert second.phase("shadow")["shadow_comparisons"] == 0
+    assert second.phase("shadow")["shadow_skipped"] is True
+    assert second.cycle()["shadow_comparisons"] == 0
+    assert second.cycle()["shadow_skipped"] is True
+
+    markers = [
+        line
+        for line in capsys.readouterr().out.splitlines()
+        if line.startswith(m.CYCLE_COMPLETE_MARKER)
+    ]
+    assert "shadow=compared" in markers[0]
+    assert "shadow=skipped" in markers[-1]
+
+
+def test_an_absent_bronze_table_has_no_snapshot_id() -> None:
+    """`_bronze_snapshot_id` reads metadata only and never raises for an absent table."""
+
+    assert m._bronze_snapshot_id(SharedFakeCatalog({})) is None

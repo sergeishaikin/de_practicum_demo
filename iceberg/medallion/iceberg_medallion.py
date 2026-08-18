@@ -1049,8 +1049,10 @@ class CycleOutcome:
       Silver snapshot this cycle would have rebuilt Gold from.
     * ``shadow`` — ``"compared"`` when the two Silver projections were checked,
       ``"skipped"`` when the comparison was deliberately not run for this cycle,
-      ``"disabled"`` when ``SHADOW_COMPARE`` is off.  ``"skipped"`` is not yet
-      reachable.
+      ``"disabled"`` when ``SHADOW_COMPARE`` is off.  Both are reachable since
+      SHD-01: ``"skipped"`` means a durable certificate still names this cycle's
+      Bronze snapshot, Silver snapshot, runtime and projection contract, so the
+      comparison's conclusion is already known.
 
     ``duration_ms`` is the same number the ``cycle`` metrics record carries, so
     a log line and a metrics row about the same cycle never disagree.
@@ -1197,6 +1199,44 @@ def _snapshot_id(table) -> int | None:
             return getattr(snapshot, "snapshot_id", None)
     metadata = getattr(table, "metadata", None)
     return getattr(metadata, "current_snapshot_id", None)
+
+
+def _bronze_snapshot_id(catalog: RestCatalog) -> int | None:
+    """The current Bronze snapshot id, read from table metadata -- never a scan.
+
+    This is what makes the fast path cheap: the decision to skip a full Bronze
+    scan must not itself cost a full Bronze scan.  ``None`` for a table that does
+    not exist yet or has never been committed to, and ``None`` certifies nothing,
+    so an unknown Bronze always means do the work.
+    """
+
+    try:
+        return _snapshot_id(catalog.load_table(f"{BRONZE_NAMESPACE}.{BRONZE_TABLE}"))
+    except NoSuchTableError:
+        return None
+
+
+def _silver_snapshot_id(catalog: RestCatalog) -> int | None:
+    """The current persisted-Silver snapshot id, metadata only -- never a scan.
+
+    Read *before* the incremental writer runs, because the certificate gates the
+    Bronze pin and the pin has to happen before the writer.  It is deliberately
+    not the id returned by ``_read_persisted_silver``: that one is read after the
+    writer, is what Gold is built from and what the receipt certifies, and using
+    it here would either move the pin after the writer -- making shadow evidence
+    race with ingestion -- or move the persisted-Silver read before it, leaving
+    Gold a cycle stale.  Both are contracts this phase already fixed.
+
+    Reading it early is safe in the direction that matters: a writer pass can
+    only move Silver when it finds committed outbox work, and committed outbox
+    work implies a Bronze append, which moves the Bronze snapshot id and
+    invalidates the certificate on its own.
+    """
+
+    try:
+        return _snapshot_id(catalog.load_table(f"{SILVER_NAMESPACE}.{SILVER_TABLE}"))
+    except NoSuchTableError:
+        return None
 
 
 def _pin_bronze_boundary(catalog: RestCatalog) -> BronzeBoundary | None:
@@ -1433,21 +1473,48 @@ def _run_m4(
     started = time.monotonic()
     legacy_silver_df: pa.Table | None = None
     bronze_df: pa.Table | None = None
-    bronze_snapshot_id: int | None = None
     violations_total = 0
     outcome: B2Outcome | None = None
     b2_window = 0.0
+
+    # Under GOLD_SOURCE=legacy the legacy projection is Gold's *input*, so the
+    # Bronze pin and the rebuild are required work rather than validation work
+    # and no certificate can authorise skipping them.  Skipping them there would
+    # break the cycle, not optimise it.
+    needs_legacy_projection = GOLD_SOURCE == "legacy"
+
+    # Both reads are table metadata only, so the decision to skip a full Bronze
+    # scan costs no scan of its own.
+    bronze_snapshot_id = _bronze_snapshot_id(catalog)
+    runtime_identity = _runtime_identity(selected_mode)
+    projection_identity = _shadow_projection_identity()
+    shadow_certified = False
+    if SHADOW_COMPARE_ENABLED:
+        certified_silver_snapshot_id = _silver_snapshot_id(catalog)
+        # The filesystem is touched only once both ids are known.  That is the
+        # same fail-safe rule as everywhere else in this phase, and it is also
+        # what keeps every in-memory double network-free: a double with no
+        # snapshots has no ids, so no S3FileSystem is ever constructed for it.
+        if bronze_snapshot_id is not None and certified_silver_snapshot_id is not None:
+            shadow_certified = shadow_receipt_is_valid(
+                load_shadow_receipt(fs if fs is not None else get_fs()),
+                bronze_snapshot_id=bronze_snapshot_id,
+                silver_snapshot_id=certified_silver_snapshot_id,
+                runtime_identity=runtime_identity,
+                projection_identity=projection_identity,
+            )
 
     if selected_mode == "b2":
         # Pin Bronze before B2 runs.  Both the legacy candidate and the B2
         # result must describe this same logical source boundary; a later live
         # Bronze scan would make shadow evidence race with ingestion.
-        bronze_boundary = None
-        if GOLD_SOURCE == "legacy" or SHADOW_COMPARE_ENABLED:
-            bronze_boundary = _pin_bronze_boundary(catalog)
-            if bronze_boundary is not None:
-                bronze_df = bronze_boundary.rows
-                bronze_snapshot_id = bronze_boundary.snapshot_id
+        pin_bronze = GOLD_SOURCE == "legacy" or SHADOW_COMPARE_ENABLED
+        if shadow_certified and not needs_legacy_projection:
+            pin_bronze = False
+        bronze_boundary = _pin_bronze_boundary(catalog) if pin_bronze else None
+        if bronze_boundary is not None:
+            bronze_df = bronze_boundary.rows
+            bronze_snapshot_id = bronze_boundary.snapshot_id
         b2_start = time.monotonic()
         outcome = run_b2(catalog, metrics, fs, cycle_id=cycle_id)
         b2_window = time.monotonic() - b2_start
@@ -1462,13 +1529,21 @@ def _run_m4(
         legacy_silver_df = cycle["silver_df"]
         violations_total = cycle["violations_total"]
 
+    # Unconditional, and deliberately so -- a recorded decision against research
+    # Open Question 4, which asked whether the fast path should elide this read
+    # too.  It feeds Gold at cutover, so coupling it to the Gold skip would
+    # entangle SHD-01 and GLD-01 into one conditional and make each harder to
+    # test alone; and the `shadow` phase duration now measures it directly, so a
+    # later decision to elide it can be made on evidence instead of guesswork.
     persisted_silver_df, silver_snapshot_id = _read_persisted_silver(catalog)
-    if SHADOW_COMPARE_ENABLED:
+    shadow_compared = False
+    if SHADOW_COMPARE_ENABLED and not shadow_certified:
         if legacy_silver_df is None:
             raise RuntimeError(
                 "Shadow comparison requires a legacy business projection"
             )
         comparison = compare_business_state(legacy_silver_df, persisted_silver_df)
+        shadow_compared = True
         if not comparison["equal"]:
             diagnostic = json.dumps(
                 comparison["mismatches"], sort_keys=True, default=str
@@ -1495,6 +1570,30 @@ def _run_m4(
             # as "this deployment did not complete a cycle".
             raise ValueError(f"Shadow comparison failed: {diagnostic}")
 
+        if bronze_snapshot_id is not None and silver_snapshot_id is not None:
+            # Best-effort: a certificate that never lands costs exactly one
+            # redundant comparison.  The ids written are the ones this
+            # comparison actually validated -- the pinned Bronze boundary and
+            # the persisted Silver that was compared against it.
+            save_shadow_receipt(
+                fs if fs is not None else get_fs(),
+                {
+                    "version": SHADOW_RECEIPT_VERSION,
+                    "bronze_snapshot_id": bronze_snapshot_id,
+                    "silver_snapshot_id": silver_snapshot_id,
+                    "runtime_identity": runtime_identity,
+                    "projection_identity": projection_identity,
+                    "result": "equal",
+                    "compared_keys": comparison["compared_keys"],
+                    "certified_at": datetime.now(timezone.utc).isoformat(),
+                    "cycle_id": cycle_id,
+                },
+            )
+
+    # Enabled but not run means the certificate authorised the skip; disabled
+    # means there was never a comparison to skip.
+    shadow_skipped = SHADOW_COMPARE_ENABLED and not shadow_compared
+
     gold_started = time.monotonic()
 
     # The shadow segment is everything before Gold that was not the incremental
@@ -1514,7 +1613,8 @@ def _run_m4(
         status="success",
         phase="shadow",
         cycle_id=cycle_id,
-        shadow_comparisons=int(SHADOW_COMPARE_ENABLED),
+        shadow_comparisons=int(shadow_compared),
+        shadow_skipped=shadow_skipped,
         shadow_mismatches=0,
         bronze_snapshot_id=bronze_snapshot_id,
         silver_snapshot_id=silver_snapshot_id,
@@ -1573,7 +1673,8 @@ def _run_m4(
         ),
         quality_violations=violations_total,
         duration_ms=cycle_duration_ms,
-        shadow_comparisons=int(SHADOW_COMPARE_ENABLED),
+        shadow_comparisons=int(shadow_compared),
+        shadow_skipped=shadow_skipped,
         shadow_mismatches=0,
         silver_duration_ms=int((gold_started - started) * 1000),
         gold_duration_ms=gold_duration_ms,
@@ -1596,10 +1697,14 @@ def _run_m4(
         snapshot_delta=outcome.snapshot_delta if outcome else 0,
     )
 
+    if not SHADOW_COMPARE_ENABLED:
+        shadow_state = "disabled"
+    else:
+        shadow_state = "skipped" if shadow_skipped else "compared"
     return CycleOutcome(
         cycle_id=cycle_id,
         gold="rebuilt" if gold_written else "skipped",
-        shadow="compared" if SHADOW_COMPARE_ENABLED else "disabled",
+        shadow=shadow_state,
         duration_ms=cycle_duration_ms,
     )
 
