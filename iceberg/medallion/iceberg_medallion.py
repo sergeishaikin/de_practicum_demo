@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 import time
+import uuid
 import json
 import math
 import hashlib
@@ -442,18 +443,25 @@ def _snapshot_write_cost(snapshot) -> tuple[int, int, int, int]:
 
 
 def run_b2(
-    catalog: RestCatalog, metrics: Metrics, fs: S3FileSystem | None = None
-) -> None:
+    catalog: RestCatalog,
+    metrics: Metrics,
+    fs: S3FileSystem | None = None,
+    *,
+    cycle_id: str | None = None,
+) -> B2Outcome | None:
     """Process committed Bronze outbox work with the B2 Silver projection."""
 
     fs = fs or get_fs()
+    # Generated here when called directly, so the existing direct-call unit tests
+    # keep working unchanged; _run_m4 always supplies the enclosing cycle's id.
+    cycle_id = cycle_id or uuid.uuid4().hex
     bronze_id = f"{BRONZE_NAMESPACE}.{BRONZE_TABLE}"
     silver_id = f"{SILVER_NAMESPACE}.{SILVER_TABLE}"
     try:
         bronze = catalog.load_table(bronze_id)
     except NoSuchTableError:
         print("Bronze table not available yet; skipping B2 cycle", flush=True)
-        return
+        return None
 
     ensure_table(catalog, silver_id, SILVER_SCHEMA, SILVER_PARTITION_SPEC)
     silver = catalog.load_table(silver_id)
@@ -599,20 +607,20 @@ def run_b2(
         processed += 1
         files_processed += len(record["bronze_data_files"])
 
-    metrics.record(
-        source="medallion",
-        status="success",
+    duration_ms = int((time.monotonic() - started) * 1000)
+    work_available = sum(
+        record["load_id"] not in progress["completed"] for record in records
+    )
+    outcome = B2Outcome(
+        duration_ms=duration_ms,
         silver_rows=processed,
         files_processed=files_processed,
         keys_processed=keys_processed,
         lower_versions_ignored=lower_versions_ignored,
         ff14_conflicts=ff14_conflicts,
-        work_available=sum(
-            record["load_id"] not in progress["completed"] for record in records
-        ),
+        work_available=work_available,
         work_in_flight=len(progress["work"]),
         work_completed=len(progress["completed"]),
-        silver_duration_ms=int((time.monotonic() - started) * 1000),
         files_planned=files_planned,
         bytes_planned=bytes_planned,
         files_removed=files_removed,
@@ -620,8 +628,35 @@ def run_b2(
         bytes_removed=bytes_removed,
         bytes_added=bytes_added,
         snapshot_delta=snapshot_delta,
-        duration_ms=int((time.monotonic() - started) * 1000),
+        silver_snapshot_id=_snapshot_id(silver),
     )
+    # `silver_duration_ms` is deliberately absent: it keeps its inclusive
+    # whole-cycle meaning and is populated only on the `cycle` record, so
+    # historical rows stay byte-for-byte interpretable.
+    metrics.record(
+        source="medallion",
+        status="success",
+        phase="b2",
+        cycle_id=cycle_id,
+        silver_rows=outcome.silver_rows,
+        files_processed=outcome.files_processed,
+        keys_processed=outcome.keys_processed,
+        lower_versions_ignored=outcome.lower_versions_ignored,
+        ff14_conflicts=outcome.ff14_conflicts,
+        work_available=outcome.work_available,
+        work_in_flight=outcome.work_in_flight,
+        work_completed=outcome.work_completed,
+        files_planned=outcome.files_planned,
+        bytes_planned=outcome.bytes_planned,
+        files_removed=outcome.files_removed,
+        files_added=outcome.files_added,
+        bytes_removed=outcome.bytes_removed,
+        bytes_added=outcome.bytes_added,
+        snapshot_delta=outcome.snapshot_delta,
+        silver_snapshot_id=outcome.silver_snapshot_id,
+        duration_ms=outcome.duration_ms,
+    )
+    return outcome
 
 
 def ensure_table(
@@ -794,6 +829,35 @@ SHADOW_EXCLUDED_COLUMNS = (
 
 
 @dataclass(frozen=True)
+class B2Outcome:
+    """The physical cost one ``run_b2`` pass measured, rolled up for the caller.
+
+    ``_run_m4`` copies these onto the ``cycle`` record so the Prometheus gauges
+    carry the incremental writer's real numbers.  Before 04-02 the outer record
+    published them as zeros, resetting the nested record's gauges seconds after
+    they were measured.
+    """
+
+    duration_ms: int
+    silver_rows: int
+    files_processed: int
+    keys_processed: int
+    lower_versions_ignored: int
+    ff14_conflicts: int
+    work_available: int
+    work_in_flight: int
+    work_completed: int
+    files_planned: int
+    bytes_planned: int
+    files_removed: int
+    files_added: int
+    bytes_removed: int
+    bytes_added: int
+    snapshot_delta: int
+    silver_snapshot_id: int | None
+
+
+@dataclass(frozen=True)
 class BronzeBoundary:
     """One materialized Bronze snapshot used by both shadow candidates."""
 
@@ -955,7 +1019,9 @@ def _load_bronze_df(catalog: RestCatalog) -> pa.Table | None:
     return boundary.rows if boundary is not None else None
 
 
-def _legacy_silver_cycle(catalog: RestCatalog, metrics: Metrics) -> dict | None:
+def _legacy_silver_cycle(
+    catalog: RestCatalog, metrics: Metrics, *, cycle_id: str | None = None
+) -> dict | None:
     silver_id = f"{SILVER_NAMESPACE}.{SILVER_TABLE}"
     bronze_df = _load_bronze_df(catalog)
     if bronze_df is None:
@@ -979,6 +1045,8 @@ def _legacy_silver_cycle(catalog: RestCatalog, metrics: Metrics) -> dict | None:
             metrics.record(
                 source="medallion",
                 status="failed",
+                phase="cycle",
+                cycle_id=cycle_id,
                 bronze_rows=bronze_df.num_rows,
                 quality_violations=violations_total,
                 duration_ms=int((time.monotonic() - started) * 1000),
@@ -1003,7 +1071,7 @@ def _legacy_silver_cycle(catalog: RestCatalog, metrics: Metrics) -> dict | None:
     }
 
 
-def _write_gold(catalog: RestCatalog, gold_df: pa.Table) -> None:
+def _write_gold(catalog: RestCatalog, gold_df: pa.Table) -> int | None:
     gold_id = f"{GOLD_NAMESPACE}.{GOLD_TABLE}"
     ensure_table(catalog, gold_id, GOLD_SCHEMA, PartitionSpec())
     gold = catalog.load_table(gold_id)
@@ -1012,46 +1080,66 @@ def _write_gold(catalog: RestCatalog, gold_df: pa.Table) -> None:
         f"Gold {gold_id}: overwritten with {gold_df.num_rows} daily metrics",
         flush=True,
     )
+    return _snapshot_id(gold)
 
 
-def _read_persisted_silver(catalog: RestCatalog) -> pa.Table:
+def _read_persisted_silver(catalog: RestCatalog) -> tuple[pa.Table, int | None]:
     silver_id = f"{SILVER_NAMESPACE}.{SILVER_TABLE}"
     silver = catalog.load_table(silver_id)
-    return silver.scan().to_arrow()
+    return silver.scan().to_arrow(), _snapshot_id(silver)
 
 
-def _run_legacy(catalog: RestCatalog, metrics: Metrics) -> None:
-    cycle = _legacy_silver_cycle(catalog, metrics)
+def _run_legacy(
+    catalog: RestCatalog, metrics: Metrics, *, cycle_id: str | None = None
+) -> None:
+    cycle_id = cycle_id or uuid.uuid4().hex
+    cycle = _legacy_silver_cycle(catalog, metrics, cycle_id=cycle_id)
     if cycle is None:
         return
 
     gold_started = time.monotonic()
     gold_df = build_gold(cycle["silver_df"])
-    _write_gold(catalog, gold_df)
-    gold_duration_ms = int((time.monotonic() - gold_started) * 1000)
+    gold_snapshot_id = _write_gold(catalog, gold_df)
+    ended = time.monotonic()
 
+    # The legacy path is one undivided phase: it emits exactly one record, and
+    # `silver_duration_ms` / `gold_duration_ms` keep today's inclusive meaning.
     metrics.record(
         source="medallion",
         status="success",
+        phase="cycle",
+        cycle_id=cycle_id,
         bronze_rows=cycle["bronze_df"].num_rows,
         silver_rows=cycle["silver_df"].num_rows,
         gold_rows=gold_df.num_rows,
         duplicates_removed=(cycle["bronze_df"].num_rows - cycle["silver_df"].num_rows),
         quality_violations=cycle["violations_total"],
-        duration_ms=int((time.monotonic() - cycle["started"]) * 1000),
+        duration_ms=int((ended - cycle["started"]) * 1000),
         silver_duration_ms=int((gold_started - cycle["started"]) * 1000),
-        gold_duration_ms=gold_duration_ms,
+        gold_duration_ms=int((ended - gold_started) * 1000),
+        gold_snapshot_id=gold_snapshot_id,
     )
 
 
-def _run_m4(catalog: RestCatalog, metrics: Metrics, selected_mode: str) -> None:
+def _run_m4(
+    catalog: RestCatalog,
+    metrics: Metrics,
+    selected_mode: str,
+    *,
+    cycle_id: str | None = None,
+    fs: S3FileSystem | None = None,
+) -> None:
     if GOLD_SOURCE not in {"legacy", "persisted_silver"}:
         raise ValueError(f"Unsupported GOLD_SOURCE: {GOLD_SOURCE}")
 
+    cycle_id = cycle_id or uuid.uuid4().hex
     started = time.monotonic()
     legacy_silver_df: pa.Table | None = None
     bronze_df: pa.Table | None = None
+    bronze_snapshot_id: int | None = None
     violations_total = 0
+    outcome: B2Outcome | None = None
+    b2_window = 0.0
 
     if selected_mode == "b2":
         # Pin Bronze before B2 runs.  Both the legacy candidate and the B2
@@ -1060,19 +1148,23 @@ def _run_m4(catalog: RestCatalog, metrics: Metrics, selected_mode: str) -> None:
         bronze_boundary = None
         if GOLD_SOURCE == "legacy" or SHADOW_COMPARE_ENABLED:
             bronze_boundary = _pin_bronze_boundary(catalog)
-            bronze_df = bronze_boundary.rows if bronze_boundary is not None else None
-        run_b2(catalog, metrics)
+            if bronze_boundary is not None:
+                bronze_df = bronze_boundary.rows
+                bronze_snapshot_id = bronze_boundary.snapshot_id
+        b2_start = time.monotonic()
+        outcome = run_b2(catalog, metrics, fs, cycle_id=cycle_id)
+        b2_window = time.monotonic() - b2_start
         if bronze_boundary is not None:
             legacy_silver_df = build_silver(bronze_boundary.rows)
     else:
-        cycle = _legacy_silver_cycle(catalog, metrics)
+        cycle = _legacy_silver_cycle(catalog, metrics, cycle_id=cycle_id)
         if cycle is None:
             return
         bronze_df = cycle["bronze_df"]
         legacy_silver_df = cycle["silver_df"]
         violations_total = cycle["violations_total"]
 
-    persisted_silver_df = _read_persisted_silver(catalog)
+    persisted_silver_df, silver_snapshot_id = _read_persisted_silver(catalog)
     if SHADOW_COMPARE_ENABLED:
         if legacy_silver_df is None:
             raise RuntimeError(
@@ -1086,16 +1178,47 @@ def _run_m4(catalog: RestCatalog, metrics: Metrics, selected_mode: str) -> None:
             print(
                 f"Shadow comparison mismatch: {diagnostic}", file=sys.stderr, flush=True
             )
+            # phase="cycle": this is an outer cycle that aborted before Gold,
+            # not a nested phase that happened to fail.
             metrics.record(
                 source="medallion",
                 status="shadow_failed",
+                phase="cycle",
+                cycle_id=cycle_id,
                 shadow_comparisons=1,
                 shadow_mismatches=len(comparison["mismatches"]),
+                bronze_snapshot_id=bronze_snapshot_id,
+                silver_snapshot_id=silver_snapshot_id,
                 duration_ms=int((time.monotonic() - started) * 1000),
             )
             raise ValueError(f"Shadow comparison failed: {diagnostic}")
 
     gold_started = time.monotonic()
+
+    # The shadow segment is everything before Gold that was not the incremental
+    # writer own window: the pinned Bronze scan, the legacy rebuild, the
+    # persisted-Silver read and the comparison.  Because run_b2 starts its
+    # internal timer only after it loads progress, the outbox listing and the
+    # completion ledger, b2 + shadow + gold is *less than or equal to* the
+    # cycle; the residual is the writer state-load preamble and is deliberately
+    # attributed to no phase.  Under selected_mode == "legacy" there is no b2
+    # record and the legacy Silver build falls inside this segment - that branch
+    # is unreachable under any accepted rollout state, since
+    # RUNTIME_ROLLOUT_MATRIX admits SILVER_MODE=legacy only as
+    # ("legacy", "legacy", "0"), which run() routes to _run_legacy.  It is a
+    # test-only artefact, not an operational claim.
+    metrics.record(
+        source="medallion",
+        status="success",
+        phase="shadow",
+        cycle_id=cycle_id,
+        shadow_comparisons=int(SHADOW_COMPARE_ENABLED),
+        shadow_mismatches=0,
+        bronze_snapshot_id=bronze_snapshot_id,
+        silver_snapshot_id=silver_snapshot_id,
+        duration_ms=int(((gold_started - started) - b2_window) * 1000),
+    )
+
     if GOLD_SOURCE == "legacy":
         if legacy_silver_df is None:
             raise RuntimeError("GOLD_SOURCE=legacy requires a legacy Silver projection")
@@ -1104,11 +1227,28 @@ def _run_m4(catalog: RestCatalog, metrics: Metrics, selected_mode: str) -> None:
         gold_input = persisted_silver_df
 
     gold_df = build_gold(gold_input)
-    _write_gold(catalog, gold_df)
-    gold_duration_ms = int((time.monotonic() - gold_started) * 1000)
+    gold_snapshot_id = _write_gold(catalog, gold_df)
+    ended = time.monotonic()
+    gold_duration_ms = int((ended - gold_started) * 1000)
+
     metrics.record(
         source="medallion",
         status="success",
+        phase="gold",
+        cycle_id=cycle_id,
+        gold_rows=gold_df.num_rows,
+        silver_snapshot_id=silver_snapshot_id,
+        gold_snapshot_id=gold_snapshot_id,
+        duration_ms=gold_duration_ms,
+    )
+
+    # A None outcome means "no physical cost measured", never a crashed cycle:
+    # run_b2 returns None when Bronze is absent, and several suites stub it.
+    metrics.record(
+        source="medallion",
+        status="success",
+        phase="cycle",
+        cycle_id=cycle_id,
         bronze_rows=bronze_df.num_rows if bronze_df is not None else None,
         silver_rows=gold_input.num_rows,
         gold_rows=gold_df.num_rows,
@@ -1118,11 +1258,27 @@ def _run_m4(catalog: RestCatalog, metrics: Metrics, selected_mode: str) -> None:
             else None
         ),
         quality_violations=violations_total,
-        duration_ms=int((time.monotonic() - started) * 1000),
+        duration_ms=int((ended - started) * 1000),
         shadow_comparisons=int(SHADOW_COMPARE_ENABLED),
         shadow_mismatches=0,
         silver_duration_ms=int((gold_started - started) * 1000),
         gold_duration_ms=gold_duration_ms,
+        bronze_snapshot_id=bronze_snapshot_id,
+        silver_snapshot_id=silver_snapshot_id,
+        gold_snapshot_id=gold_snapshot_id,
+        keys_processed=outcome.keys_processed if outcome else 0,
+        lower_versions_ignored=outcome.lower_versions_ignored if outcome else 0,
+        ff14_conflicts=outcome.ff14_conflicts if outcome else 0,
+        work_available=outcome.work_available if outcome else 0,
+        work_in_flight=outcome.work_in_flight if outcome else 0,
+        work_completed=outcome.work_completed if outcome else 0,
+        files_planned=outcome.files_planned if outcome else 0,
+        bytes_planned=outcome.bytes_planned if outcome else 0,
+        files_removed=outcome.files_removed if outcome else 0,
+        files_added=outcome.files_added if outcome else 0,
+        bytes_removed=outcome.bytes_removed if outcome else 0,
+        bytes_added=outcome.bytes_added if outcome else 0,
+        snapshot_delta=outcome.snapshot_delta if outcome else 0,
     )
 
 
@@ -1130,17 +1286,21 @@ def run(
     catalog: RestCatalog,
     metrics: Metrics,
     mode: str | None = None,
+    *,
+    cycle_id: str | None = None,
+    fs: S3FileSystem | None = None,
 ) -> None:
     selected_mode = (mode or SILVER_MODE).lower()
+    cycle_id = cycle_id or uuid.uuid4().hex
     if selected_mode == "b2":
-        _run_m4(catalog, metrics, selected_mode)
+        _run_m4(catalog, metrics, selected_mode, cycle_id=cycle_id, fs=fs)
         return
     if selected_mode != "legacy":
         raise ValueError(f"Unsupported SILVER_MODE: {selected_mode}")
     if GOLD_SOURCE == "legacy" and not SHADOW_COMPARE_ENABLED:
-        _run_legacy(catalog, metrics)
+        _run_legacy(catalog, metrics, cycle_id=cycle_id)
     else:
-        _run_m4(catalog, metrics, selected_mode)
+        _run_m4(catalog, metrics, selected_mode, cycle_id=cycle_id, fs=fs)
 
 
 def main() -> None:

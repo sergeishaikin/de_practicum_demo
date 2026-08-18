@@ -7,6 +7,7 @@ import pyarrow as pa
 import pytest
 
 from medallion import iceberg_medallion as m
+from tests.support.fakes import FakeMetrics, scripted_monotonic
 
 TS = datetime(2026, 1, 1, 12, 0, 0)
 
@@ -121,14 +122,6 @@ class FakeCatalog:
         return self.tables[identifier]
 
 
-class FakeMetrics:
-    def __init__(self) -> None:
-        self.records: list[dict] = []
-
-    def record(self, **kwargs) -> None:
-        self.records.append(kwargs)
-
-
 def setup_gold_run(monkeypatch, *, gold_source: str, shadow: bool = False):
     bronze = FakeTable(table([row("a", 1)]))
     persisted_silver = FakeTable(table([row("a", 5, amount=50)]))
@@ -204,7 +197,7 @@ def test_shadow_uses_bronze_boundary_pinned_before_b2_runs(monkeypatch) -> None:
     )
     persisted_silver.df = table([row("a", 1)])
 
-    def mutate_bronze_after_boundary(*args) -> None:
+    def mutate_bronze_after_boundary(*args, **kwargs) -> None:
         catalog.tables["bronze.orders"].df = table([row("a", 2)])
 
     monkeypatch.setattr(m, "run_b2", mutate_bronze_after_boundary)
@@ -256,3 +249,194 @@ def test_fake_table_current_snapshot_ignores_older_provenance() -> None:
     gold.add_snapshot()
 
     assert gold.current_snapshot().summary.additional_properties == {}
+
+
+# --- MTL-01: cycle identity, phase records, non-overlapping durations ---------
+
+
+def b2_stub(*, duration_ms: int = 3000, silver_snapshot_id: int | None = 4242):
+    """A ``run_b2`` replacement that emits its own phase record, as the real one does.
+
+    The stubs used elsewhere in this module return ``None`` to mean "no physical
+    cost measured"; this one stands in for a B2 pass that actually did work, so a
+    test can assert on the four-record shape.
+    """
+
+    def _run_b2(catalog, metrics, fs=None, *, cycle_id=None):
+        metrics.record(
+            source="medallion",
+            status="success",
+            phase="b2",
+            cycle_id=cycle_id,
+            silver_rows=1,
+            duration_ms=duration_ms,
+            silver_snapshot_id=silver_snapshot_id,
+            files_planned=7,
+            bytes_planned=700,
+            keys_processed=3,
+            work_in_flight=0,
+        )
+        return m.B2Outcome(
+            duration_ms=duration_ms,
+            silver_rows=1,
+            files_processed=1,
+            keys_processed=3,
+            lower_versions_ignored=0,
+            ff14_conflicts=0,
+            work_available=0,
+            work_in_flight=0,
+            work_completed=1,
+            files_planned=7,
+            bytes_planned=700,
+            files_removed=1,
+            files_added=2,
+            bytes_removed=100,
+            bytes_added=200,
+            snapshot_delta=1,
+            silver_snapshot_id=silver_snapshot_id,
+        )
+
+    return _run_b2
+
+
+def test_one_cycle_emits_one_record_per_phase(monkeypatch) -> None:
+    catalog, persisted_silver, _gold, metrics = setup_gold_run(
+        monkeypatch, gold_source="persisted_silver", shadow=True
+    )
+    persisted_silver.df = table([row("a", 1)])
+    monkeypatch.setattr(m, "run_b2", b2_stub())
+
+    m.run(catalog, metrics, "b2")
+
+    assert len(metrics.records) == 4
+    assert {r["phase"] for r in metrics.records} == {"b2", "shadow", "gold", "cycle"}
+
+
+def test_every_record_in_one_cycle_shares_one_cycle_id(monkeypatch) -> None:
+    catalog, persisted_silver, _gold, metrics = setup_gold_run(
+        monkeypatch, gold_source="persisted_silver", shadow=True
+    )
+    persisted_silver.df = table([row("a", 1)])
+    monkeypatch.setattr(m, "run_b2", b2_stub())
+
+    m.run(catalog, metrics, "b2")
+
+    cycle_ids = {r["cycle_id"] for r in metrics.records}
+    assert len(cycle_ids) == 1
+    assert cycle_ids.pop()
+
+
+def test_the_cycle_record_is_written_last(monkeypatch) -> None:
+    """The exporter's ``distinct on (source)`` must keep resolving to cycle state."""
+
+    catalog, persisted_silver, _gold, metrics = setup_gold_run(
+        monkeypatch, gold_source="persisted_silver", shadow=True
+    )
+    persisted_silver.df = table([row("a", 1)])
+    monkeypatch.setattr(m, "run_b2", b2_stub())
+
+    m.run(catalog, metrics, "b2")
+
+    assert metrics.records[-1]["phase"] == "cycle"
+
+
+def test_phase_durations_are_disjoint_and_bounded_by_the_cycle(monkeypatch) -> None:
+    catalog, persisted_silver, _gold, metrics = setup_gold_run(
+        monkeypatch, gold_source="persisted_silver", shadow=True
+    )
+    persisted_silver.df = table([row("a", 1)])
+    monkeypatch.setattr(m, "run_b2", b2_stub(duration_ms=3000))
+    # t0=0  b2=[1,4]  gold_start=10  t3=16
+    monkeypatch.setattr(m.time, "monotonic", scripted_monotonic([0, 1, 4, 10, 16]))
+
+    m.run(catalog, metrics, "b2")
+
+    b2 = metrics.phase("b2")["duration_ms"]
+    shadow = metrics.phase("shadow")["duration_ms"]
+    gold = metrics.phase("gold")["duration_ms"]
+    cycle = metrics.cycle()["duration_ms"]
+
+    assert b2 == 3000
+    # the whole pre-Gold segment (10s) minus the incremental writer's window (3s)
+    assert shadow == 7000
+    assert gold == 6000
+    assert cycle == 16000
+    assert cycle >= b2 + shadow + gold
+
+
+def test_inclusive_durations_stay_on_the_cycle_record_only(monkeypatch) -> None:
+    catalog, persisted_silver, _gold, metrics = setup_gold_run(
+        monkeypatch, gold_source="persisted_silver", shadow=True
+    )
+    persisted_silver.df = table([row("a", 1)])
+    monkeypatch.setattr(m, "run_b2", b2_stub())
+    # Scripted, not wall-clock: a sub-millisecond fake run would round the
+    # inclusive durations to zero and make the positive assertion vacuous.
+    monkeypatch.setattr(m.time, "monotonic", scripted_monotonic([0, 1, 4, 10, 16]))
+
+    m.run(catalog, metrics, "b2")
+
+    for record in metrics.records:
+        if record["phase"] == "cycle":
+            continue
+        assert not record.get("silver_duration_ms")
+        assert not record.get("gold_duration_ms")
+
+    cycle = metrics.cycle()
+    assert cycle["silver_duration_ms"] == 10000
+    assert cycle["gold_duration_ms"] == 6000
+
+
+def test_shadow_failure_is_recorded_as_an_aborted_cycle(monkeypatch) -> None:
+    catalog, persisted_silver, gold, metrics = setup_gold_run(
+        monkeypatch, gold_source="legacy", shadow=True
+    )
+    persisted_silver.df = table([row("a", 9, amount=99)])
+    monkeypatch.setattr(m, "run_b2", b2_stub())
+
+    with pytest.raises(ValueError):
+        m.run(catalog, metrics, "b2")
+
+    aborted = metrics.cycle()
+    assert aborted["status"] == "shadow_failed"
+    assert gold.overwrite_calls == 0
+
+
+def test_a_b2_stub_returning_none_still_yields_a_zeroed_cycle(monkeypatch) -> None:
+    """`None` means "no physical cost measured", never a crashed cycle."""
+
+    catalog, persisted_silver, gold, metrics = setup_gold_run(
+        monkeypatch, gold_source="persisted_silver", shadow=True
+    )
+    persisted_silver.df = table([row("a", 1)])
+
+    m.run(catalog, metrics, "b2")
+
+    cycle = metrics.cycle()
+    assert gold.overwrite_calls == 1
+    assert cycle["status"] == "success"
+    assert cycle["files_planned"] == 0
+    assert cycle["bytes_planned"] == 0
+    assert cycle["keys_processed"] == 0
+    assert cycle["work_in_flight"] == 0
+    assert {r["phase"] for r in metrics.records} == {"shadow", "gold", "cycle"}
+
+
+def test_snapshot_identities_are_recorded_where_they_are_meaningful(
+    monkeypatch,
+) -> None:
+    catalog, persisted_silver, _gold, metrics = setup_gold_run(
+        monkeypatch, gold_source="persisted_silver", shadow=True
+    )
+    persisted_silver.df = table([row("a", 1)])
+    monkeypatch.setattr(m, "run_b2", b2_stub(silver_snapshot_id=4242))
+
+    m.run(catalog, metrics, "b2")
+
+    assert metrics.phase("b2")["silver_snapshot_id"] == 4242
+    assert "bronze_snapshot_id" in metrics.phase("shadow")
+    assert "gold_snapshot_id" in metrics.phase("gold")
+    cycle = metrics.cycle()
+    assert {"bronze_snapshot_id", "silver_snapshot_id", "gold_snapshot_id"} <= set(
+        cycle
+    )
