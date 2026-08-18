@@ -16,6 +16,27 @@ progress:
 
 # Project State
 
+## Methodology boundary — 2026-08-18
+
+GSD execution is frozen after the current repository state. Completed
+`.planning/` artifacts remain historical execution evidence. Outstanding work is
+migrated to OpenSpec and must not be executed through GSD phase orchestration.
+
+Unchecked boxes below and in `ROADMAP.md` record what was never executed; they
+are not a queue. Each obligation has a successor:
+
+| Frozen GSD plan | OpenSpec change |
+|---|---|
+| `01-07` — decide D-3a / O2 / no-change | `close-b2-rollout-decision` |
+| `04-08` — steady-state shadow policy (ADR-0002) | `define-steady-state-shadow-policy` |
+| `04-09` — before/after benchmark | `benchmark-medallion-fast-path` |
+| `04-10` — Arrow/Python boundary profile | `profile-arrow-python-boundary` |
+| H1 clean-stack R1 E2E failure (found 2026-08-18) | `diagnose-cold-start-r1-e2e` |
+
+`01-07`'s outcome enum is unchanged by the migration: exactly one of
+`open_d3a`, `open_o2`, `no_change`, with the other two recorded as rejected.
+
+
 ## Project Reference
 
 See: `.planning/PROJECT.md` (updated 2026-08-09)

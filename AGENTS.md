@@ -105,6 +105,19 @@ that were skipped. Do not claim a check passed unless it was executed.
 Do not add a test framework, task runner, wrapper script, or verification layer
 unless the requested change explicitly requires it.
 
+## Planning methodology
+
+Work is planned as OpenSpec changes under `openspec/`. `openspec/specs/` holds
+the standing capabilities — `engineering-governance` (how work is authorised and
+fenced) and `verification-contract` (what counts as verified, alongside the
+canonical commands in this file). `openspec/changes/` holds proposals in flight.
+
+GSD execution is frozen as of 2026-08-18. `.planning/` stays tracked as the
+historical execution record of Phases 1-4 and must not be resumed as a work
+queue; obligations that were never executed are listed with their OpenSpec
+successors in `.planning/STATE.md`. Do not create new `.planning/phases/*` plans
+and do not run GSD phase orchestration.
+
 ## Documentation
 
 `README.md` and the relevant files under `docs/` are the project contract for
