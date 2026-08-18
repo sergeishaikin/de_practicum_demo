@@ -64,6 +64,10 @@ MEDALLION_COMPLETION_LEDGER_PREFIX = os.getenv(
     "MEDALLION_COMPLETION_LEDGER_PREFIX",
     "streaming/medallion/completion-ledger",
 )
+MEDALLION_SHADOW_RECEIPT_PATH = os.getenv(
+    "MEDALLION_SHADOW_RECEIPT_PATH",
+    "streaming/medallion/shadow-certification.json",
+)
 MAX_COMPLETED_PROGRESS = int(os.getenv("MAX_COMPLETED_PROGRESS", "100"))
 SIMULATE_B2_CRASH_BEFORE_COMMIT = (
     os.getenv("SIMULATE_B2_CRASH_BEFORE_COMMIT", "0") == "1"
@@ -77,6 +81,9 @@ SILVER_WORK_ID_KEY = "silver-work-id"
 # provenance, so no sidecar file can disagree with the table.
 GOLD_SOURCE_SILVER_SNAPSHOT_KEY = "source-silver-snapshot-id"
 PROGRESS_VERSION = 1
+# Bumped whenever the stored receipt's shape changes.  A receipt written by any
+# other version reads as absent, which means "run the comparison".
+SHADOW_RECEIPT_VERSION = 1
 
 # The first token of the one stdout line a completed cycle prints.  It is the
 # integration harness's liveness signal, so the line's shape is a contract, not
@@ -220,6 +227,72 @@ def save_progress(fs: S3FileSystem, progress: dict) -> None:
     raw = json.dumps(progress, sort_keys=True, separators=(",", ":")).encode("utf-8")
     with fs.open_output_stream(_progress_path()) as output:
         output.write(raw)
+
+
+def _shadow_receipt_path() -> str:
+    return _storage_path(MEDALLION_SHADOW_RECEIPT_PATH)
+
+
+def load_shadow_receipt(fs: S3FileSystem) -> dict | None:
+    """Read the shadow certification receipt, or ``None`` if it cannot be trusted.
+
+    Deliberately asymmetric with the neighbouring ``load_completion_ledger``,
+    which *raises* on an unusable receipt.  That asymmetry is a decision, not an
+    inconsistency: an ambiguous completion receipt is two contradictory claims
+    about one load id -- a correctness fork worth stopping the service for --
+    whereas an unusable shadow certificate only means "not certified".  So every
+    failure here degrades to ``None``, which the caller reads as "run the
+    comparison".  Failing toward doing the work is the only safe direction, since
+    the thing being skipped is a correctness gate.
+
+    Absent, unreadable, malformed and wrong-version receipts are all the same
+    answer.  Nothing is trusted partially: a receipt is either a well-formed
+    object of the expected version or it is not a receipt.
+    """
+
+    path = _shadow_receipt_path()
+    try:
+        receipt = _read_json(fs, path)
+    except FileNotFoundError:
+        return None
+    except Exception as exc:
+        # Identifiers and the failure only: a receipt read must never be able to
+        # widen what a diagnostic discloses.
+        print(
+            f"Shadow certification receipt unreadable ({path}): "
+            f"{type(exc).__name__}",
+            file=sys.stderr,
+            flush=True,
+        )
+        return None
+    if not isinstance(receipt, dict):
+        return None
+    if receipt.get("version") != SHADOW_RECEIPT_VERSION:
+        return None
+    return receipt
+
+
+def save_shadow_receipt(fs: S3FileSystem, receipt: dict) -> None:
+    """Certify a passing comparison durably, best-effort.
+
+    Swallow-and-continue in the style of ``Metrics.record``, and **only** on the
+    write side: a receipt that never lands costs exactly one redundant
+    comparison next cycle, whereas a read failure treated as success would skip
+    a correctness gate.  Those two contracts are opposite, which is why they are
+    two functions.
+    """
+
+    try:
+        raw = json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        with fs.open_output_stream(_shadow_receipt_path()) as output:
+            output.write(raw)
+    except Exception as exc:
+        print(
+            f"Shadow certification receipt not persisted for cycle "
+            f"{receipt.get('cycle_id')}: {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
 
 
 def _completion_ledger_base_path() -> str:
@@ -837,6 +910,88 @@ SHADOW_EXCLUDED_COLUMNS = (
     "kafka_partition",
     "kafka_offset",
 )
+
+# Hand-bumped whenever `compare_business_state` changes what it *means* by
+# equality -- a different duplicate-resolution rule, a new mismatch class, a
+# changed null/NaN convention.  It is half of the projection identity because a
+# hand-maintained constant on its own is a silent-staleness hazard: a contract
+# change nobody remembered to bump would keep certifying comparisons made under
+# the old contract.  The digest below is the other half, and it moves on its own.
+SHADOW_CONTRACT_VERSION = 1
+
+
+def _shadow_projection_identity() -> str:
+    """Identity of *what* a shadow comparison checks.
+
+    Two halves, because neither is sufficient alone.  The `sha256` digest covers
+    the column classification -- the most likely real change -- and invalidates
+    every outstanding certificate automatically the moment a column is added,
+    removed or reclassified.  `SHADOW_CONTRACT_VERSION` covers the semantic
+    changes the column tuples cannot see.  The two tuples are rendered with a
+    separator between them so that moving a column from one to the other is a
+    different string, not the same multiset.
+    """
+
+    canonical = "|".join(
+        ("business",)
+        + SHADOW_BUSINESS_COLUMNS
+        + ("excluded",)
+        + SHADOW_EXCLUDED_COLUMNS
+    )
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return f"contract={SHADOW_CONTRACT_VERSION};columns={digest}"
+
+
+def _runtime_identity(selected_mode: str) -> str:
+    """Identity of the runtime a certificate was produced under.
+
+    The *effective* mode rather than `SILVER_MODE`, because `run()` accepts an
+    explicit mode; plus the two rollout switches that decide which projections
+    exist at all and whether they are compared.  A certificate produced in the
+    `shadow` stage therefore cannot authorise a skip in `cutover`, where the
+    comparison's conclusion is what puts the incremental state in front of
+    consumers.
+    """
+
+    return (
+        f"mode={selected_mode};gold_source={GOLD_SOURCE};"
+        f"shadow_compare={'1' if SHADOW_COMPARE_ENABLED else '0'}"
+    )
+
+
+def shadow_receipt_is_valid(
+    receipt: dict | None,
+    *,
+    bronze_snapshot_id: int | None,
+    silver_snapshot_id: int | None,
+    runtime_identity: str,
+    projection_identity: str,
+) -> bool:
+    """True only when this receipt certifies exactly the state about to be skipped.
+
+    Pure, so the fast-path decision can be specified without a filesystem.  A
+    skipped comparison is a skipped correctness gate, so this answers `True` only
+    when the previous comparison passed *and* all four identities match; every
+    other input -- including no receipt at all -- answers `False` and the caller
+    does the work.
+
+    A `None` current snapshot id never matches, not even a stored `null`.
+    `_snapshot_id` legitimately returns `None` for a table with no snapshots, and
+    `None == None` must never certify an empty or unknown lake.
+    """
+
+    if not isinstance(receipt, dict):
+        return False
+    if bronze_snapshot_id is None or silver_snapshot_id is None:
+        return False
+    if receipt.get("result") != "equal":
+        return False
+    return (
+        receipt.get("bronze_snapshot_id") == bronze_snapshot_id
+        and receipt.get("silver_snapshot_id") == silver_snapshot_id
+        and receipt.get("runtime_identity") == runtime_identity
+        and receipt.get("projection_identity") == projection_identity
+    )
 
 
 @dataclass(frozen=True)

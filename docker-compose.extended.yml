@@ -343,6 +343,8 @@ services:
       MINIO_BUCKET: de-practicum
       BRONZE_OUTBOX_PREFIX: ${BRONZE_OUTBOX_PREFIX:-streaming/bronze_outbox}
       MEDALLION_PROGRESS_PATH: ${MEDALLION_PROGRESS_PATH:-streaming/medallion/progress.json}
+      MEDALLION_COMPLETION_LEDGER_PREFIX: ${MEDALLION_COMPLETION_LEDGER_PREFIX:-streaming/medallion/completion-ledger}
+      MEDALLION_SHADOW_RECEIPT_PATH: ${MEDALLION_SHADOW_RECEIPT_PATH:-streaming/medallion/shadow-certification.json}
       MAX_COMPLETED_PROGRESS: ${MAX_COMPLETED_PROGRESS:-100}
       S3_ENDPOINT: http://minio:9000
       S3_REGION: us-east-1

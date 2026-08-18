@@ -7,6 +7,7 @@ import pyarrow as pa
 import pytest
 
 from medallion import iceberg_medallion as m
+from tests.support.b2_fakes import FakeFS
 from tests.support.fakes import FakeMetrics, scripted_monotonic
 
 TS = datetime(2026, 1, 1, 12, 0, 0)
@@ -625,3 +626,181 @@ def test_legacy_gold_source_writes_every_cycle_and_stamps_nothing(monkeypatch) -
     assert gold.snapshot_properties == [{}, {}]
     assert metrics.phase("gold")["gold_skipped"] is False
     assert second.phase("gold")["gold_skipped"] is False
+
+
+# --- SHD-01: the durable shadow certificate and its identity -----------------
+#
+# The certificate is the only thing that can authorise skipping a correctness
+# gate, so these specify the two directions separately: what it takes to be
+# certified (all four identities, plus a passing result), and the far longer
+# list of ways to end up not certified. Every entry in the second list must
+# resolve to "run the comparison".
+
+CERTIFIED_BRONZE = 101
+CERTIFIED_SILVER = 202
+
+
+def receipt(**overrides) -> dict:
+    """A receipt certifying `CERTIFIED_BRONZE` / `CERTIFIED_SILVER` under today's contract."""
+
+    stored = {
+        "version": m.SHADOW_RECEIPT_VERSION,
+        "bronze_snapshot_id": CERTIFIED_BRONZE,
+        "silver_snapshot_id": CERTIFIED_SILVER,
+        "runtime_identity": m._runtime_identity("b2"),
+        "projection_identity": m._shadow_projection_identity(),
+        "result": "equal",
+        "compared_keys": 1,
+        "certified_at": "2026-01-01T00:00:00+00:00",
+        "cycle_id": "cycle-1",
+    }
+    stored.update(overrides)
+    return stored
+
+
+def certifies(stored: dict | None, **overrides) -> bool:
+    """Ask the gate whether `stored` certifies the current state."""
+
+    current = {
+        "bronze_snapshot_id": CERTIFIED_BRONZE,
+        "silver_snapshot_id": CERTIFIED_SILVER,
+        "runtime_identity": m._runtime_identity("b2"),
+        "projection_identity": m._shadow_projection_identity(),
+    }
+    current.update(overrides)
+    return m.shadow_receipt_is_valid(stored, **current)
+
+
+class ExplodingReadFS(FakeFS):
+    def open_input_file(self, path: str):
+        raise OSError("connection reset by peer")
+
+
+class ExplodingWriteFS(FakeFS):
+    def open_output_stream(self, path: str):
+        raise OSError("no space left on device")
+
+
+def test_projection_identity_changes_when_a_business_column_is_added(
+    monkeypatch,
+) -> None:
+    """The most likely real contract change must invalidate every certificate."""
+
+    before = m._shadow_projection_identity()
+    monkeypatch.setattr(
+        m, "SHADOW_BUSINESS_COLUMNS", m.SHADOW_BUSINESS_COLUMNS + ("discount",)
+    )
+
+    assert m._shadow_projection_identity() != before
+
+
+def test_projection_identity_changes_when_a_column_is_reclassified(monkeypatch) -> None:
+    """Moving a column from excluded to business changes what is compared."""
+
+    before = m._shadow_projection_identity()
+    monkeypatch.setattr(
+        m, "SHADOW_BUSINESS_COLUMNS", m.SHADOW_BUSINESS_COLUMNS + ("kafka_offset",)
+    )
+    monkeypatch.setattr(m, "SHADOW_EXCLUDED_COLUMNS", ("kafka_timestamp",))
+
+    assert m._shadow_projection_identity() != before
+
+
+def test_projection_identity_changes_when_the_contract_version_is_bumped(
+    monkeypatch,
+) -> None:
+    """The hand-bumped half covers semantics the column tuples cannot see."""
+
+    before = m._shadow_projection_identity()
+    monkeypatch.setattr(m, "SHADOW_CONTRACT_VERSION", m.SHADOW_CONTRACT_VERSION + 1)
+
+    assert m._shadow_projection_identity() != before
+
+
+def test_runtime_identity_separates_the_shadow_and_cutover_stages(monkeypatch) -> None:
+    monkeypatch.setattr(m, "SHADOW_COMPARE_ENABLED", True)
+    monkeypatch.setattr(m, "GOLD_SOURCE", "legacy")
+    shadow_stage = m._runtime_identity("b2")
+    monkeypatch.setattr(m, "GOLD_SOURCE", "persisted_silver")
+    cutover_stage = m._runtime_identity("b2")
+
+    assert shadow_stage != cutover_stage
+
+
+def test_runtime_identity_separates_the_effective_silver_modes() -> None:
+    assert m._runtime_identity("b2") != m._runtime_identity("legacy")
+
+
+def test_no_receipt_never_certifies() -> None:
+    assert certifies(None) is False
+
+
+def test_a_matching_receipt_certifies() -> None:
+    assert certifies(receipt()) is True
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "bronze_snapshot_id",
+        "silver_snapshot_id",
+        "runtime_identity",
+        "projection_identity",
+    ],
+)
+def test_a_receipt_differing_in_any_identity_never_certifies(field: str) -> None:
+    assert certifies(receipt(**{field: "something-else"})) is False
+
+
+def test_a_receipt_that_did_not_pass_never_certifies() -> None:
+    assert certifies(receipt(result="mismatch")) is False
+
+
+@pytest.mark.parametrize("unknown", ["bronze_snapshot_id", "silver_snapshot_id"])
+def test_an_unknown_current_snapshot_id_never_certifies(unknown: str) -> None:
+    """``None == None`` must never certify an empty lake."""
+
+    assert certifies(receipt(**{unknown: None}), **{unknown: None}) is False
+
+
+def test_a_receipt_round_trips_through_object_storage() -> None:
+    filesystem = FakeFS({})
+    m.save_shadow_receipt(filesystem, receipt())
+
+    assert m.load_shadow_receipt(filesystem) == receipt()
+    assert m._shadow_receipt_path() in filesystem.objects
+
+
+def test_an_absent_receipt_reads_as_not_certified() -> None:
+    assert m.load_shadow_receipt(FakeFS({})) is None
+
+
+def test_malformed_receipt_json_reads_as_not_certified() -> None:
+    filesystem = FakeFS({m._shadow_receipt_path(): b"{ not json"})
+
+    assert m.load_shadow_receipt(filesystem) is None
+
+
+def test_a_receipt_that_is_not_an_object_reads_as_not_certified() -> None:
+    filesystem = FakeFS({m._shadow_receipt_path(): b"[1, 2, 3]"})
+
+    assert m.load_shadow_receipt(filesystem) is None
+
+
+def test_a_receipt_from_another_version_reads_as_not_certified() -> None:
+    filesystem = FakeFS({})
+    m.save_shadow_receipt(filesystem, receipt(version=m.SHADOW_RECEIPT_VERSION + 1))
+
+    assert m.load_shadow_receipt(filesystem) is None
+
+
+def test_an_unreadable_receipt_reads_as_not_certified() -> None:
+    assert m.load_shadow_receipt(ExplodingReadFS({})) is None
+
+
+def test_a_failed_receipt_write_never_breaks_the_cycle(capsys) -> None:
+    """A lost certificate costs exactly one redundant comparison, nothing more."""
+
+    m.save_shadow_receipt(ExplodingWriteFS({}), receipt())
+
+    assert "shadow certification receipt" in capsys.readouterr().err.lower()
