@@ -4,12 +4,12 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 stopped_at: Phase 4 PLANNED (10 plans, 8 waves); execution not started
-last_updated: "2026-08-17T12:00:00.000Z"
+last_updated: "2026-08-18T00:00:00.000Z"
 last_activity: 2026-08-18 -- Phase 4 planned and plan-checked; 10 plans in 8 waves
 progress:
-  total_phases: 2
-  completed_phases: 1
-  total_plans: 14
+  total_phases: 4
+  completed_phases: 2
+  total_plans: 28
   completed_plans: 13
   percent: 50
 ---
@@ -21,17 +21,18 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-08-09)
 
 **Core value:** Business-key current state must remain correct and recoverable while the pipeline processes only committed incremental work.
-**Current focus:** Phase 3 — Staging Source Freshness Gate (all 4 waves executed)
+**Current focus:** Phase 4 — Medallion Telemetry and Redundant Work Elimination (planned, not started)
 
 ## Current Position
 
 Phase: 4 (Medallion Telemetry and Redundant Work Elimination) — PLANNED
 Previous: Phase 3 (Staging Source Freshness Gate) — COMPLETE
-Plan: 4 of 4 complete
-Status: COMPLETE. warehouse-dbt-contract green: fresh batch PASS, backdated batch ERROR STALE exit exactly 1, 8/8 mutations killed. Thresholds remain provisional and unmeasured by decision. PR sergeishaikin#1.
-Last activity: 2026-08-17 -- Phase 3 wave 4 (03-04) complete
+Plan: 0 of 10 executed (planning complete, plan-checked)
+Status: PLANNED. Ten plans across eight waves. Wave 4 must land the harness liveness signal BEFORE wave 5 deletes the every-cycle-Gold invariant, or ci-m5-gates hangs. 04-09 (BENCH-01) is not autonomous and needs authorised mutation of the canonical dwh.
+Previous phase: Phase 3 COMPLETE - warehouse-dbt-contract green, fresh PASS / stale ERROR STALE exit exactly 1, 8/8 mutations killed. PR sergeishaikin#1.
+Last activity: 2026-08-18 -- Phase 4 planned and plan-checked
 
-Progress: ▓▓▓▓▓▓▓▓▓▓ 100% of Phase 3 (4 of 4 plans executed)
+Progress: ░░░░░░░░░░ 0% of Phase 4 (0 of 10 plans executed)
 
 ## Performance Metrics
 
