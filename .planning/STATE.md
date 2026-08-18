@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 4 EXECUTING - 04-01 through 04-06 complete and summarized; 04-07 (documentation contract) is next. Phase 1 01-07 (DEC-01) remains live and unexecuted.
+stopped_at: Phase 4 EXECUTING - 04-01 through 04-07 complete and summarized; 04-08 (POL-01 / ADR-0002) is the next wave-7 plan and is NOT authorised. Phase 1 01-07 (DEC-01) remains live and unexecuted.
 last_updated: "2026-08-18T00:00:00.000Z"
-last_activity: 2026-08-18 -- Executed 04-06 (durable shadow certificate and the receipt-gated fast path); closed and summarized
+last_activity: 2026-08-18 -- Executed 04-07 (documentation contract correction and Phase 4 requirement registration); closed and summarized
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 28
-  completed_plans: 23
-  percent: 82
+  completed_plans: 24
+  percent: 86
 ---
 
 # Project State
@@ -21,13 +21,13 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-08-09)
 
 **Core value:** Business-key current state must remain correct and recoverable while the pipeline processes only committed incremental work.
-**Current focus:** Phase 4 — Medallion Telemetry and Redundant Work Elimination (executing, 6 of 10 plans)
+**Current focus:** Phase 4 — Medallion Telemetry and Redundant Work Elimination (executing, 7 of 10 plans)
 
 ## Current Position
 
 Phase: 4 (Medallion Telemetry and Redundant Work Elimination) — EXECUTING
 Previous: Phase 3 (Staging Source Freshness Gate) — COMPLETE
-Plan: 6 of 10 executed (04-01 wave 1, 04-02 wave 2, 04-03 wave 3, 04-04 wave 4, 04-05 wave 5, 04-06 wave 6); 04-07 is next
+Plan: 7 of 10 executed (04-01 wave 1, 04-02 wave 2, 04-03 wave 3, 04-04 wave 4, 04-05 wave 5, 04-06 wave 6, 04-07 wave 7); 04-08 is the next wave-7 plan
 Status: EXECUTING. Ten plans across eight waves. Waves 5 and 6 removed the two redundant costs the phase was opened for, so from here the medallion's steady-state cycle can decline both the Gold rebuild and the shadow validation. Neither skip has been observed against a live catalog yet: wave 4's marker is what makes ci-m5-gates able to see them, and that proof arrives on the PR. Three of the four remaining plans are wave 7; 04-09 (BENCH-01) is not autonomous and needs authorised mutation of the canonical dwh.
 Previous phase: Phase 3 COMPLETE - warehouse-dbt-contract green, fresh PASS / stale ERROR STALE exit exactly 1, 8/8 mutations killed. PR sergeishaikin#1.
 Last activity: 2026-08-18 -- Executed 04-06 (durable shadow certificate and the receipt-gated fast path); closed and summarized

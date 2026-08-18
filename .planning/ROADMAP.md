@@ -222,7 +222,7 @@ Plans:
 - [x] 04-04-PLAN.md — Cycle-complete stdout marker and marker-based harness liveness, replacing the Gold-snapshot assumption (wave 4)
 - [x] 04-05-PLAN.md — GLD-01 Gold source provenance and no-op rebuild skip, plus the narrow ADR-0001 D-4 amendment (wave 5)
 - [x] 04-06-PLAN.md — SHD-01 durable shadow certificate and the receipt-gated fast path (wave 6)
-- [ ] 04-07-PLAN.md — Documentation contract correction and Phase 4 requirement registration (wave 7)
+- [x] 04-07-PLAN.md — Documentation contract correction and Phase 4 requirement registration (wave 7)
 - [ ] 04-08-PLAN.md — POL-01 steady-state shadow policy as ADR-0002; exact rollout-matrix assertion (wave 7)
 - [ ] 04-09-PLAN.md — BENCH-01 authorised before/after benchmark on a bounded workload (wave 7, blocking checkpoint)
 - [ ] 04-10-PLAN.md — PRF-01 Arrow/Python boundary profile and its optimise-or-not decision (wave 8)
