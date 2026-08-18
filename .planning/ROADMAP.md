@@ -212,8 +212,26 @@ provenance, POL-01 steady-state shadow policy, PRF-01 Arrow boundary profiling,
 BENCH-01 before/after measurement]. `TEL-01` renamed to `MTL-01`: TEL-01 is an
 already-Complete Phase-1 requirement.
 **Depends on:** Phase 3
-**Plans:** 0 plans
+**Plans:** 10 plans in 8 waves
 
 Plans:
 
-- [ ] TBD (run /gsd-plan-phase 4 to break down)
+- [ ] 04-01-PLAN.md — Wave 0 test infrastructure: phase-named metric accessors, a scripted clock, name-keyed insert assertions, a snapshot-aware Gold double (wave 1)
+- [ ] 04-02-PLAN.md — Metric identity in the sink: additive cycle/phase schema, cycle-only Prometheus observation, the executable historical rule (wave 2)
+- [ ] 04-03-PLAN.md — Cycle identity in the medallion: cycle_id threading, phase records, non-overlapping durations, snapshot ids (wave 3)
+- [ ] 04-04-PLAN.md — Cycle-complete stdout marker and marker-based harness liveness, replacing the Gold-snapshot assumption (wave 4)
+- [ ] 04-05-PLAN.md — GLD-01 Gold source provenance and no-op rebuild skip, plus the narrow ADR-0001 D-4 amendment (wave 5)
+- [ ] 04-06-PLAN.md — SHD-01 durable shadow certificate and the receipt-gated fast path (wave 6)
+- [ ] 04-07-PLAN.md — Documentation contract correction and Phase 4 requirement registration (wave 7)
+- [ ] 04-08-PLAN.md — POL-01 steady-state shadow policy as ADR-0002; exact rollout-matrix assertion (wave 7)
+- [ ] 04-09-PLAN.md — BENCH-01 authorised before/after benchmark on a bounded workload (wave 7, blocking checkpoint)
+- [ ] 04-10-PLAN.md — PRF-01 Arrow/Python boundary profile and its optimise-or-not decision (wave 8)
+
+**Wave order is dominated by one file.** Plans 02 through 06 each modify
+`iceberg/common/ops.py` or `iceberg/medallion/iceberg_medallion.py` and each depends on
+the previous one's API, so there is no parallelism to recover before wave 7. The harness
+liveness replacement (04-04) is deliberately scheduled *before* the Gold skip (04-05)
+rather than with it: `tests/support/medallion_harness.py` documents "every cycle ends in
+a Gold overwrite" as its proof a deployment ran, and `gold_cutover.feature` is a PR
+blocker under `ci-m5-gates.yml`. Landing the replacement one wave early means CI
+exercises the new signal while it is still equivalent to the old one.
