@@ -216,8 +216,8 @@ already-Complete Phase-1 requirement.
 
 Plans:
 
-- [ ] 04-01-PLAN.md — Wave 0 test infrastructure: phase-named metric accessors, a scripted clock, name-keyed insert assertions, a snapshot-aware Gold double (wave 1)
-- [ ] 04-02-PLAN.md — Metric identity in the sink: additive cycle/phase schema, cycle-only Prometheus observation, the executable historical rule (wave 2)
+- [x] 04-01-PLAN.md — Wave 0 test infrastructure: phase-named metric accessors, a scripted clock, name-keyed insert assertions, a snapshot-aware Gold double (wave 1)
+- [x] 04-02-PLAN.md — Metric identity in the sink: additive cycle/phase schema, cycle-only Prometheus observation, the executable historical rule (wave 2)
 - [ ] 04-03-PLAN.md — Cycle identity in the medallion: cycle_id threading, phase records, non-overlapping durations, snapshot ids (wave 3)
 - [ ] 04-04-PLAN.md — Cycle-complete stdout marker and marker-based harness liveness, replacing the Gold-snapshot assumption (wave 4)
 - [ ] 04-05-PLAN.md — GLD-01 Gold source provenance and no-op rebuild skip, plus the narrow ADR-0001 D-4 amendment (wave 5)

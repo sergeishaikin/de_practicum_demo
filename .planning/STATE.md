@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 4 PLANNED (10 plans, 8 waves); execution not started
+stopped_at: Phase 4 EXECUTING - 04-01 and 04-02 complete and summarized; 04-03 is next. Phase 1 01-07 (DEC-01) remains live and unexecuted.
 last_updated: "2026-08-18T00:00:00.000Z"
-last_activity: 2026-08-18 -- Phase 4 planned and plan-checked; 10 plans in 8 waves
+last_activity: 2026-08-18 -- Backfilled 04-01/04-02 summaries; bookkeeping repaired
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 28
-  completed_plans: 13
-  percent: 50
+  completed_plans: 19
+  percent: 68
 ---
 
 # Project State
@@ -21,18 +21,26 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-08-09)
 
 **Core value:** Business-key current state must remain correct and recoverable while the pipeline processes only committed incremental work.
-**Current focus:** Phase 4 — Medallion Telemetry and Redundant Work Elimination (planned, not started)
+**Current focus:** Phase 4 — Medallion Telemetry and Redundant Work Elimination (executing, 2 of 10 plans)
 
 ## Current Position
 
-Phase: 4 (Medallion Telemetry and Redundant Work Elimination) — PLANNED
+Phase: 4 (Medallion Telemetry and Redundant Work Elimination) — EXECUTING
 Previous: Phase 3 (Staging Source Freshness Gate) — COMPLETE
-Plan: 0 of 10 executed (planning complete, plan-checked)
-Status: PLANNED. Ten plans across eight waves. Wave 4 must land the harness liveness signal BEFORE wave 5 deletes the every-cycle-Gold invariant, or ci-m5-gates hangs. 04-09 (BENCH-01) is not autonomous and needs authorised mutation of the canonical dwh.
+Plan: 2 of 10 executed (04-01 wave 1, 04-02 wave 2); 04-03 is next
+Status: EXECUTING. Ten plans across eight waves. Wave 4 must land the harness liveness signal BEFORE wave 5 deletes the every-cycle-Gold invariant, or ci-m5-gates hangs. 04-09 (BENCH-01) is not autonomous and needs authorised mutation of the canonical dwh.
 Previous phase: Phase 3 COMPLETE - warehouse-dbt-contract green, fresh PASS / stale ERROR STALE exit exactly 1, 8/8 mutations killed. PR sergeishaikin#1.
-Last activity: 2026-08-18 -- Phase 4 planned and plan-checked
+Last activity: 2026-08-18 -- Backfilled 04-01/04-02 summaries; bookkeeping repaired
 
-Progress: ░░░░░░░░░░ 0% of Phase 4 (0 of 10 plans executed)
+Progress: ██░░░░░░░░ 20% of Phase 4 (2 of 10 plans executed)
+
+**Open work outside Phase 4:** Phase 1 `01-07-PLAN.md` (DEC-01 rollout decision)
+is authorized and still unexecuted. Phase 4 did **not** absorb or supersede it —
+Phase 4 was opened by the Rust feasibility investigation, which is not a DEC-01
+decision gate. 01-07 must consume the green 01-06 artifacts and reach its own
+outcome (open_d3a / open_o2 / no_change). Until it is executed, Phase 1 reads as
+partial (13 plans / 12 summaries) and GSD's resume-incomplete-phase invariant
+will route to Phase 1 ahead of Phase 4.
 
 ## Performance Metrics
 
@@ -76,6 +84,11 @@ Progress: ░░░░░░░░░░ 0% of Phase 4 (0 of 10 plans executed)
 - [Phase 01]: 01-06 PASS used one bounded higher-version event for an existing key; B2 recorded complete scan/write/snapshot cost, zero mismatches/FF-14/in-flight work, and retained `b2/persisted_silver/1`.
 - [Quick 260815-ulp]: Airflow maintenance and batch hardening passed exact one-shot live verification under `b2/persisted_silver/1`; no retry, clear, replay, backfill, or historical-evidence mutation occurred.
 - [Phase 2]: Keep ingestion manual, trigger marts validation/publication from the successful `core.orders` Asset event, preserve marts as views, and add source ingestion provenance without renaming `marts.pipeline_runs.run_id`.
+- [Phase 4]: `cycle_id IS NULL` is the predicate separating pre-Phase-4 metric rows from Phase-4 rows. Historical rows are never backfilled — an un-instrumented run must not be able to masquerade as an instrumented one.
+- [Phase 4]: No new `status` literal is introduced. "The fast path was taken" is expressed by the `shadow_skipped` / `gold_skipped` booleans, because `postgres_exporter.py` hard-codes the status set for SOURCE_UP and `alerts.yml` keys `LakehouseApplicationFailure` on `status="failed"`.
+- [Phase 4]: Per-phase metric granularity lives in PostgreSQL only. Prometheus observation is guarded on `phase in (None, "cycle")`; no phase label, no new collector, no new metric name, so every Grafana target and alert expression keeps working unchanged.
+- [Phase 4]: `classify_metric_row` returns `"nested"` (not `"b2"`) for `status="failed"` rows, because that row could come from `run_b2` or from `_legacy_silver_cycle`, and asserting an unsupported origin would violate the requirement's own evidential-honesty premise.
+- [Phase 4]: 01-07 is NOT superseded by Phase 4. The DEC-01 gate must be executed and its outcome recorded, not declared by inference.
 
 ### Pending Todos
 
@@ -124,6 +137,9 @@ authorized.
 
 ## Session Continuity
 
-Last session: 2026-08-16T11:14:47.418Z
-Stopped at: 01-06 PASS; 01-07 authorized but not executed
+Last session: 2026-08-18
+Stopped at: Phase 4 wave 2 complete (04-01, 04-02). Bookkeeping repaired.
+Resume order: (1) execute 01-07 as its own DEC-01 closure, (2) return to Phase 4
+at 04-03, (3) preserve 04-04 before 04-05, (4) stop at 04-09 for the authorised
+canonical-`dwh` mutation checkpoint.
 Resume file: None
