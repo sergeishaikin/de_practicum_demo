@@ -74,18 +74,43 @@ def test_shadow_comparison_reports_deterministic_mismatch(
 
 
 class FakeTable:
+    """Local double, mirroring ``tests/support/fakes.py:FakeTable`` field-for-field.
+
+    Kept separate deliberately rather than reusing the shared double: that one's
+    ``scan()`` yields ``None`` for an empty table, while several Gold tests in
+    this module depend on an empty *typed* Arrow table instead. Converging them
+    would mean changing the shared double's empty-scan semantics for every other
+    consumer, so the duplication is a decision, not an oversight.
+    """
+
     def __init__(self, arrow_table: pa.Table | None = None) -> None:
         self.df = arrow_table
         self.overwrite_calls = 0
+        self.snapshots: list = []
+        self.snapshot_properties: list[dict] = []
 
     def scan(self, row_filter=None):
         return SimpleNamespace(
             to_arrow=lambda: self.df if self.df is not None else table([])
         )
 
+    def add_snapshot(self, **summary):
+        snapshot = SimpleNamespace(
+            snapshot_id=len(self.snapshots) + 1,
+            summary=SimpleNamespace(additional_properties=dict(summary)),
+        )
+        self.snapshots.append(snapshot)
+        return snapshot
+
+    def current_snapshot(self):
+        return self.snapshots[-1] if self.snapshots else None
+
     def overwrite(self, arrow_table, **kwargs) -> None:
         self.df = arrow_table
         self.overwrite_calls += 1
+        properties = dict(kwargs.get("snapshot_properties") or {})
+        self.snapshot_properties.append(properties)
+        self.add_snapshot(**properties)
 
 
 class FakeCatalog:
@@ -116,7 +141,9 @@ def setup_gold_run(monkeypatch, *, gold_source: str, shadow: bool = False):
         }
     )
     monkeypatch.setattr(m, "ensure_table", lambda *args: None)
-    monkeypatch.setattr(m, "run_b2", lambda *args: None)
+    # Keyword-tolerant: plan 04-03 calls run_b2(..., cycle_id=...), and a bare
+    # *args lambda raises TypeError on any keyword argument.
+    monkeypatch.setattr(m, "run_b2", lambda *args, **kwargs: None)
     monkeypatch.setattr(m, "GOLD_SOURCE", gold_source)
     monkeypatch.setattr(m, "SHADOW_COMPARE_ENABLED", shadow)
     return catalog, persisted_silver, gold, FakeMetrics()
@@ -201,3 +228,31 @@ def test_switching_gold_source_does_not_mutate_persisted_silver(monkeypatch) -> 
 
     assert persisted_silver.overwrite_calls == persisted_snapshot
     assert gold.overwrite_calls == 2
+
+
+def test_fake_table_records_snapshot_properties_and_advances_current() -> None:
+    """The double must express what a Gold write carried and which snapshot won."""
+
+    gold = FakeTable()
+    gold.overwrite(table([]), snapshot_properties={"source-silver-snapshot-id": "11"})
+    gold.overwrite(table([]), snapshot_properties={"source-silver-snapshot-id": "22"})
+
+    assert gold.current_snapshot().snapshot_id == 2
+    assert len(gold.snapshot_properties) == 2
+    assert gold.snapshot_properties[-1] == {"source-silver-snapshot-id": "22"}
+
+
+def test_fake_table_current_snapshot_ignores_older_provenance() -> None:
+    """A bare newer snapshot must hide an older property-bearing one.
+
+    This is the fixture the "read provenance from current_snapshot() only" rule
+    needs: a Trino maintenance rewrite can leave a newer snapshot with no
+    provenance property, and trusting an older one would silently certify Gold
+    against a Silver snapshot that no longer produced it.
+    """
+
+    gold = FakeTable()
+    gold.add_snapshot(**{"source-silver-snapshot-id": "11"})
+    gold.add_snapshot()
+
+    assert gold.current_snapshot().summary.additional_properties == {}
