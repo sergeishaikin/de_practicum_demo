@@ -44,6 +44,23 @@ def test_shadow_comparison_is_order_and_transport_independent() -> None:
     ]
 
 
+def test_every_silver_column_is_classified_for_shadow_comparison() -> None:
+    """Every Silver column is either business state or declared transport.
+
+    `compare_business_state` iterates `SHADOW_BUSINESS_COLUMNS` and ignores
+    everything else, so a column added to `SILVER_SCHEMA` and registered in
+    neither tuple would silently drop out of business-state equality instead of
+    failing. This pins the classification as a total, disjoint partition.
+    """
+
+    silver_columns = {field.name for field in m.SILVER_SCHEMA.fields} - {"order_id"}
+    business = set(m.SHADOW_BUSINESS_COLUMNS)
+    excluded = set(m.SHADOW_EXCLUDED_COLUMNS)
+
+    assert silver_columns == business | excluded
+    assert not business & excluded
+
+
 def test_shadow_duplicate_resolution_is_independent_of_physical_row_order() -> None:
     first = table([row("a", 2, amount=20), row("a", 1, amount=10)])
     second = table([row("a", 1, amount=10), row("a", 2, amount=20)])
