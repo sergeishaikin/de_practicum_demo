@@ -73,6 +73,12 @@ SIMULATE_B2_CRASH_AFTER_COMMIT = os.getenv("SIMULATE_B2_CRASH_AFTER_COMMIT", "0"
 SILVER_WORK_ID_KEY = "silver-work-id"
 PROGRESS_VERSION = 1
 
+# The first token of the one stdout line a completed cycle prints.  It is the
+# integration harness's liveness signal, so the line's shape is a contract, not
+# a log message: see `CycleOutcome` for the vocabulary and
+# `tests/support/medallion_harness.py:parse_cycle_marker` for the reader.
+CYCLE_COMPLETE_MARKER = "cycle-complete"
+
 RUNTIME_CONFIG = {
     "SILVER_MODE": SILVER_MODE,
     "GOLD_SOURCE": GOLD_SOURCE,
@@ -865,6 +871,36 @@ class BronzeBoundary:
     snapshot_id: int | None
 
 
+@dataclass(frozen=True)
+class CycleOutcome:
+    """What one *completed* cycle decided, rendered as the stdout marker.
+
+    Only a cycle that ran to the end produces one.  A cycle that returned early
+    (no Bronze table) or aborted (a shadow mismatch, a fatal quality violation)
+    returns ``None`` and stays silent, because "no marker" is precisely how the
+    integration harness learns that a deployment did not complete.
+
+    The vocabulary is fixed here for the rest of the phase, since
+    ``tests/support/medallion_harness.py`` parses the rendered line:
+
+    * ``gold`` — ``"rebuilt"`` when Gold was overwritten, ``"skipped"`` when the
+      cycle decided Gold was already current.  Only ``"rebuilt"`` is reachable
+      until GLD-01 lands the skip.
+    * ``shadow`` — ``"compared"`` when the two Silver projections were checked,
+      ``"skipped"`` when the comparison was deliberately not run for this cycle,
+      ``"disabled"`` when ``SHADOW_COMPARE`` is off.  ``"skipped"`` is not yet
+      reachable.
+
+    ``duration_ms`` is the same number the ``cycle`` metrics record carries, so
+    a log line and a metrics row about the same cycle never disagree.
+    """
+
+    cycle_id: str
+    gold: str
+    shadow: str
+    duration_ms: int
+
+
 def _shadow_value(value):
     if value is None:
         return ("null",)
@@ -1091,16 +1127,19 @@ def _read_persisted_silver(catalog: RestCatalog) -> tuple[pa.Table, int | None]:
 
 def _run_legacy(
     catalog: RestCatalog, metrics: Metrics, *, cycle_id: str | None = None
-) -> None:
+) -> CycleOutcome | None:
     cycle_id = cycle_id or uuid.uuid4().hex
     cycle = _legacy_silver_cycle(catalog, metrics, cycle_id=cycle_id)
     if cycle is None:
-        return
+        # No Bronze, or a fatal quality violation: no cycle completed, so the
+        # caller must not announce one.
+        return None
 
     gold_started = time.monotonic()
     gold_df = build_gold(cycle["silver_df"])
     gold_snapshot_id = _write_gold(catalog, gold_df)
     ended = time.monotonic()
+    duration_ms = int((ended - cycle["started"]) * 1000)
 
     # The legacy path is one undivided phase: it emits exactly one record, and
     # `silver_duration_ms` / `gold_duration_ms` keep today's inclusive meaning.
@@ -1114,10 +1153,18 @@ def _run_legacy(
         gold_rows=gold_df.num_rows,
         duplicates_removed=(cycle["bronze_df"].num_rows - cycle["silver_df"].num_rows),
         quality_violations=cycle["violations_total"],
-        duration_ms=int((ended - cycle["started"]) * 1000),
+        duration_ms=duration_ms,
         silver_duration_ms=int((gold_started - cycle["started"]) * 1000),
         gold_duration_ms=int((ended - gold_started) * 1000),
         gold_snapshot_id=gold_snapshot_id,
+    )
+    # The legacy rollout state is (legacy, legacy, SHADOW_COMPARE=0), so this
+    # path never compares projections and always overwrites Gold.
+    return CycleOutcome(
+        cycle_id=cycle_id,
+        gold="rebuilt",
+        shadow="disabled",
+        duration_ms=duration_ms,
     )
 
 
@@ -1128,7 +1175,7 @@ def _run_m4(
     *,
     cycle_id: str | None = None,
     fs: S3FileSystem | None = None,
-) -> None:
+) -> CycleOutcome | None:
     if GOLD_SOURCE not in {"legacy", "persisted_silver"}:
         raise ValueError(f"Unsupported GOLD_SOURCE: {GOLD_SOURCE}")
 
@@ -1159,7 +1206,8 @@ def _run_m4(
     else:
         cycle = _legacy_silver_cycle(catalog, metrics, cycle_id=cycle_id)
         if cycle is None:
-            return
+            # No cycle completed, so no marker: see `CycleOutcome`.
+            return None
         bronze_df = cycle["bronze_df"]
         legacy_silver_df = cycle["silver_df"]
         violations_total = cycle["violations_total"]
@@ -1191,6 +1239,10 @@ def _run_m4(
                 silver_snapshot_id=silver_snapshot_id,
                 duration_ms=int((time.monotonic() - started) * 1000),
             )
+            # This raise leaves `run()` without a `CycleOutcome`, so no
+            # cycle-complete marker is printed.  That is the contract, not an
+            # oversight: the integration harness reads the absence of a marker
+            # as "this deployment did not complete a cycle".
             raise ValueError(f"Shadow comparison failed: {diagnostic}")
 
     gold_started = time.monotonic()
@@ -1230,6 +1282,7 @@ def _run_m4(
     gold_snapshot_id = _write_gold(catalog, gold_df)
     ended = time.monotonic()
     gold_duration_ms = int((ended - gold_started) * 1000)
+    cycle_duration_ms = int((ended - started) * 1000)
 
     metrics.record(
         source="medallion",
@@ -1258,7 +1311,7 @@ def _run_m4(
             else None
         ),
         quality_violations=violations_total,
-        duration_ms=int((ended - started) * 1000),
+        duration_ms=cycle_duration_ms,
         shadow_comparisons=int(SHADOW_COMPARE_ENABLED),
         shadow_mismatches=0,
         silver_duration_ms=int((gold_started - started) * 1000),
@@ -1281,6 +1334,13 @@ def _run_m4(
         snapshot_delta=outcome.snapshot_delta if outcome else 0,
     )
 
+    return CycleOutcome(
+        cycle_id=cycle_id,
+        gold="rebuilt",
+        shadow="compared" if SHADOW_COMPARE_ENABLED else "disabled",
+        duration_ms=cycle_duration_ms,
+    )
+
 
 def run(
     catalog: RestCatalog,
@@ -1292,15 +1352,28 @@ def run(
 ) -> None:
     selected_mode = (mode or SILVER_MODE).lower()
     cycle_id = cycle_id or uuid.uuid4().hex
-    if selected_mode == "b2":
-        _run_m4(catalog, metrics, selected_mode, cycle_id=cycle_id, fs=fs)
-        return
-    if selected_mode != "legacy":
+    if selected_mode not in {"b2", "legacy"}:
         raise ValueError(f"Unsupported SILVER_MODE: {selected_mode}")
-    if GOLD_SOURCE == "legacy" and not SHADOW_COMPARE_ENABLED:
-        _run_legacy(catalog, metrics, cycle_id=cycle_id)
+    if (
+        selected_mode == "legacy"
+        and GOLD_SOURCE == "legacy"
+        and not SHADOW_COMPARE_ENABLED
+    ):
+        cycle = _run_legacy(catalog, metrics, cycle_id=cycle_id)
     else:
-        _run_m4(catalog, metrics, selected_mode, cycle_id=cycle_id, fs=fs)
+        cycle = _run_m4(catalog, metrics, selected_mode, cycle_id=cycle_id, fs=fs)
+
+    if cycle is None:
+        # An early return or an abort. Staying silent is the signal.
+        return
+    # The one site that emits the liveness marker.  stdout, unconditional and
+    # flushed: a liveness signal that can be switched off, buffered away or
+    # mixed into stderr diagnostics is not a liveness signal.
+    print(
+        f"{CYCLE_COMPLETE_MARKER} cycle_id={cycle.cycle_id} gold={cycle.gold} "
+        f"shadow={cycle.shadow} duration_ms={cycle.duration_ms}",
+        flush=True,
+    )
 
 
 def main() -> None:

@@ -365,3 +365,131 @@ class TestCatalogAndMain:
             m.main()
         assert calls["n"] == 2
         assert "Medallion error: boom" in capsys.readouterr().err
+
+
+def marker_lines(captured: str) -> list[str]:
+    """Every stdout line the cycle-complete marker owns."""
+
+    return [
+        line
+        for line in captured.splitlines()
+        if line.startswith(m.CYCLE_COMPLETE_MARKER)
+    ]
+
+
+def b2_lake(monkeypatch, *, gold_source: str = "legacy", shadow: bool = True):
+    """A b2 deployment whose persisted Silver agrees with the legacy rebuild.
+
+    Shadow comparison is fail-closed, so a cycle only completes when the two
+    projections match; deriving persisted Silver from the same Bronze is the
+    cheapest way to say "this deployment is healthy".
+    """
+
+    bronze_df = bronze_table([("a", "c1", 10.0, "US", "paid", 0, 1, 1)])
+    catalog = FakeCatalog(
+        {
+            "bronze.orders": FakeTable(bronze_df),
+            "silver.orders_clean": FakeTable(m.build_silver(bronze_df)),
+            "gold.orders_daily_metrics": FakeTable(),
+        }
+    )
+    monkeypatch.setattr(m, "run_b2", lambda *args, **kwargs: None)
+    monkeypatch.setattr(m, "GOLD_SOURCE", gold_source)
+    monkeypatch.setattr(m, "SHADOW_COMPARE_ENABLED", shadow)
+    return catalog, FakeMetrics()
+
+
+class TestCycleCompleteMarker:
+    """The per-cycle stdout line the integration harness reads as liveness.
+
+    The format is fixed here for the rest of the phase: a deployment that
+    completed a cycle says so exactly once, and one that did not says nothing.
+    """
+
+    def test_marker_token_is_stable(self) -> None:
+        assert m.CYCLE_COMPLETE_MARKER == "cycle-complete"
+
+    def test_completed_b2_cycle_announces_itself_once(
+        self, monkeypatch, capsys
+    ) -> None:
+        catalog, metrics = b2_lake(monkeypatch)
+
+        m.run(catalog, metrics, "b2")
+
+        lines = marker_lines(capsys.readouterr().out)
+        assert len(lines) == 1
+        fields = lines[0].split()
+        assert fields[0] == m.CYCLE_COMPLETE_MARKER
+        assert [field.split("=", 1)[0] for field in fields[1:]] == [
+            "cycle_id",
+            "gold",
+            "shadow",
+            "duration_ms",
+        ]
+        values = dict(field.split("=", 1) for field in fields[1:])
+        assert values["cycle_id"] == metrics.cycle()["cycle_id"]
+        assert values["gold"] == "rebuilt"
+        assert values["shadow"] == "compared"
+
+    def test_marker_duration_is_the_cycle_records_duration(
+        self, monkeypatch, capsys
+    ) -> None:
+        catalog, metrics = b2_lake(monkeypatch)
+
+        m.run(catalog, metrics, "b2")
+
+        values = dict(
+            field.split("=", 1)
+            for field in marker_lines(capsys.readouterr().out)[0].split()[1:]
+        )
+        assert int(values["duration_ms"]) == metrics.cycle()["duration_ms"]
+
+    def test_shadow_disabled_is_reported_as_disabled(self, monkeypatch, capsys) -> None:
+        catalog, metrics = b2_lake(monkeypatch, shadow=False)
+
+        m.run(catalog, metrics, "b2")
+
+        values = dict(
+            field.split("=", 1)
+            for field in marker_lines(capsys.readouterr().out)[0].split()[1:]
+        )
+        assert values["shadow"] == "disabled"
+
+    def test_completed_legacy_cycle_reports_a_rebuild_without_shadow(
+        self, capsys
+    ) -> None:
+        catalog = FakeCatalog(
+            {
+                "bronze.orders": FakeTable(
+                    bronze_table([("a", "c1", 10.0, "US", "paid", 0, 1)])
+                )
+            }
+        )
+        metrics = FakeMetrics()
+
+        m.run(catalog, metrics)
+
+        values = dict(
+            field.split("=", 1)
+            for field in marker_lines(capsys.readouterr().out)[0].split()[1:]
+        )
+        assert values["gold"] == "rebuilt"
+        assert values["shadow"] == "disabled"
+        assert values["cycle_id"] == metrics.cycle()["cycle_id"]
+        assert int(values["duration_ms"]) == metrics.cycle()["duration_ms"]
+
+    def test_shadow_mismatch_prints_no_marker(self, monkeypatch, capsys) -> None:
+        catalog, metrics = b2_lake(monkeypatch)
+        catalog.tables["silver.orders_clean"].df = m.build_silver(
+            bronze_table([("a", "c1", 99.0, "US", "paid", 0, 1, 1)])
+        )
+
+        with pytest.raises(ValueError, match="Shadow comparison failed"):
+            m.run(catalog, metrics, "b2")
+
+        assert marker_lines(capsys.readouterr().out) == []
+
+    def test_absent_bronze_prints_no_marker(self, capsys) -> None:
+        m.run(FakeCatalog({}), FakeMetrics())
+
+        assert marker_lines(capsys.readouterr().out) == []
