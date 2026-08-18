@@ -1065,5 +1065,3 @@ No ASVS L1 blocker identified for this phase.
 
 **Research date:** 2026-08-17
 **Valid until:** 2026-09-16 (30 days). All findings are grounded in pinned versions and repository source; they go stale only when this repository changes. Re-verify §4e and §4f if any test under `tests/features/` or `tests/support/` is modified before planning.
-</content>
-</invoke>
