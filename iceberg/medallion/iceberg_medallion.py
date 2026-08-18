@@ -71,6 +71,11 @@ SIMULATE_B2_CRASH_BEFORE_COMMIT = (
 SIMULATE_B2_CRASH_AFTER_COMMIT = os.getenv("SIMULATE_B2_CRASH_AFTER_COMMIT", "0") == "1"
 
 SILVER_WORK_ID_KEY = "silver-work-id"
+# Stamped on every Gold commit that was built from persisted Silver: the
+# identity of the Silver snapshot that produced the Gold state.  Same idiom as
+# `SILVER_WORK_ID_KEY` and the writer's `load-id` -- the catalog carries the
+# provenance, so no sidecar file can disagree with the table.
+GOLD_SOURCE_SILVER_SNAPSHOT_KEY = "source-silver-snapshot-id"
 PROGRESS_VERSION = 1
 
 # The first token of the one stdout line a completed cycle prints.  It is the
@@ -884,8 +889,9 @@ class CycleOutcome:
     ``tests/support/medallion_harness.py`` parses the rendered line:
 
     * ``gold`` — ``"rebuilt"`` when Gold was overwritten, ``"skipped"`` when the
-      cycle decided Gold was already current.  Only ``"rebuilt"`` is reachable
-      until GLD-01 lands the skip.
+      cycle decided Gold was already current.  Both are reachable since GLD-01:
+      ``"skipped"`` means the current Gold snapshot already records the persisted
+      Silver snapshot this cycle would have rebuilt Gold from.
     * ``shadow`` — ``"compared"`` when the two Silver projections were checked,
       ``"skipped"`` when the comparison was deliberately not run for this cycle,
       ``"disabled"`` when ``SHADOW_COMPARE`` is off.  ``"skipped"`` is not yet
@@ -1107,16 +1113,97 @@ def _legacy_silver_cycle(
     }
 
 
-def _write_gold(catalog: RestCatalog, gold_df: pa.Table) -> int | None:
+def _gold_provenance(gold) -> int | None:
+    """Return the persisted Silver snapshot id the **current** Gold state records.
+
+    Read from ``gold.current_snapshot()`` and from nothing else.  Walking the
+    table's whole snapshot history for the most recent property-bearing snapshot
+    would be fail-open: an expired or superseded snapshot could vouch for a Gold state that
+    something else has since replaced.  Trino maintenance is exactly that case --
+    ``dags/lakehouse_maintenance.py`` lists ``("gold", "orders_daily_metrics")`` in
+    ``MAINTENANCE_TABLES``, and ``optimize`` / ``expire_snapshots`` rewrite Gold's
+    files while knowing nothing about this property.  Reading only the current
+    snapshot makes such a rewrite invalidate provenance automatically: it reads as
+    absent and the medallion rebuilds Gold once.  That is the security-relevant
+    property of this change.
+
+    ``None`` means "cannot certify", and is returned for a table with no current
+    snapshot, a snapshot without the property, and a property whose value does not
+    parse as an integer.  Snapshot-property values are strings written by whoever
+    last committed, so they are parsed defensively rather than trusted.
+    """
+
+    current_snapshot = getattr(gold, "current_snapshot", None)
+    if not callable(current_snapshot):
+        return None
+    snapshot = current_snapshot()
+    if snapshot is None:
+        return None
+    summary = getattr(snapshot, "summary", None)
+    properties = getattr(summary, "additional_properties", None) or {}
+    raw = properties.get(GOLD_SOURCE_SILVER_SNAPSHOT_KEY)
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _write_gold(
+    catalog: RestCatalog,
+    gold_df: pa.Table,
+    *,
+    source_silver_snapshot_id: int | None,
+) -> tuple[bool, int | None]:
+    """Rebuild Gold unless the current Gold state was already built from this Silver.
+
+    Returns ``(written, gold_snapshot_id)``.  This is memoization, not
+    incrementalisation: when the write happens it is the same full, exactly
+    verifiable rebuild D-4 requires.  What is elided is a rebuild whose result is
+    provably identical to the Gold state already in the catalog.
+
+    ``source_silver_snapshot_id`` is the whole mode switch, which is why nothing in
+    here branches on ``GOLD_SOURCE``.  A caller with no persisted-Silver basis --
+    the legacy Gold source, whose input is an in-memory rebuild derived from Bronze
+    -- passes ``None``, and therefore always writes and never stamps.  ``None``
+    also never matches ``_gold_provenance``: ``None == None`` must not certify Gold
+    against an empty lake.
+    """
+
     gold_id = f"{GOLD_NAMESPACE}.{GOLD_TABLE}"
     ensure_table(catalog, gold_id, GOLD_SCHEMA, PartitionSpec())
     gold = catalog.load_table(gold_id)
-    gold.overwrite(gold_df)
+
+    if (
+        source_silver_snapshot_id is not None
+        and source_silver_snapshot_id == _gold_provenance(gold)
+    ):
+        # Deliberately no "stamp-only" empty overwrite to refresh provenance: a
+        # full overwrite's APPEND half is not elided for an empty frame, so it
+        # would write a snapshot anyway -- defeating the skip and growing the
+        # history the maintenance DAG then has to compact.
+        print(
+            f"Gold {gold_id}: already built from persisted Silver snapshot "
+            f"{source_silver_snapshot_id}; rebuild skipped",
+            flush=True,
+        )
+        return False, _snapshot_id(gold)
+
+    if source_silver_snapshot_id is None:
+        gold.overwrite(gold_df)
+    else:
+        gold.overwrite(
+            gold_df,
+            snapshot_properties={
+                GOLD_SOURCE_SILVER_SNAPSHOT_KEY: str(source_silver_snapshot_id)
+            },
+        )
     print(
         f"Gold {gold_id}: overwritten with {gold_df.num_rows} daily metrics",
         flush=True,
     )
-    return _snapshot_id(gold)
+    return True, _snapshot_id(gold)
 
 
 def _read_persisted_silver(catalog: RestCatalog) -> tuple[pa.Table, int | None]:
@@ -1137,7 +1224,12 @@ def _run_legacy(
 
     gold_started = time.monotonic()
     gold_df = build_gold(cycle["silver_df"])
-    gold_snapshot_id = _write_gold(catalog, gold_df)
+    # The legacy Gold input is the in-memory rebuild derived from Bronze, not
+    # persisted Silver, so a persisted-Silver provenance stamp would not describe
+    # it: this path passes no basis, always writes and never stamps.
+    gold_written, gold_snapshot_id = _write_gold(
+        catalog, gold_df, source_silver_snapshot_id=None
+    )
     ended = time.monotonic()
     duration_ms = int((ended - cycle["started"]) * 1000)
 
@@ -1157,12 +1249,15 @@ def _run_legacy(
         silver_duration_ms=int((gold_started - cycle["started"]) * 1000),
         gold_duration_ms=int((ended - gold_started) * 1000),
         gold_snapshot_id=gold_snapshot_id,
+        gold_skipped=not gold_written,
     )
     # The legacy rollout state is (legacy, legacy, SHADOW_COMPARE=0), so this
-    # path never compares projections and always overwrites Gold.
+    # path never compares projections and always overwrites Gold.  What
+    # `_write_gold` did is reported rather than asserted, so the marker can never
+    # claim a rebuild the write path did not perform.
     return CycleOutcome(
         cycle_id=cycle_id,
-        gold="rebuilt",
+        gold="rebuilt" if gold_written else "skipped",
         shadow="disabled",
         duration_ms=duration_ms,
     )
@@ -1279,7 +1374,17 @@ def _run_m4(
         gold_input = persisted_silver_df
 
     gold_df = build_gold(gold_input)
-    gold_snapshot_id = _write_gold(catalog, gold_df)
+    # Only the persisted-Silver Gold source has a persisted-Silver basis to
+    # certify against.  Under GOLD_SOURCE=legacy the Gold input is the in-memory
+    # legacy rebuild, so no basis is passed and Gold is written every cycle
+    # exactly as before.
+    gold_written, gold_snapshot_id = _write_gold(
+        catalog,
+        gold_df,
+        source_silver_snapshot_id=(
+            silver_snapshot_id if GOLD_SOURCE == "persisted_silver" else None
+        ),
+    )
     ended = time.monotonic()
     gold_duration_ms = int((ended - gold_started) * 1000)
     cycle_duration_ms = int((ended - started) * 1000)
@@ -1292,6 +1397,7 @@ def _run_m4(
         gold_rows=gold_df.num_rows,
         silver_snapshot_id=silver_snapshot_id,
         gold_snapshot_id=gold_snapshot_id,
+        gold_skipped=not gold_written,
         duration_ms=gold_duration_ms,
     )
 
@@ -1319,6 +1425,7 @@ def _run_m4(
         bronze_snapshot_id=bronze_snapshot_id,
         silver_snapshot_id=silver_snapshot_id,
         gold_snapshot_id=gold_snapshot_id,
+        gold_skipped=not gold_written,
         keys_processed=outcome.keys_processed if outcome else 0,
         lower_versions_ignored=outcome.lower_versions_ignored if outcome else 0,
         ff14_conflicts=outcome.ff14_conflicts if outcome else 0,
@@ -1336,7 +1443,7 @@ def _run_m4(
 
     return CycleOutcome(
         cycle_id=cycle_id,
-        gold="rebuilt",
+        gold="rebuilt" if gold_written else "skipped",
         shadow="compared" if SHADOW_COMPARE_ENABLED else "disabled",
         duration_ms=cycle_duration_ms,
     )
