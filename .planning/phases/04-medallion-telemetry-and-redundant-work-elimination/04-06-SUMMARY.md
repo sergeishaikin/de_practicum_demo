@@ -385,3 +385,39 @@ store is touched at all.
 
 All eight modified files and this SUMMARY exist on disk; all three task commits (`7053ce4`,
 `bd0b071`, `17317c1`) are present in `git log`.
+
+## Addendum — 2026-08-18 stabilization
+
+Two defects were found in review after this plan closed, and both are fixed in
+commits that carry the `04-06` scope rather than a new plan number.
+
+**The certificate could go stale inside the cycle.** `shadow_certified` was
+decided from Bronze and Silver metadata read before `run_b2`, and nothing
+rechecked it afterwards. That decision has to happen there — it gates the Bronze
+pin, and the pin must precede the writer — but Bronze is appended by a separate
+live process and B2 itself moves Silver, so the certified pair could stop
+describing the state Gold was then published from. With the fast path having
+skipped the pin, no legacy projection existed either, so a cycle could publish
+Gold with no comparison at all on the strength of a certificate about superseded
+state. That contradicts the SHD-01 contract this plan states: a Bronze or Silver
+change must force revalidation.
+
+`81b7635` keeps the early `_silver_snapshot_id` read — the deviation recorded
+above is the right resolution of the plan's internal contradiction — and adds a
+post-writer revalidation of both ids, table metadata only, deliberately not a
+second Bronze boundary. Stale under `GOLD_SOURCE=legacy` downgrades to the real
+comparison, because the pin happened anyway. Stale on the cutover fast path
+fails closed before Gold: no `CycleOutcome`, therefore no cycle-complete marker,
+and the next cycle pins and revalidates from scratch. Proved RED first — against
+the unfixed medallion the parametrised test fails by printing the defect itself,
+`cycle-complete ... gold=rebuilt shadow=skipped`.
+
+**The M4 integration test wrote a shared certificate.** It never set
+`MEDALLION_SHADOW_RECEIPT_PATH`, so its medallion subprocesses used the canonical
+key while the test declared an isolated namespace. `b891026` gives it a per-run
+path under `m4/<run_id>/`, which the existing `delete_dir` cleanup already
+removes. A false skip was never the risk — a foreign namespace's snapshot ids
+cannot match — so this is about ownership, not correctness.
+
+Both fixes carry the full gate: ruff and black green, 392 passed / 63 deselected
+(389 at the close of this plan).
