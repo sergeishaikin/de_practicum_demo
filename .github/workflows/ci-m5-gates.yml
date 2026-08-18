@@ -9,6 +9,7 @@ on:
       - "tests/support/**"
       - "tests/integration/test_m3_b2_recovery.py"
       - "tests/integration/test_m4_gold_cutover.py"
+      - "docker-compose.yml"
       - "docker-compose.extended.yml"
       - ".github/workflows/ci-m5-gates.yml"
   workflow_dispatch:
@@ -37,8 +38,7 @@ jobs:
           sed -i 's/^MINIO_ROOT_PASSWORD=.*/MINIO_ROOT_PASSWORD=minio123/' .env
       - name: Start minimal Iceberg stack
         run: |
-          docker network create de_demo_net || true
-          docker compose --env-file .env -f docker-compose.extended.yml up -d minio iceberg-rest
+          docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml up -d minio iceberg-rest
           for i in $(seq 1 36); do
             if curl -fsS http://localhost:18181/v1/config >/dev/null 2>&1; then
               break
@@ -57,4 +57,8 @@ jobs:
         run: uv run --locked pytest -q tests/features -m "bdd and integration"
       - name: Cleanup
         if: always()
-        run: docker compose -f docker-compose.extended.yml down --remove-orphans || true
+        run: >
+          docker compose --env-file .env
+          -f docker-compose.yml
+          -f docker-compose.extended.yml
+          down --remove-orphans || true
