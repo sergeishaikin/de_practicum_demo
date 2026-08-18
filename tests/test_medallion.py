@@ -7,6 +7,7 @@ import pytest
 
 from medallion import iceberg_medallion as m
 from tests.support.fakes import FakeCatalog, FakeMetrics, FakeTable
+from tests.support import medallion_harness as h
 
 TS = datetime(2026, 1, 1, 12, 0, 0)
 EVENT_DATE = date(2026, 1, 1)
@@ -493,3 +494,148 @@ class TestCycleCompleteMarker:
         m.run(FakeCatalog({}), FakeMetrics())
 
         assert marker_lines(capsys.readouterr().out) == []
+
+
+class FakeProcess:
+    """The slice of ``subprocess.Popen`` a ``CycleWatcher`` actually touches.
+
+    Streams are plain iterables of lines, which is what the watcher's drain
+    loop consumes from a real text-mode pipe as well. `returncode` of ``None``
+    means "still running", matching ``Popen.poll``.
+    """
+
+    def __init__(
+        self,
+        stdout: list[str],
+        stderr: list[str] | None = None,
+        returncode: int | None = None,
+    ) -> None:
+        self.stdout = list(stdout)
+        self.stderr = list(stderr or [])
+        self._returncode = returncode
+
+    def poll(self) -> int | None:
+        return self._returncode
+
+
+def cycle_line(**overrides: str) -> str:
+    fields = {
+        "cycle_id": "ab12",
+        "gold": "rebuilt",
+        "shadow": "compared",
+        "duration_ms": "1234",
+    }
+    fields.update(overrides)
+    return (
+        f"{m.CYCLE_COMPLETE_MARKER} "
+        + " ".join(f"{key}={value}" for key, value in fields.items())
+        + "\n"
+    )
+
+
+class TestParseCycleMarker:
+    """The harness's reader for the marker `run()` prints.
+
+    These prove the parsing contract without a stack. What they deliberately do
+    *not* prove is that a real medallion subprocess emits the marker down a real
+    pipe — that is the live layer's job, and `ci-m5-gates.yml` runs it on the PR.
+    """
+
+    def test_well_formed_line_yields_every_field(self) -> None:
+        assert h.parse_cycle_marker(
+            "cycle-complete cycle_id=ab12 gold=rebuilt "
+            "shadow=compared duration_ms=1234"
+        ) == {
+            "cycle_id": "ab12",
+            "gold": "rebuilt",
+            "shadow": "compared",
+            "duration_ms": 1234,
+        }
+
+    def test_duration_is_coerced_to_an_int(self) -> None:
+        assert h.parse_cycle_marker(cycle_line(duration_ms="0"))["duration_ms"] == 0
+
+    @pytest.mark.parametrize(
+        ("line", "why"),
+        [
+            ("", "an empty line"),
+            ("\n", "a blank line"),
+            ("Gold gold.orders: overwritten with 2 daily metrics", "an ordinary log"),
+            (
+                "Medallion error: cycle-complete cycle_id=ab12 gold=rebuilt "
+                "shadow=compared duration_ms=1234",
+                "a line that only quotes the marker",
+            ),
+            (
+                "cycle-complete cycle_id=ab12 gold rebuilt "
+                "shadow=compared duration_ms=1234",
+                "a field with no value",
+            ),
+            (
+                "cycle-complete cycle_id=ab12 gold=rebuilt shadow=compared",
+                "a missing field",
+            ),
+            (
+                "cycle-complete cycle_id=ab12 gold=rebuilt "
+                "shadow=compared duration_ms=fast",
+                "a non-integer duration",
+            ),
+            (
+                "cycle-complete cycle_id=ab12 gold=rebuilt shadow=compared "
+                "duration_ms=1234 extra=1",
+                "an unknown field",
+            ),
+        ],
+    )
+    def test_anything_else_is_not_a_marker(self, line: str, why: str) -> None:
+        assert h.parse_cycle_marker(line) is None, why
+
+
+class TestCycleWatcher:
+    def test_returns_the_announced_cycle(self) -> None:
+        watcher = h.CycleWatcher(FakeProcess([cycle_line()]))
+        try:
+            assert watcher.wait_for_cycle_complete(timeout=5) == {
+                "cycle_id": "ab12",
+                "gold": "rebuilt",
+                "shadow": "compared",
+                "duration_ms": 1234,
+            }
+        finally:
+            watcher.close()
+
+    def test_silence_raises_with_both_pipes_quoted(self) -> None:
+        watcher = h.CycleWatcher(
+            FakeProcess(
+                ["Bronze table not available yet; skipping cycle\n"],
+                stderr=["Medallion error: boom\n"],
+            )
+        )
+        try:
+            with pytest.raises(AssertionError) as failure:
+                watcher.wait_for_cycle_complete(timeout=0.2)
+        finally:
+            watcher.close()
+        message = str(failure.value)
+        assert "Bronze table not available yet" in message
+        assert "Medallion error: boom" in message
+
+    def test_a_non_matching_decision_does_not_satisfy_the_wait(self) -> None:
+        watcher = h.CycleWatcher(
+            FakeProcess([cycle_line(), cycle_line(cycle_id="cd34", gold="skipped")])
+        )
+        try:
+            marker = watcher.wait_for_cycle_complete(timeout=5, gold="skipped")
+        finally:
+            watcher.close()
+        assert marker["cycle_id"] == "cd34"
+
+    def test_a_dead_deployment_fails_without_waiting_out_the_timeout(self) -> None:
+        watcher = h.CycleWatcher(
+            FakeProcess([], stderr=["Unsupported rollout state\n"], returncode=1)
+        )
+        try:
+            with pytest.raises(AssertionError, match="exited with 1"):
+                watcher.wait_for_cycle_complete(timeout=30)
+        finally:
+            watcher.close()
