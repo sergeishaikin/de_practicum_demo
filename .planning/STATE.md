@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 4 EXECUTING - 04-01 and 04-02 complete and summarized; 04-03 is next. Phase 1 01-07 (DEC-01) remains live and unexecuted.
+stopped_at: Phase 4 EXECUTING - 04-01, 04-02 and 04-03 complete and summarized; 04-04 is next. Phase 1 01-07 (DEC-01) remains live and unexecuted.
 last_updated: "2026-08-18T00:00:00.000Z"
-last_activity: 2026-08-18 -- Backfilled 04-01/04-02 summaries; bookkeeping repaired
+last_activity: 2026-08-18 -- Executed 04-03 (cycle telemetry); closed and summarized
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 28
-  completed_plans: 19
-  percent: 68
+  completed_plans: 20
+  percent: 71
 ---
 
 # Project State
@@ -21,18 +21,18 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-08-09)
 
 **Core value:** Business-key current state must remain correct and recoverable while the pipeline processes only committed incremental work.
-**Current focus:** Phase 4 — Medallion Telemetry and Redundant Work Elimination (executing, 2 of 10 plans)
+**Current focus:** Phase 4 — Medallion Telemetry and Redundant Work Elimination (executing, 3 of 10 plans)
 
 ## Current Position
 
 Phase: 4 (Medallion Telemetry and Redundant Work Elimination) — EXECUTING
 Previous: Phase 3 (Staging Source Freshness Gate) — COMPLETE
-Plan: 2 of 10 executed (04-01 wave 1, 04-02 wave 2); 04-03 is next
+Plan: 3 of 10 executed (04-01 wave 1, 04-02 wave 2, 04-03 wave 3); 04-04 is next
 Status: EXECUTING. Ten plans across eight waves. Wave 4 must land the harness liveness signal BEFORE wave 5 deletes the every-cycle-Gold invariant, or ci-m5-gates hangs. 04-09 (BENCH-01) is not autonomous and needs authorised mutation of the canonical dwh.
 Previous phase: Phase 3 COMPLETE - warehouse-dbt-contract green, fresh PASS / stale ERROR STALE exit exactly 1, 8/8 mutations killed. PR sergeishaikin#1.
-Last activity: 2026-08-18 -- Backfilled 04-01/04-02 summaries; bookkeeping repaired
+Last activity: 2026-08-18 -- Executed 04-03 (cycle telemetry); closed and summarized
 
-Progress: ██░░░░░░░░ 20% of Phase 4 (2 of 10 plans executed)
+Progress: ███░░░░░░░ 30% of Phase 4 (3 of 10 plans executed)
 
 **Open work outside Phase 4:** Phase 1 `01-07-PLAN.md` (DEC-01 rollout decision)
 is authorized and still unexecuted. Phase 4 did **not** absorb or supersede it —
@@ -89,6 +89,9 @@ will route to Phase 1 ahead of Phase 4.
 - [Phase 4]: Per-phase metric granularity lives in PostgreSQL only. Prometheus observation is guarded on `phase in (None, "cycle")`; no phase label, no new collector, no new metric name, so every Grafana target and alert expression keeps working unchanged.
 - [Phase 4]: `classify_metric_row` returns `"nested"` (not `"b2"`) for `status="failed"` rows, because that row could come from `run_b2` or from `_legacy_silver_cycle`, and asserting an unsupported origin would violate the requirement's own evidential-honesty premise.
 - [Phase 4]: 01-07 is NOT superseded by Phase 4. The DEC-01 gate must be executed and its outcome recorded, not declared by inference.
+- [Phase 4]: `silver_duration_ms` and `gold_duration_ms` stay populated only on the `cycle` row, keeping today's inclusive meaning. They are never reused for a phase-scoped value, so historical rows stay byte-for-byte interpretable.
+- [Phase 4]: `b2 + shadow + gold` is deliberately <= the cycle duration. The residual is the incremental writer's state-load preamble and is attributed to no phase; the subtraction carries a comment so a reader does not read it as an arithmetic bug.
+- [Phase 4]: The `-m bdd` gate named in 04-03 Task 2 is a plan defect — 23 of those tests also carry `integration`/`airflow` markers and need a live stack the plan is not authorised to start. The executed substitute is `-m "bdd and not integration and not airflow"`. 04-04 or 04-07 should restate it.
 
 ### Pending Todos
 
@@ -138,8 +141,12 @@ authorized.
 ## Session Continuity
 
 Last session: 2026-08-18
-Stopped at: Phase 4 wave 2 complete (04-01, 04-02). Bookkeeping repaired.
-Resume order: (1) execute 01-07 as its own DEC-01 closure, (2) return to Phase 4
-at 04-03, (3) preserve 04-04 before 04-05, (4) stop at 04-09 for the authorised
-canonical-`dwh` mutation checkpoint.
+Stopped at: Phase 4 wave 3 complete (04-01, 04-02, 04-03), each summarized.
+Resume order: (1) execute 01-07 as its own DEC-01 closure — still outstanding,
+Phase 1 remains 12/13; (2) return to Phase 4 at 04-04, which must land the harness
+liveness signal BEFORE 04-05 deletes the every-cycle-Gold invariant; (3) stop at
+04-09 for the authorised canonical-`dwh` mutation checkpoint.
+Note: an external watcher auto-committed with message `1` and switched the checkout
+to feat/SQLMesh twice during 04-03. History was rewritten to remove both; verify
+branch and HEAD before writing if it recurs.
 Resume file: None
