@@ -119,9 +119,26 @@ On telemetry: the double-count is worse than `marts.lakehouse_metrics` alone sug
 | Live Prometheus label set | Medallion in-process `_RuntimeMetrics` (`ops.py:226-333`) | Prometheus rules/Grafana JSON under `observability/` | Gauge/counter cardinality is decided at `observe()` time; dashboards and alerts must be updated in lockstep or they read the wrong series. |
 | Durable metric projection to Prometheus | `observability/postgres_exporter.py` | — | It is the only reader of the durable table for Prometheus and uses `distinct on (source)` — adding rows under the same `source` changes what "latest" means. |
 | Gold source provenance | Iceberg Gold table snapshot summary | — | Provenance must travel with the artifact it describes and survive an arbitrary process restart. Same idiom as `load-id` / `silver-work-id`. |
-| Shadow certification receipt | PostgreSQL `marts` (new table) | Iceberg snapshot properties (rejected — see §3) | The receipt is about a *relationship between two tables plus runtime config*; it belongs to neither table's snapshot history. Postgres has direct in-repo precedent (`marts.maintenance_runs`, `marts.pipeline_runs`). |
+| Shadow certification receipt | **MinIO object store, medallion-owned** (`MEDALLION_SHADOW_RECEIPT_PATH`) — *amended, see the note below this table* | ~~PostgreSQL `marts` (new table)~~ (superseded); Iceberg snapshot properties (rejected — see §3) | The receipt is about a *relationship between two tables plus runtime config*, so it belongs to neither table's snapshot history. This row originally assigned it to PostgreSQL on the `marts.maintenance_runs` / `marts.pipeline_runs` precedent; planning superseded that. |
 | Rollout state machine validation | `iceberg/common/cutover.py` | — | Unchanged this phase. P2 is analysis only. |
 | Integration-test liveness detection | `tests/support/medallion_harness.py` | `tests/features/test_gold_cutover.py` | Must stop using "a new Gold snapshot appeared" as the proof a cycle ran. |
+
+> **Amendment (planning, 2026-08-18) — shadow certification receipt tier.** Recorded as a
+> superseding amendment rather than a silent edit, in the same style as the ADR-0001 D-4
+> amendment this phase makes.
+>
+> The row above originally read *PostgreSQL `marts` (new table)*, per §3d. Planning
+> **resolved against that recommendation** and assigned the receipt to the medallion's own
+> MinIO state, alongside `progress.json` and the completion ledger. Decided in
+> `04-06-PLAN.md`; see Open Question 4 below for the full reasoning. In short:
+> `.github/workflows/ci-m5-gates.yml:41` starts only `minio iceberg-rest`, and
+> `tests/support/medallion_harness.py` sets `METRICS_ENABLED: "0"`, so a PostgreSQL receipt
+> would make SHD-01h and the fast path unreachable in the only integration gate this
+> repository has. The accepted cost is that the certificate itself is not SQL-queryable;
+> the *decision* it drives (`shadow_skipped`, `shadow_comparisons`) is still recorded on
+> the metric rows in PostgreSQL.
+>
+> §3b option A and §3d are historical as written and are superseded by this row.
 
 ---
 
@@ -971,31 +988,98 @@ No ASVS L1 blocker identified for this phase.
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+**All five questions below were decided before Phase 4 planning completed.** Each carries
+its resolution and the artifact that decided it. The question text is left as written so
+the reasoning that produced the decision stays auditable; where a decision went **against**
+this document's recommendation that is stated explicitly rather than left for a reader to
+notice.
 
 1. **Requirement-ID collision: `TEL-01` is already taken.**
    - What we know: `.planning/REQUIREMENTS.md:30` defines `TEL-01` as a **Phase 1** requirement, status **Complete** ("O1 captures representative B2 files planned, bytes planned, ..."), and `:76` maps it to Phase 1. `.planning/ROADMAP.md:207-210` lists Phase 4's requirements as `[TEL-01 cycle_id and phase separation, TEL-02 ..., SHD-01, GLD-01, POL-01, PRF-01]` — reusing `TEL-01` for a different requirement.
    - What is unclear: whether this is an intentional continuation or an accidental collision. Note also that **Phase 3's requirements were never added to `REQUIREMENTS.md`** (no `FRESH-*` IDs exist), so the file is already stale — the collision may simply have gone unnoticed.
    - Recommendation: the planner should rename the Phase-4 identity metric requirement (e.g. `CYC-01` / `TEL-03`) and register all six Phase-4 IDs plus the missing Phase-3 IDs in `REQUIREMENTS.md` and its traceability table. Do not silently overload a Complete requirement.
+   - **RESOLVED — adopted.** Decided in `04-CONTEXT.md:7-11`: the Phase-4 requirement
+     is `MTL-01`, and `MTL-02` replaces the proposed `TEL-02`. Registration of all
+     seven Phase-4 IDs in `.planning/REQUIREMENTS.md` and its traceability table is
+     planned as `04-07-PLAN.md` Task 2, which also records that Phase 3's IDs remain
+     absent rather than inventing them. `TEL-01`'s Phase-1 `Complete` row is left
+     untouched.
 
 2. **How should "the daily metrics are published again" be re-worded?**
    - What we know: `gold_cutover.feature:36` and `shadow_cutover.feature:66` both encode a Gold *write* as the observable. `test_shadow_cutover.py:219-224` asserts `overwrite_calls == before + 1`.
    - What is unclear: whether the operator wants the scenario to keep asserting a write (which would require an exception to GLD-01 on a Gold-source switch) or to assert *state correctness* instead.
    - Recommendation: reword to assert the state ("the daily metrics still reflect the current business state") and prove non-rewrite separately. But this is a **contract text change** to a ratified feature file — surface it for approval rather than deciding it in a plan.
+   - **RESOLVED — adopted, and narrowed.** The operator locked the reword in
+     `04-CONTEXT.md` §"Operator decisions taken at planning time (LOCKED)"; it is
+     planned as `04-05-PLAN.md` Task 3, covering `tests/features/shadow_cutover.feature:66`
+     and its step at `tests/features/test_shadow_cutover.py:219`.
+   - **Correction to this document:** the reference above to `gold_cutover.feature:36`
+     is **wrong**. Line 36 of that file is `Then the daily metrics are unchanged`,
+     which is already a state assertion. `gold_cutover.feature` is therefore pinned
+     byte-identical by `04-05-PLAN.md` and is not reworded.
+   - **Honesty note carried into the plan:** because GLD-01 is scoped to
+     `GOLD_SOURCE=persisted_silver` and this feature's in-memory Silver double has no
+     snapshots (so `_snapshot_id` returns `None` and Gold is never certified), the
+     original wording would have kept passing. The reword is a locked contract-clarity
+     change, not a repair of a break, and `04-05-PLAN.md` requires the summary to say so.
 
 3. **Prometheus: `phase` label, or cycle-only observation?**
    - What we know: both satisfy "dashboards must not double-count"; the trade-off is fully characterised in §2c.
    - What is unclear: whether the operator values live per-phase visibility enough to pay for the dashboard/alert/test churn.
    - Recommendation: default to cycle-only observation plus roll-up (cheaper, fixes more existing defects); flag for the operator during plan review.
+   - **RESOLVED — adopted, and locked by the operator.** `04-CONTEXT.md`
+     §"Prometheus — cycle-only gauge updates" makes cycle-only observation a locked
+     decision and forbids adding a `phase` label to the gauges. Implemented as
+     `04-02-PLAN.md` Task 2 (guard `self.runtime.observe` on
+     `phase in (None, "cycle")`), with the `B2Outcome` roll-up from `04-03-PLAN.md`
+     Task 1 supplying the cycle row's physical-cost values so the gauges stop reading
+     zero. No label set, Grafana target or alert expression changes; the exclusion is
+     documented as a contract in `04-07-PLAN.md` Task 1.
 
 4. **Does the shadow fast path also skip `_read_persisted_silver`?**
    - What we know: it is unconditional today (`:1075`) and is Gold's input at cutover (`:1104`).
    - What is unclear: whether skipping Gold implies skipping the Silver read in the same cycle.
    - Recommendation: skip it **only** when the Gold rebuild is also skipped in the same cycle; otherwise keep it. Make this an explicit, tested decision rather than an emergent one.
+   - **RESOLVED — not adopted.** `04-06-PLAN.md` Task 2 keeps `_read_persisted_silver`
+     **unconditional**. Coupling it to the Gold skip would entangle SHD-01 and GLD-01
+     into one conditional and make each harder to test alone, and the new `shadow`
+     phase duration now measures the read directly, so eliding it later can be decided
+     on evidence instead of guesswork. The decision and its reasoning are required to
+     be written into the code as a comment.
+   - **RESOLVED AGAINST THE RECOMMENDATION — where the receipt lives.** §3d recommends
+     a PostgreSQL `marts` table for the shadow certification receipt. `04-06-PLAN.md`
+     rejects that and puts the receipt in the medallion's own MinIO state instead, next
+     to `progress.json` and the completion ledger, at `MEDALLION_SHADOW_RECEIPT_PATH`.
+     Three reasons, all checkable:
+     1. `.github/workflows/ci-m5-gates.yml:41` starts only `minio iceberg-rest`, and
+        `tests/support/medallion_harness.py:128` sets `METRICS_ENABLED: "0"`. A
+        PostgreSQL receipt would make the fast path unreachable in every integration
+        proof this repository has, and SHD-01h — *the receipt survives a process
+        restart* — unprovable in the only gate that could prove it.
+     2. `Metrics.record` swallows every exception by design so observability can never
+        break ingestion. The receipt read must do the opposite and fail toward doing
+        the work. Keeping the certificate out of the observability object keeps those
+        two contracts in separate homes.
+     3. `tests/support/b2_fakes.py:FakeFS` already models the exact `S3FileSystem`
+        slice the medallion uses, so unit coverage of the receipt path is free.
+
+     Accepted cost, stated plainly: an operator cannot query the certificate with SQL.
+     Mitigated because the *decision* it drives — `shadow_skipped`,
+     `shadow_comparisons` — is recorded on the metric rows in PostgreSQL, which is
+     where operators already look. §3b option A, §3d and the original Architectural
+     Responsibility Map row are superseded; see the amendment note under that map.
 
 5. **Is the before/after benchmark (BENCH-1) in scope for this phase's execution?**
    - What we know: CONTEXT §Specifics requires it. It needs a live stack, a bounded Kafka publish, and deliberate state mutation — all forbidden under read-only analysis and all requiring explicit authorisation per AGENTS.md §Runtime safety.
    - Recommendation: plan it as an explicitly authorised, human-gated task at the end of the phase, following the `06-bounded-workload.json` procedure (stop `orders-streaming` and `iceberg-writer`, publish one event, restore). Do not fold it into a routine implementation task.
+   - **RESOLVED — adopted.** BENCH-01 is `04-09-PLAN.md`, the phase's only
+     `autonomous: false` plan, gated by a blocking `checkpoint:human-action` that
+     enumerates every mutation before anything starts. Refusal is a sanctioned outcome
+     recorded as `disposition: "NOT MEASURED"`, and `04-10-PLAN.md` Task 2 carries an
+     explicit branch for that case so PRF-01 stays deliverable when the benchmark is
+     refused.
 
 ---
 
