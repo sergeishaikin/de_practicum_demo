@@ -8,6 +8,11 @@ it, and create tables/namespaces on demand.
 The writer exercises a different slice — snapshot summaries, appends and commit
 conflicts — and keeps its own doubles in ``tests/test_writer.py`` until a second
 consumer needs them.
+
+``FakeMetrics.phase``/``FakeMetrics.cycle`` and ``scripted_monotonic`` serve the
+metric-identity contract: once one logical medallion run emits several records,
+``records[-1]`` stops naming anything in particular, and a duration asserted
+against a real clock is timing luck rather than a contract.
 """
 
 from __future__ import annotations
@@ -93,3 +98,49 @@ class FakeMetrics:
 
     def record(self, **kwargs) -> None:
         self.records.append(kwargs)
+
+    def phase(self, name: str) -> dict:
+        """Return the one captured record whose ``phase`` is *name*.
+
+        Uniqueness is asserted rather than assumed. A run that emits two records
+        for the same phase is a defect in the thing under test, and silently
+        returning the first or last would hide it.
+        """
+
+        matches = [r for r in self.records if r.get("phase") == name]
+        if len(matches) != 1:
+            seen = [(r.get("phase"), r.get("status")) for r in self.records]
+            raise AssertionError(
+                f"expected exactly one record with phase={name!r}, "
+                f"found {len(matches)}; captured (phase, status) pairs: {seen}"
+            )
+        return matches[0]
+
+    def cycle(self) -> dict:
+        return self.phase("cycle")
+
+
+def scripted_monotonic(values):
+    """Return a zero-argument callable yielding *values* in order.
+
+    Intended for ``monkeypatch.setattr(m.time, "monotonic", scripted_monotonic([...]))``
+    so phase durations are asserted as exact integers instead of whatever the
+    machine happened to do. Running past the end is a test-authoring error — the
+    code under test called the clock more times than the script anticipated — so
+    it raises rather than repeating or extrapolating.
+    """
+
+    remaining = list(values)
+    consumed: list[float] = []
+
+    def _monotonic() -> float:
+        if not remaining:
+            raise AssertionError(
+                f"scripted_monotonic exhausted after {len(consumed)} calls; "
+                f"the script was {consumed}"
+            )
+        value = remaining.pop(0)
+        consumed.append(value)
+        return value
+
+    return _monotonic
