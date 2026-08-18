@@ -105,6 +105,36 @@ class TestPgConnParams:
         }
 
 
+def inserted_row(log, index: int = 1) -> dict:
+    """Map a captured insert's parameters onto the column names in its own SQL.
+
+    Positional assertions on the parameter tuple were the previous idiom. They
+    are length-sensitive and index-shifting: adding one column to the statement
+    silently moves every later value, so a test could keep passing while
+    asserting the wrong thing. Reading the column list out of the statement
+    itself makes the assertion say what it means, and survives additive schema
+    evolution.
+
+    The length check is the load-bearing part. It proves the statement's column
+    list and its parameter tuple still agree, which is exactly the failure a
+    column added without a matching parameter would otherwise cause.
+    """
+
+    sql, params = log[index][0], log[index][1]
+    marker = "insert into marts.lakehouse_metrics"
+    assert marker in sql, f"entry {index} is not a lakehouse_metrics insert: {sql!r}"
+    columns_text = sql.split(marker, 1)[1].split("(", 1)[1].split(")", 1)[0]
+    names = [name.strip() for name in columns_text.split(",") if name.strip()]
+    # metric_ts is supplied by now() inside the statement, not as a parameter.
+    assert names[0] == "metric_ts", names[:1]
+    names = names[1:]
+    assert len(names) == len(params), (
+        f"insert column list and parameter tuple disagree: "
+        f"{len(names)} columns {names} vs {len(params)} params {params}"
+    )
+    return dict(zip(names, params))
+
+
 class TestMetrics:
     def test_disabled_noop(self, monkeypatch, capsys) -> None:
         monkeypatch.setattr(ops, "psycopg2", FakePsycopg2([]))
@@ -124,20 +154,19 @@ class TestMetrics:
         ddl_sql, insert_sql = log[0][0], log[1][0]
         assert ddl_sql.strip().startswith("create table if not exists")
         assert "insert into marts.lakehouse_metrics" in insert_sql
-        assert log[1][1][:11] == (
-            "writer",
-            "L1",
-            "success",
-            3,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-        )
-        assert log[1][1][11:] == (0,) * 17
+        row = inserted_row(log)
+        assert row["source"] == "writer"
+        assert row["load_id"] == "L1"
+        assert row["status"] == "success"
+        assert row["rows_processed"] == 3
+        # Every other column defaults to 0; named so a new column cannot slip in
+        # unasserted, and asserted as a set so the list stays readable.
+        untouched = {
+            name: value
+            for name, value in row.items()
+            if name not in {"source", "load_id", "status", "rows_processed"}
+        }
+        assert set(untouched.values()) == {0}, untouched
         assert m.schema_ready is True
         m.record(source="writer", status="success")
         assert len(log) == 3  # one more insert, no extra DDL
@@ -199,7 +228,17 @@ class TestMetrics:
             silver_duration_ms=11,
             gold_duration_ms=7,
         )
-        assert log[1][1][11:21] == (2, 0, 4, 3, 1, 0, 1, 0, 11, 7)
+        row = inserted_row(log)
+        assert row["work_available"] == 2
+        assert row["work_in_flight"] == 0
+        assert row["work_completed"] == 4
+        assert row["keys_processed"] == 3
+        assert row["lower_versions_ignored"] == 1
+        assert row["ff14_conflicts"] == 0
+        assert row["shadow_comparisons"] == 1
+        assert row["shadow_mismatches"] == 0
+        assert row["silver_duration_ms"] == 11
+        assert row["gold_duration_ms"] == 7
 
     def test_close(self, monkeypatch) -> None:
         fake = FakePsycopg2([])
