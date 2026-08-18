@@ -92,10 +92,14 @@ What it does not prove:
   `RenderConfig(emit_datasets=False)` and passes `emit_datasets=False` to the
   freshness operator, so warehouse dbt nodes are deliberately not Assets.
   `dags/lakehouse_dbt_semantic.py` constructs no `RenderConfig`, so the Cosmos
-  default applies there instead. **The resulting Asset surface of the semantic
-  DAG is not asserted by any test** — `tests/test_dags.py` pins `task_assets`
-  for the two warehouse DAGs only. Treat the semantic DAG's Asset surface as
-  unverified until it is observed and recorded.
+  default governs it instead. Observed in the running `de-demo-airflow`
+  container (Airflow 3.3.1, Cosmos 1.15, WATCHER mode): **Cosmos emits no
+  Assets of its own in either DAG.** All six rendered tasks of the semantic
+  group — two `.run` and two `.test` tasks plus `dbt_producer_watcher` and its
+  `_done` partner — carry zero inlets and zero outlets, so the DAG's only Asset
+  is the explicit `publish_semantic_asset` outlet. The warehouse group behaves
+  the same way, as its `emit_datasets=False` intends. Both surfaces are now
+  pinned by `tests/test_dags.py` (marked `airflow`; needs the container).
 
 ## 2. Execution and certification provenance
 
@@ -253,12 +257,14 @@ identity contract is what would let Airflow, dbt, Iceberg, Kafka and landing
 identifiers be joined at all.
 
 One thing this document deliberately does not claim: that hand-written and
-Cosmos-generated Asset URIs collide. Cosmos 1.15 on Airflow 3 uses
-slash-separated Asset URIs (`database/schema/table`), so the hand-written
-warehouse URI may match the Cosmos-generated URI for the same relation. Exact
-parity in this repository has not been observed and is not pinned by any test.
-Verify it before enabling the warehouse dbt Asset surface; do not assume either
-outcome.
+Cosmos-generated Asset URIs collide. As observed and now pinned by
+`tests/test_dags.py`, Cosmos emits no Assets at all in this deployment, so
+today there is nothing to collide with — every Asset in the graph is
+hand-written. Cosmos 1.15 on Airflow 3 uses slash-separated Asset URIs
+(`database/schema/table`), the same shape as the hand-written ones, so if
+dataset emission is ever enabled the two may or may not resolve to identical
+strings. That comparison has never been run here. Run it before enabling the
+warehouse dbt Asset surface; do not assume either outcome.
 
 ## OpenLineage status
 
@@ -291,13 +297,14 @@ discipline applies to a lineage workstream.
 | Canonical dataset identity across Airflow, dbt and Iceberg | after M5; prerequisite for anything that merges graphs |
 | Generated unified lineage artefact from the two manifests plus the Asset graph | after M5; replaces the hand-drawn diagram with a derived one |
 | CI lineage contract (fail on an unclaimed critical dataset, a serving dataset with no declared consumer, or two ids for one relation) | after M5 |
-| `emit_datasets=True` for the warehouse project | only after the exact Cosmos-generated Asset URIs and the resulting Asset surface have been observed and pinned by tests |
+| `emit_datasets=True` for the warehouse project | the current no-Cosmos-Assets baseline is pinned, so enabling it is now a visible, testable change: compare the URIs Cosmos then generates against the hand-written ones before keeping it |
 | Column-level lineage; OpenLineage backend; a catalogue (Marquez, DataHub) | not scheduled. An Airflow-only OpenLineage integration would still not cover Kafka, Spark, the writer or the medallion, which is where this pipeline's real work happens |
 
-Two gaps were cheap enough to close without waiting for M5, and neither changes
-runtime behaviour. Warehouse mart consumers are now declared as dbt
-`exposures:`. The second is still open: recording the semantic DAG's actual
-Asset surface in a test so it stops being a blind spot. That one needs the
-`de-demo-airflow` container running — the DagBag can only be observed inside
-it, and `scripts/dump_dag_structure.py` currently reports inlet/outlet counts
-rather than URIs, so it must be extended before the surface can be pinned.
+Both gaps that were cheap enough to close without waiting for M5 are closed, and
+neither changed runtime behaviour. Warehouse mart consumers are declared as dbt
+`exposures:`. The semantic DAG's Asset surface was observed in the running
+container and pinned, together with the publisher URIs of both warehouse DAGs;
+`scripts/dump_dag_structure.py` now reports inlet and outlet URIs rather than
+only counts, which is what made the surface observable at all.
+
+Everything else in the table above stays deferred until after M5.

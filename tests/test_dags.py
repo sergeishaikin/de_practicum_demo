@@ -33,6 +33,22 @@ INGESTION_DAG = "warehouse_orders_ingestion"
 MARTS_DAG = "warehouse_marts_validation"
 DBT_SEMANTIC_DAG = "lakehouse_dbt_semantic"
 CORE_ORDERS_URI = "postgres://de-demo-postgres:5432/dwh/core/orders"
+SEMANTIC_ASSET_URI = "trino://de-demo-trino:8080/iceberg/semantic"
+MART_ASSET_URIS = [
+    "postgres://de-demo-postgres:5432/dwh/marts/pipeline_runs",
+    "postgres://de-demo-postgres:5432/dwh/marts/v_customer_state_daily",
+    "postgres://de-demo-postgres:5432/dwh/marts/v_order_items_wide",
+    "postgres://de-demo-postgres:5432/dwh/marts/v_reconcile_sales_daily",
+    "postgres://de-demo-postgres:5432/dwh/marts/v_sales_daily",
+]
+SEMANTIC_COSMOS_TASKS = {
+    "dbt_semantic.current_orders.run",
+    "dbt_semantic.current_orders.test",
+    "dbt_semantic.daily_order_metrics.run",
+    "dbt_semantic.daily_order_metrics.test",
+    "dbt_semantic.dbt_producer_watcher",
+    "dbt_semantic.dbt_producer_watcher_done",
+}
 INGESTION_UPSTREAM = {
     "staging.load_raw_csv_to_stg": [],
     "staging.validate_staging": ["staging.load_raw_csv_to_stg"],
@@ -141,6 +157,41 @@ def test_lakehouse_dbt_cosmos_dag_exists(dag_structure: dict) -> None:
     )
 
 
+def test_lakehouse_dbt_asset_surface_is_only_the_published_semantic_asset(
+    dag_structure: dict,
+) -> None:
+    """Cosmos emits no Assets of its own in this DAG; the DAG publishes one.
+
+    `dags/lakehouse_dbt_semantic.py` constructs no `RenderConfig`, so the Cosmos
+    default governs its dataset emission and the resulting surface had never
+    been observed - the semantic DAG's Assets were the one part of the graph
+    nothing asserted. Under Airflow 3.3.1 with Cosmos 1.15 in WATCHER mode the
+    rendered dbt tasks carry no inlets or outlets at all, so the only Asset is
+    the explicit one.
+
+    Pinning the observed behaviour means a Cosmos upgrade that starts emitting
+    per-model Assets fails here rather than silently doubling the Asset graph
+    next to the hand-written URIs.
+    """
+
+    dag = dag_structure["dags"][DBT_SEMANTIC_DAG]
+    assets = dag["task_assets"]
+
+    assert dag["scheduled_asset_uris"] == []
+    assert assets["publish_semantic_asset"]["inlet_uris"] == []
+    assert assets["publish_semantic_asset"]["outlet_uris"] == [SEMANTIC_ASSET_URI]
+
+    cosmos_tasks = {
+        task_id: asset_counts
+        for task_id, asset_counts in assets.items()
+        if task_id.startswith("dbt_semantic.")
+    }
+    assert set(cosmos_tasks) == SEMANTIC_COSMOS_TASKS
+    for task_id, asset_counts in sorted(cosmos_tasks.items()):
+        assert asset_counts["inlet_uris"] == [], task_id
+        assert asset_counts["outlet_uris"] == [], task_id
+
+
 def test_orders_ingestion_contract(dag_structure: dict) -> None:
     dag = dag_structure["dags"][INGESTION_DAG]
     assert dag["display_name"] == "Warehouse · Orders Ingestion"
@@ -171,13 +222,22 @@ def test_orders_ingestion_contract(dag_structure: dict) -> None:
         "core.validate_core": "core",
         "core.publish_core_assets": "core",
     }
-    assert dag["task_assets"] == {
+    assert {
+        task_id: {"inlets": counts["inlets"], "outlets": counts["outlets"]}
+        for task_id, counts in dag["task_assets"].items()
+    } == {
         "staging.load_raw_csv_to_stg": {"inlets": 4, "outlets": 4},
         "staging.validate_staging": {"inlets": 4, "outlets": 0},
         "core.rebuild_core": {"inlets": 4, "outlets": 0},
         "core.validate_core": {"inlets": 0, "outlets": 0},
         "core.publish_core_assets": {"inlets": 0, "outlets": 2},
     }
+    # Counts alone cannot show which Assets these are. The publisher's URIs are
+    # the scheduling and lineage identity every downstream consumer joins on.
+    assert dag["task_assets"]["core.publish_core_assets"]["outlet_uris"] == [
+        "postgres://de-demo-postgres:5432/dwh/core/order_items",
+        CORE_ORDERS_URI,
+    ]
 
 
 def test_marts_validation_contract(dag_structure: dict) -> None:
@@ -212,11 +272,13 @@ def test_marts_validation_contract(dag_structure: dict) -> None:
     assert tasks["generate_dbt_docs"] == ["dbt_warehouse.dbt_producer_watcher"]
     assert tasks["validate_dbt_artifacts"] == []
     assert tasks["publish_mart_assets"] == ["validate_dbt_artifacts"]
-    assert {
-        task_id: assets
-        for task_id, assets in dag["task_assets"].items()
-        if task_id in {"publish_mart_assets"}
-    } == {"publish_mart_assets": {"inlets": 1, "outlets": 5}}
+    publisher = dag["task_assets"]["publish_mart_assets"]
+    assert {"inlets": publisher["inlets"], "outlets": publisher["outlets"]} == {
+        "inlets": 1,
+        "outlets": 5,
+    }
+    assert publisher["inlet_uris"] == [CORE_ORDERS_URI]
+    assert publisher["outlet_uris"] == MART_ASSET_URIS
 
     # Load-recency gate. Written from an observed DagBag, not from the source
     # text: `check_source_freshness >> dbt_group` is a source-level statement,
