@@ -245,26 +245,26 @@ def silver_untouched(context: dict) -> None:
 @then(parsers.parse("the run is recorded as {outcome}"))
 def run_recorded(context: dict, outcome: str) -> None:
     expected = {"successful": "success", "a shadow failure": "shadow_failed"}[outcome]
-    records = context["metrics"].records
-    assert records, "no operational evidence was recorded"
-    assert records[-1]["source"] == "medallion"
-    assert records[-1]["status"] == expected
+    assert context["metrics"].records, "no operational evidence was recorded"
+    cycle = context["metrics"].cycles()[-1]
+    assert cycle["source"] == "medallion"
+    assert cycle["status"] == expected
 
 
 @then(parsers.parse("exactly {count:d} shadow comparison is recorded"))
 def comparisons_recorded(context: dict, count: int) -> None:
-    assert context["metrics"].records[-1]["shadow_comparisons"] == count
+    assert context["metrics"].cycles()[-1]["shadow_comparisons"] == count
 
 
 @then("shadow validation is still in force")
 def shadow_still_on(context: dict) -> None:
     assert (
-        context["metrics"].records[-1]["shadow_comparisons"] == 1
+        context["metrics"].cycles()[-1]["shadow_comparisons"] == 1
     ), "rollback left the deployment without shadow validation"
 
 
 @then("the disagreement is counted in the recorded evidence")
 def mismatch_recorded(context: dict) -> None:
-    record = context["metrics"].records[-1]
+    record = context["metrics"].cycles()[-1]
     assert record["shadow_comparisons"] == 1
     assert record["shadow_mismatches"] >= 1

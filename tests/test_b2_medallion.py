@@ -132,17 +132,17 @@ def test_b2_run_commits_only_advancing_keys_and_completes_progress(monkeypatch) 
     assert by_id["a"]["business_version"] == 5
     assert by_id["a"]["event_date"] == date(2026, 1, 2)
     assert by_id["b"]["business_version"] == 2
-    assert metrics.records[-1]["status"] == "success"
-    assert metrics.records[-1]["keys_processed"] == 2
-    assert metrics.records[-1]["files_planned"] == 1
-    assert metrics.records[-1]["bytes_planned"] == 100
-    assert metrics.records[-1]["files_removed"] == 1
-    assert metrics.records[-1]["files_added"] == 1
-    assert metrics.records[-1]["bytes_removed"] == 100
-    assert metrics.records[-1]["bytes_added"] > 0
-    assert metrics.records[-1]["snapshot_delta"] == 1
-    assert metrics.records[-1]["work_in_flight"] == 0
-    assert metrics.records[-1]["work_completed"] == 1
+    assert metrics.phase("b2")["status"] == "success"
+    assert metrics.phase("b2")["keys_processed"] == 2
+    assert metrics.phase("b2")["files_planned"] == 1
+    assert metrics.phase("b2")["bytes_planned"] == 100
+    assert metrics.phase("b2")["files_removed"] == 1
+    assert metrics.phase("b2")["files_added"] == 1
+    assert metrics.phase("b2")["bytes_removed"] == 100
+    assert metrics.phase("b2")["bytes_added"] > 0
+    assert metrics.phase("b2")["snapshot_delta"] == 1
+    assert metrics.phase("b2")["work_in_flight"] == 0
+    assert metrics.phase("b2")["work_completed"] == 1
     assert f"de-practicum/test-outbox/{load_id}.json" not in fs.objects
     ledger_path = f"de-practicum/test-completion-ledger/{load_id}.json"
     receipt = json.loads(fs.objects[ledger_path])
@@ -171,13 +171,13 @@ def test_b2_noop_records_planned_read_without_write_cost(monkeypatch) -> None:
     m.run_b2(catalog, metrics, fs)
 
     assert silver.rows == [current]
-    assert metrics.records[-1]["files_planned"] == 1
-    assert metrics.records[-1]["bytes_planned"] == 100
-    assert metrics.records[-1]["files_removed"] == 0
-    assert metrics.records[-1]["files_added"] == 0
-    assert metrics.records[-1]["bytes_removed"] == 0
-    assert metrics.records[-1]["bytes_added"] == 0
-    assert metrics.records[-1]["snapshot_delta"] == 0
+    assert metrics.phase("b2")["files_planned"] == 1
+    assert metrics.phase("b2")["bytes_planned"] == 100
+    assert metrics.phase("b2")["files_removed"] == 0
+    assert metrics.phase("b2")["files_added"] == 0
+    assert metrics.phase("b2")["bytes_removed"] == 0
+    assert metrics.phase("b2")["bytes_added"] == 0
+    assert metrics.phase("b2")["snapshot_delta"] == 0
 
 
 def test_b2_crash_before_commit_retries(monkeypatch) -> None:

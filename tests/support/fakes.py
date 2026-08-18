@@ -119,6 +119,18 @@ class FakeMetrics:
     def cycle(self) -> dict:
         return self.phase("cycle")
 
+    def cycles(self) -> list[dict]:
+        """Return every ``cycle`` record, in write order.
+
+        ``cycle()`` asserts there is exactly one, which is what a single-run
+        test wants.  A scenario that deliberately runs the medallion more
+        than once needs to name *which* cycle it means, and ``cycles()[-1]``
+        says the latest one -- still unambiguous, unlike ``records[-1]``,
+        which could resolve to any phase of the final cycle.
+        """
+
+        return [r for r in self.records if r.get("phase") == "cycle"]
+
 
 def scripted_monotonic(values):
     """Return a zero-argument callable yielding *values* in order.

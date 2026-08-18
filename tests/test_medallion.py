@@ -261,13 +261,13 @@ class TestRun:
         gold = catalog.tables["gold.orders_daily_metrics"].df
         assert silver.num_rows == 2
         assert gold.num_rows == 2
-        assert metrics.records[-1]["status"] == "success"
-        assert metrics.records[-1]["source"] == "medallion"
-        assert metrics.records[-1]["bronze_rows"] == 3
-        assert metrics.records[-1]["silver_rows"] == 2
-        assert metrics.records[-1]["gold_rows"] == 2
-        assert metrics.records[-1]["duplicates_removed"] == 1
-        assert metrics.records[-1]["quality_violations"] == 0
+        assert metrics.cycle()["status"] == "success"
+        assert metrics.cycle()["source"] == "medallion"
+        assert metrics.cycle()["bronze_rows"] == 3
+        assert metrics.cycle()["silver_rows"] == 2
+        assert metrics.cycle()["gold_rows"] == 2
+        assert metrics.cycle()["duplicates_removed"] == 1
+        assert metrics.cycle()["quality_violations"] == 0
 
     def test_bronze_missing_skips_cycle(self) -> None:
         metrics = FakeMetrics()
@@ -298,8 +298,8 @@ class TestRun:
         )
         metrics = FakeMetrics()
         m.run(catalog, metrics)
-        assert metrics.records[-1]["status"] == "failed"
-        assert metrics.records[-1]["quality_violations"] == 1
+        assert metrics.cycle()["status"] == "failed"
+        assert metrics.cycle()["quality_violations"] == 1
         assert "silver.orders_clean" not in catalog.tables
 
     def test_violations_recorded_but_proceeds_when_not_fatal(self) -> None:
@@ -328,8 +328,8 @@ class TestRun:
             )
             metrics = FakeMetrics()
             m.run(catalog, metrics)
-            assert metrics.records[-1]["status"] == "success"
-            assert metrics.records[-1]["quality_violations"] == 1
+            assert metrics.cycle()["status"] == "success"
+            assert metrics.cycle()["quality_violations"] == 1
             assert catalog.tables["silver.orders_clean"].df.num_rows == 2
         finally:
             monkeypatch.undo()
