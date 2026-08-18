@@ -1013,6 +1013,84 @@ def test_a_shadow_mismatch_still_fails_closed_and_certifies_nothing(
     assert filesystem.writes == 0
 
 
+def _moves_during_b2(table_double) -> None:
+    """Stand in for the live writer: commit a snapshot while the cycle is running.
+
+    `run_b2` is a no-op double in these runs, so this is the only place a cycle
+    can observe concurrent movement. Bronze is appended by a separate process in
+    production, so the movement is not hypothetical.
+    """
+
+    table_double.add_snapshot()
+
+
+@pytest.mark.parametrize("moved", ["silver", "bronze"])
+def test_a_certificate_that_goes_stale_mid_cycle_cannot_publish_gold(
+    monkeypatch, capsys, moved: str
+) -> None:
+    """The certified pair is revalidated after the writer, not only before it.
+
+    The gate has to be decided before `run_b2`, because it gates the Bronze pin
+    and the pin must precede the writer. That leaves a window in which either id
+    can move. A certificate describing the pre-writer state must not authorise
+    Gold built from the post-writer state, and with the pin skipped there is no
+    legacy projection left to compare against - so the only safe outcome is to
+    publish nothing.
+    """
+
+    catalog, persisted_silver, gold, metrics, filesystem = setup_certified_run(
+        monkeypatch
+    )
+    m.run(catalog, metrics, "b2", fs=filesystem)
+    assert stored_receipt(filesystem)["result"] == "equal"
+    # Drop the first cycle's own marker: this test is about the second one.
+    capsys.readouterr()
+
+    moving = persisted_silver if moved == "silver" else catalog.tables["bronze.orders"]
+    monkeypatch.setattr(
+        m, "run_b2", lambda *args, **kwargs: _moves_during_b2(moving) or None
+    )
+    gold_writes_before = gold.overwrite_calls
+    second = FakeMetrics()
+
+    with pytest.raises(ValueError, match="Shadow certificate went stale"):
+        m.run(catalog, second, "b2", fs=filesystem)
+
+    assert gold.overwrite_calls == gold_writes_before
+    # No CycleOutcome means no marker, which is how the integration harness
+    # learns this deployment did not complete a cycle.
+    assert not [
+        line
+        for line in capsys.readouterr().out.splitlines()
+        if line.startswith(m.CYCLE_COMPLETE_MARKER)
+    ]
+
+
+def test_a_stale_certificate_compares_when_the_projection_is_still_there(
+    monkeypatch,
+) -> None:
+    """Under GOLD_SOURCE=legacy the pin happens anyway, so staleness downgrades
+    to a real comparison rather than to a refusal."""
+
+    catalog, persisted_silver, gold, metrics, filesystem = setup_certified_run(
+        monkeypatch, gold_source="legacy"
+    )
+    m.run(catalog, metrics, "b2", fs=filesystem)
+
+    calls = Calls(monkeypatch, "compare_business_state")
+    monkeypatch.setattr(
+        m, "run_b2", lambda *args, **kwargs: _moves_during_b2(persisted_silver) or None
+    )
+    second = FakeMetrics()
+
+    m.run(catalog, second, "b2", fs=filesystem)
+
+    assert calls.counts["compare_business_state"] == 1
+    assert second.phase("shadow")["shadow_skipped"] is False
+    assert second.cycle()["status"] == "success"
+    assert gold.overwrite_calls == 2
+
+
 def test_unknown_snapshot_ids_never_touch_the_filesystem(monkeypatch) -> None:
     """No id, no certificate, no object-store call, and the full work runs."""
 

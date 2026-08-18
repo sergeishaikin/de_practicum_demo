@@ -1488,6 +1488,11 @@ def _run_m4(
     bronze_snapshot_id = _bronze_snapshot_id(catalog)
     runtime_identity = _runtime_identity(selected_mode)
     projection_identity = _shadow_projection_identity()
+    # The pair the certificate is judged against.  `bronze_snapshot_id` is
+    # reassigned below when a boundary is pinned, so the certified pair is kept
+    # separately: it is what the post-writer revalidation compares to.
+    certified_bronze_snapshot_id = bronze_snapshot_id
+    certified_silver_snapshot_id: int | None = None
     shadow_certified = False
     if SHADOW_COMPARE_ENABLED:
         certified_silver_snapshot_id = _silver_snapshot_id(catalog)
@@ -1536,6 +1541,36 @@ def _run_m4(
     # test alone; and the `shadow` phase duration now measures it directly, so a
     # later decision to elide it can be made on evidence instead of guesswork.
     persisted_silver_df, silver_snapshot_id = _read_persisted_silver(catalog)
+
+    if shadow_certified:
+        # The certificate was judged against metadata read *before* the
+        # incremental writer ran, because the decision gates the Bronze pin and
+        # the pin has to precede the writer.  That leaves a window: Bronze is
+        # appended by a separate live process, and B2 itself can move Silver, so
+        # the certified pair can stop describing the state Gold is about to be
+        # published from.  Re-read both ids now -- table metadata only, never a
+        # scan, and deliberately not a second Bronze boundary, which would be a
+        # post-writer pin masquerading as a pre-writer one.
+        current_bronze_snapshot_id = _bronze_snapshot_id(catalog)
+        if (
+            current_bronze_snapshot_id != certified_bronze_snapshot_id
+            or silver_snapshot_id != certified_silver_snapshot_id
+        ):
+            shadow_certified = False
+            if legacy_silver_df is None:
+                # Nothing to compare against: the fast path skipped the pin, so
+                # the only safe outcome is to publish nothing.  Like a mismatch,
+                # this raise leaves `run()` without a `CycleOutcome`, so no
+                # cycle-complete marker is printed.  The next cycle pins Bronze
+                # and revalidates from scratch, because a stale certificate can
+                # never certify the state that replaced it.
+                raise ValueError(
+                    "Shadow certificate went stale during the cycle: bronze "
+                    f"{certified_bronze_snapshot_id} -> {current_bronze_snapshot_id}, "
+                    f"silver {certified_silver_snapshot_id} -> {silver_snapshot_id}; "
+                    "no legacy projection was built, so Gold is not published"
+                )
+
     shadow_compared = False
     if SHADOW_COMPARE_ENABLED and not shadow_certified:
         if legacy_silver_df is None:
