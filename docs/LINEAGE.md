@@ -36,7 +36,7 @@ would.
 | Project | Adapter | Sources | Models | Consumers declared |
 |---|---|---|---|---|
 | `lakehouse_semantic` (`dbt/`) | dbt-trino | `bronze.orders`, `silver.orders_clean`, `gold.orders_daily_metrics` | `current_orders`, `daily_order_metrics` (views) | `exposures:` -> Superset dashboard |
-| `warehouse_transform` (`dbt/warehouse/`) | dbt-postgres | `stg.*` (4), `core.orders`, `core.order_items` | 4 mart views | none |
+| `warehouse_transform` (`dbt/warehouse/`) | dbt-postgres | `stg.*` (4), `core.orders`, `core.order_items` | 4 mart views | `exposures:` -> demo quality report, SQL quality gates |
 
 `dbt docs generate` produces `manifest.json`, `catalog.json` and `index.html`
 under each project's `target/`. The warehouse artefacts are validated at
@@ -51,8 +51,11 @@ What it does not prove:
   are two disconnected graphs with no shared node.
 - Lineage is resource-level, not column-level. The pinned runtime is
   dbt-core 1.12.2 with dbt-trino 1.10.3 / dbt-postgres 1.11.0.
-- Warehouse mart consumers (Metabase, Superset) are not declared anywhere, so
-  that graph ends at the mart views.
+- The declared warehouse consumers are the two repository scripts that read the
+  marts (`scripts/build_report.*` and `scripts/run_checks.*`). The Metabase
+  chart script reads `marts.streaming_orders` from the streaming path, which is
+  not a dbt model, so no BI tool appears in this graph — the PostgreSQL side
+  ends at repository-owned analysis artefacts, not at a dashboard.
 
 ### Airflow Assets
 
@@ -291,7 +294,10 @@ discipline applies to a lineage workstream.
 | `emit_datasets=True` for the warehouse project | only after the exact Cosmos-generated Asset URIs and the resulting Asset surface have been observed and pinned by tests |
 | Column-level lineage; OpenLineage backend; a catalogue (Marquez, DataHub) | not scheduled. An Airflow-only OpenLineage integration would still not cover Kafka, Spark, the writer or the medallion, which is where this pipeline's real work happens |
 
-Two gaps are cheap enough to close without waiting: declaring warehouse mart
-consumers as dbt `exposures:`, and recording the semantic DAG's actual Asset
-surface in a test so it stops being a blind spot. Neither changes runtime
-behaviour.
+Two gaps were cheap enough to close without waiting for M5, and neither changes
+runtime behaviour. Warehouse mart consumers are now declared as dbt
+`exposures:`. The second is still open: recording the semantic DAG's actual
+Asset surface in a test so it stops being a blind spot. That one needs the
+`de-demo-airflow` container running — the DagBag can only be observed inside
+it, and `scripts/dump_dag_structure.py` currently reports inlet/outlet counts
+rather than URIs, so it must be extended before the surface can be pinned.
