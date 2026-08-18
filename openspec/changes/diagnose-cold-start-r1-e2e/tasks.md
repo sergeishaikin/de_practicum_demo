@@ -1,11 +1,11 @@
 ## 1. Capture the evidence a failing run currently destroys
 
-- [ ] 1.1 Add a diagnostic step to `.github/workflows/ci-h1-clean.yml` that runs `if: failure()` after `Deterministic E2E`, before the stack is destroyed, and is best-effort so it can never change the run's own outcome
-- [ ] 1.2 In that step, list the MinIO checkpoint prefix for the R1 run — whether `offsets/` and `commits/` exist, and which epochs — since a committed offset from the first process is the fact that separates the classifications
-- [ ] 1.3 In the same step, dump Kafka consumer-group offsets and the topic's earliest/latest offsets and high watermark, as corroboration of the checkpoint reading
-- [ ] 1.4 In the same step, capture any streaming container still present (`docker ps -a`, and its log if the container survives) so the ad-hoc process is no longer invisible
-- [ ] 1.5 Record Spark launch → first committed checkpoint latency on the cold stack, so any later argument about a constant has a measured number behind it
-- [ ] 1.6 Extend the artifact upload to include the captured evidence, so the successor change does not have to re-run H1
+- [x] 1.1 Add a diagnostic step to `.github/workflows/ci-h1-clean.yml` that runs `if: failure()` after `Deterministic E2E`, before the stack is destroyed, and is best-effort so it can never change the run's own outcome
+- [x] 1.2 In that step, list the MinIO checkpoint prefix for the R1 run — whether `offsets/` and `commits/` exist, and which epochs — since a committed offset from the first process is the fact that separates the classifications
+- [x] 1.3 In the same step, dump Kafka consumer-group offsets and the topic's earliest/latest offsets and high watermark, as corroboration of the checkpoint reading
+- [x] 1.4 In the same step, capture any streaming container still present (`docker ps -a`, and its log if the container survives) so the ad-hoc process is no longer invisible
+- [x] 1.5 Record Spark launch → first committed checkpoint latency on the cold stack, so any later argument about a constant has a measured number behind it — captured only as far as existing state allows: checkpoint object timestamps from `mc ls` against container `CreatedAt`. If that does not yield a latency, the classification records `not observable with current evidence` rather than instrumenting the R1 test
+- [x] 1.6 Extend the artifact upload to include the captured evidence, so the successor change does not have to re-run H1
 
 ## 2. Produce a failing run under observation
 

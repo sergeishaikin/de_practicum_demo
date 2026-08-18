@@ -93,6 +93,34 @@ jobs:
             stop iceberg-writer iceberg-medallion
       - name: Deterministic E2E
         run: uv run --locked pytest tests/e2e -m e2e
+      - name: Capture cold-start E2E diagnostics
+        # Only on failure, and before `Destroy clean stack` deletes the volumes.
+        # The R1 test removes its own streaming container and `Collect logs`
+        # reads compose services only, so the state that explains a cold-start
+        # E2E failure is gone before anyone can look. Every command here is a
+        # read and is `|| true`, so this step can never change the run outcome.
+        if: failure()
+        run: |
+          mkdir -p h1-r1-diagnostics
+          MC='docker exec de-demo-minio mc'
+          KAFKA='docker exec de-demo-kafka'
+          # Decisive fact: did the first streaming process commit an offset before
+          # it was removed? `commits/` under a run's raw checkpoint is what "there
+          # was an offset to lose" means. Object timestamps are kept because they
+          # are the only cold-start latency evidence available without
+          # instrumenting the test itself.
+          # The MinIO credentials reachable here are the ones the export step put
+          # into GITHUB_ENV; MINIO_ROOT_USER/PASSWORD live only in .env.
+          $MC alias set local http://localhost:9000 "$AWS_ACCESS_KEY_ID" "$AWS_SECRET_ACCESS_KEY" >/dev/null 2>&1 || true
+          $MC ls --recursive local/de-practicum/e2e > h1-r1-diagnostics/minio-e2e-tree.txt 2>&1 || true
+          # Broker-side corroboration.
+          $KAFKA kafka-consumer-groups --bootstrap-server localhost:9092 --all-groups --describe > h1-r1-diagnostics/kafka-consumer-groups.txt 2>&1 || true
+          $KAFKA kafka-get-offsets --bootstrap-server localhost:9092 > h1-r1-diagnostics/kafka-offsets.txt 2>&1 || true
+          # Any ad-hoc streaming container the test left behind, with its log.
+          docker ps -a --filter name=e2e-streaming- --format '{{.Names}} {{.Status}} {{.CreatedAt}}' > h1-r1-diagnostics/e2e-streaming-containers.txt 2>&1 || true
+          for c in $(docker ps -aq --filter name=e2e-streaming-); do
+            docker logs "$c" > "h1-r1-diagnostics/$c.log" 2>&1 || true
+          done
       - name: dbt semantic contract
         working-directory: dbt
         run: |
@@ -127,6 +155,7 @@ jobs:
           name: h1-clean-stack-evidence
           path: |
             h1-clean-stack.log
+            h1-r1-diagnostics/**
             dbt/target/**
       - name: Destroy clean stack
         if: always()
