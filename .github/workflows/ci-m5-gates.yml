@@ -38,6 +38,10 @@ jobs:
           sed -i 's/^MINIO_ROOT_PASSWORD=.*/MINIO_ROOT_PASSWORD=minio123/' .env
       - name: Start minimal Iceberg stack
         run: |
+          # The merged project takes `external: true` from the extended file,
+          # so compose will not create de_demo_net itself. scripts/stack-up.ps1
+          # pre-creates it for exactly this reason.
+          docker network create de_demo_net || true
           docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml up -d minio iceberg-rest
           for i in $(seq 1 36); do
             if curl -fsS http://localhost:18181/v1/config >/dev/null 2>&1; then
