@@ -156,7 +156,6 @@ def late_arrival(context: dict) -> None:
 def completed_cutover_cycle(context: dict) -> None:
     _run_cycle(context, "cutover")
     assert context["error"] is None, context["error"]
-    context["gold_writes_before_rollback"] = _gold(context).overwrite_calls
 
 
 # --- When ------------------------------------------------------------------
@@ -216,12 +215,23 @@ def metrics_published(context: dict) -> None:
     assert gold.num_rows > 0
 
 
-@then("the daily metrics are published again")
-def metrics_republished(context: dict) -> None:
+@then("the daily metrics still reflect the current business state")
+def metrics_reflect_current_state(context: dict) -> None:
+    """State, not a write.
+
+    What a rollback owes an operator is that the published metrics describe the
+    current business state — not that the cycle performed an overwrite. Counting
+    writes made the specification depend on how the metrics got there, which is
+    an implementation choice: since GLD-01 a cycle may legitimately decide the
+    published state is already the one it would have written and elide the
+    rebuild.
+    """
+
     assert context["error"] is None, context["error"]
-    assert (
-        _gold(context).overwrite_calls == context["gold_writes_before_rollback"] + 1
-    ), "the rolled-back source did not publish its own metrics"
+    gold = _gold(context)
+    assert gold is not None, "the daily metrics table was never created"
+    assert gold.num_rows > 0
+    assert gold.df.to_pylist() == m.build_gold(_table(AGREEING)).to_pylist()
 
 
 @then("no daily metrics are published")
