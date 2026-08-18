@@ -159,14 +159,25 @@ class TestMetrics:
         assert row["load_id"] == "L1"
         assert row["status"] == "success"
         assert row["rows_processed"] == 3
-        # Every other column defaults to 0; named so a new column cannot slip in
-        # unasserted, and asserted as a set so the list stays readable.
-        untouched = {
+        # Every remaining *counter* column defaults to 0. The cycle-identity
+        # columns are deliberately excluded: they are nullable-with-no-default so
+        # that `cycle_id IS NULL` separates the pre-Phase-4 era, and they carry
+        # their own assertions in test_record_defaults_leave_cycle_identity_null.
+        identity = {
+            "cycle_id",
+            "phase",
+            "bronze_snapshot_id",
+            "silver_snapshot_id",
+            "gold_snapshot_id",
+            "shadow_skipped",
+            "gold_skipped",
+        }
+        counters = {
             name: value
             for name, value in row.items()
-            if name not in {"source", "load_id", "status", "rows_processed"}
+            if name not in {"source", "load_id", "status", "rows_processed"} | identity
         }
-        assert set(untouched.values()) == {0}, untouched
+        assert set(counters.values()) == {0}, counters
         assert m.schema_ready is True
         m.record(source="writer", status="success")
         assert len(log) == 3  # one more insert, no extra DDL
@@ -207,6 +218,55 @@ class TestMetrics:
         m.enabled = True
         m.record(source="medallion", status="failed")
         assert "Metrics write failed (medallion)" in capsys.readouterr().err
+
+    def test_record_defaults_leave_cycle_identity_null(self, monkeypatch) -> None:
+        """Pre-Phase-4 rows and writer rows must stay separable by `cycle_id IS NULL`.
+
+        A default of `''` or `'unknown'` would let an un-instrumented run
+        masquerade as an instrumented one, which is exactly what the historical
+        interpretation rule depends on being impossible.
+        """
+
+        log: list = []
+        monkeypatch.setattr(ops, "psycopg2", FakePsycopg2(log))
+        m = ops.Metrics()
+        m.enabled = True
+        m.record(source="writer", status="success")
+
+        row = inserted_row(log)
+        assert row["cycle_id"] is None
+        assert row["phase"] is None
+        assert row["bronze_snapshot_id"] is None
+        assert row["silver_snapshot_id"] is None
+        assert row["gold_snapshot_id"] is None
+        assert row["shadow_skipped"] is False
+        assert row["gold_skipped"] is False
+
+    def test_record_persists_cycle_identity_when_supplied(self, monkeypatch) -> None:
+        log: list = []
+        monkeypatch.setattr(ops, "psycopg2", FakePsycopg2(log))
+        m = ops.Metrics()
+        m.enabled = True
+        m.record(
+            source="medallion",
+            status="success",
+            cycle_id="abc",
+            phase="b2",
+            bronze_snapshot_id=11,
+            silver_snapshot_id=22,
+            gold_snapshot_id=33,
+            shadow_skipped=True,
+            gold_skipped=True,
+        )
+
+        row = inserted_row(log)
+        assert row["cycle_id"] == "abc"
+        assert row["phase"] == "b2"
+        assert row["bronze_snapshot_id"] == 11
+        assert row["silver_snapshot_id"] == 22
+        assert row["gold_snapshot_id"] == 33
+        assert row["shadow_skipped"] is True
+        assert row["gold_skipped"] is True
 
     def test_record_persists_m5_observability_dimensions(self, monkeypatch) -> None:
         log: list = []
@@ -280,6 +340,169 @@ def served(monkeypatch) -> list:
         lambda *args, **kwargs: calls.append((args, kwargs)),
     )
     return calls
+
+
+class TestClassifyMetricRow:
+    """The historical interpretation rule, executable rather than prose.
+
+    Making it a function is the point: a documented rule drifts silently, a
+    tested one cannot.
+    """
+
+    def test_pre_era_success_with_gold_duration_is_an_outer_cycle(self) -> None:
+        assert (
+            ops.classify_metric_row(status="success", gold_duration_ms=4130) == "cycle"
+        )
+
+    def test_pre_era_success_without_gold_duration_is_nested_b2(self) -> None:
+        assert ops.classify_metric_row(status="success", gold_duration_ms=0) == "b2"
+
+    def test_shadow_failed_is_an_outer_cycle_not_a_nested_metric(self) -> None:
+        """The row the naive gold_duration_ms rule gets wrong.
+
+        _run_m4 raises before Gold, so it never sets gold_duration_ms -- but it
+        is an outer cycle that aborted, and misfiling the safety-critical row as
+        nested detail is exactly the failure this rule exists to prevent.
+        """
+
+        assert (
+            ops.classify_metric_row(status="shadow_failed", gold_duration_ms=0)
+            == "cycle"
+        )
+
+    def test_failed_is_nested_without_claiming_which_emitter(self) -> None:
+        """`failed` comes from run_b2 or _legacy_silver_cycle; we cannot tell."""
+
+        assert ops.classify_metric_row(status="failed", gold_duration_ms=0) == "nested"
+
+    def test_unrecognised_status_does_not_raise(self) -> None:
+        assert (
+            ops.classify_metric_row(status="something-legacy", gold_duration_ms=0)
+            == "unknown"
+        )
+
+    def test_phase_4_row_is_classified_from_its_own_phase(self) -> None:
+        """A row that says what it is must not be second-guessed.
+
+        Status and gold_duration_ms here would imply "b2" under the pre-era rule;
+        the explicit phase must win.
+        """
+
+        assert (
+            ops.classify_metric_row(
+                status="success", gold_duration_ms=0, cycle_id="c1", phase="cycle"
+            )
+            == "cycle"
+        )
+
+    def test_phase_4_row_with_unknown_phase_is_unknown(self) -> None:
+        for phase in (None, "not-a-phase"):
+            assert (
+                ops.classify_metric_row(
+                    status="success", gold_duration_ms=0, cycle_id="c1", phase=phase
+                )
+                == "unknown"
+            )
+
+
+class TestCycleOnlyObservation:
+    """A nested phase record is durable in PostgreSQL but must not reach Prometheus.
+
+    The gauges are labelled by `source` alone, so before this guard the outer
+    record overwrote the nested record's values with zeros seconds after they
+    were measured. That reset lakehouse_files{kind="planned"}, lakehouse_bytes
+    and lakehouse_work{state="in_flight"}, weakening LakehouseUnresolvedWork.
+    """
+
+    def _metrics(self, monkeypatch, log):
+        monkeypatch.setattr(ops, "psycopg2", FakePsycopg2(log))
+        m = ops.Metrics()
+        m.enabled = True
+        m.runtime = ops._RuntimeMetrics("9099")
+        return m
+
+    def test_phase_record_publishes_nothing(self, monkeypatch, served) -> None:
+        log: list = []
+        m = self._metrics(monkeypatch, log)
+
+        m.record(source="medallion", status="success", phase="b2", cycle_id="c1")
+
+        # It reached the durable sink...
+        assert inserted_row(log)["phase"] == "b2"
+        # ...and nowhere near a collector.
+        with pytest.raises(AssertionError):
+            published(
+                m.runtime.events,
+                "lakehouse_events_total",
+                source="medallion",
+                status="success",
+            )
+
+    def test_cycle_record_publishes_every_dimension(self, monkeypatch, served) -> None:
+        m = self._metrics(monkeypatch, [])
+
+        m.record(
+            source="medallion",
+            status="success",
+            phase="cycle",
+            cycle_id="c1",
+            files_planned=7,
+        )
+
+        assert (
+            published(
+                m.runtime.events,
+                "lakehouse_events_total",
+                source="medallion",
+                status="success",
+            )
+            == 1.0
+        )
+        assert (
+            published(
+                m.runtime.files, "lakehouse_files", source="medallion", kind="planned"
+            )
+            == 7.0
+        )
+
+    def test_one_cycle_counts_once_and_keeps_its_gauge(
+        self, monkeypatch, served
+    ) -> None:
+        """The regression this guard exists for, stated as a test."""
+
+        m = self._metrics(monkeypatch, [])
+
+        m.record(
+            source="medallion",
+            status="success",
+            phase="b2",
+            cycle_id="c1",
+            files_planned=7,
+        )
+        m.record(
+            source="medallion",
+            status="success",
+            phase="cycle",
+            cycle_id="c1",
+            files_planned=7,
+        )
+
+        assert (
+            published(
+                m.runtime.events,
+                "lakehouse_events_total",
+                source="medallion",
+                status="success",
+            )
+            == 1.0
+        )
+        # Previously the outer record reset this to 0 after the nested one set it.
+        assert (
+            published(
+                m.runtime.files, "lakehouse_files", source="medallion", kind="planned"
+            )
+            == 7.0
+        )
 
 
 class TestRuntimeMetrics:
