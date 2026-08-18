@@ -148,7 +148,7 @@ Persisted Silver must never become the Gold source with shadow validation off. I
 
 ### Observability
 
-`iceberg/common/ops.py` `Metrics.record()` writes one best-effort row per writer batch / medallion cycle to `marts.lakehouse_metrics` (auto-DDL, `METRICS_ENABLED=0` disables). A Postgres failure is logged and must never break ingestion. `marts.maintenance_runs` holds before/after snapshot counts from the maintenance DAG.
+`iceberg/common/ops.py` `Metrics.record()` writes best-effort rows to `marts.lakehouse_metrics` (auto-DDL, `METRICS_ENABLED=0` disables): one per writer batch, and per medallion cycle one row for each executed phase (`b2`, `shadow`, `gold`) plus a `cycle` envelope row written last, all sharing a `cycle_id`. Totals must filter `phase = 'cycle' or phase is null` or they double-count; `classify_metric_row` classifies the pre-phase rows. A Postgres failure is logged and must never break ingestion. `marts.maintenance_runs` holds before/after snapshot counts from the maintenance DAG.
 
 ## Working rules
 
