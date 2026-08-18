@@ -33,6 +33,28 @@ def test_clean_environment_pins_external_images_and_has_no_latest_tags() -> None
     assert "latest" not in env
 
 
+def test_postgres_health_means_reachable_over_tcp() -> None:
+    """Health must mean ready by the path dependents actually use.
+
+    `airflow-db-init` waits for `condition: service_healthy` and then connects to
+    `de-demo-postgres:5432` over TCP. A socket-only `pg_isready` answers "ready"
+    while initdb's temporary server is running on a fresh volume, before anything
+    listens on 5432 - so the dependent started and died with connection refused,
+    visible only on a cold start and therefore only in the H1 clean run.
+
+    This pins the probe rather than the string: a future simplification back to a
+    socket check fails here instead of in a 180-minute clean rebuild.
+    """
+
+    compose = read("docker-compose.yml")
+    postgres = compose.split("de-demo-postgres:", 1)[1].split("airflow-db-init:", 1)[0]
+    probe = postgres.split("healthcheck:", 1)[1].split("interval:", 1)[0]
+
+    assert "pg_isready" in probe
+    assert "-h 127.0.0.1" in probe
+    assert "-p 5432" in probe
+
+
 def test_spark_runtime_has_baked_jars_and_no_runtime_package_resolution() -> None:
     compose = read("docker-compose.extended.yml")
     e2e = read("tests/e2e/test_lakehouse_e2e.py")

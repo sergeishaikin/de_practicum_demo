@@ -33,7 +33,17 @@ services:
       - ./db/tasks:/tasks:ro
       - ./db/task_checks:/task_checks:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:?POSTGRES_USER is required} -d ${POSTGRES_DB:?POSTGRES_DB is required}"]
+      # TCP, not the local socket. During initdb on a fresh volume the image
+      # runs a temporary server for /docker-entrypoint-initdb.d, and a socket
+      # probe answers "ready" while nothing is listening on 5432 yet - so
+      # `airflow-db-init`, which connects over TCP, was started against a
+      # server that refused it. Health must mean ready by the path dependents
+      # actually use.
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -h 127.0.0.1 -p 5432 -U ${POSTGRES_USER:?POSTGRES_USER is required} -d ${POSTGRES_DB:?POSTGRES_DB is required}"
+        ]
       interval: 5s
       timeout: 3s
       retries: 30
