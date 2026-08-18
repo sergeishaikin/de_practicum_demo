@@ -55,6 +55,7 @@ __all__ = [
     "CycleWatcher",
     "parse_cycle_marker",
     "run_deployment",
+    "shadow_receipt_path",
     "start_medallion",
     "silver_state",
     "logical_gold",
@@ -110,6 +111,20 @@ def append_work(
         output.write(json.dumps(record).encode("utf-8"))
 
 
+def shadow_receipt_path(progress_path: str) -> str:
+    """The per-run shadow certificate path, derived from the per-run progress path.
+
+    Derived rather than passed so it lands under the same per-run prefix
+    ``isolated_lake`` already owns and deletes: a certificate written to the
+    canonical path would be shared state, and shared state is exactly what this
+    harness's isolation guarantee rules out.
+    """
+
+    prefix = progress_path.rsplit("/", 1)[0] if "/" in progress_path else ""
+    name = "shadow-certification.json"
+    return f"{prefix}/{name}" if prefix else name
+
+
 def start_medallion(
     namespace: str, outbox_prefix: str, progress_path: str, *, stage: str
 ) -> subprocess.Popen:
@@ -135,6 +150,7 @@ def start_medallion(
             "BRONZE_OUTBOX_PREFIX": outbox_prefix,
             "MEDALLION_PROGRESS_PATH": progress_path,
             "MEDALLION_COMPLETION_LEDGER_PREFIX": f"{namespace}/completion-ledger",
+            "MEDALLION_SHADOW_RECEIPT_PATH": shadow_receipt_path(progress_path),
             "MEDALLION_INTERVAL_SECONDS": "1",
             "METRICS_ENABLED": "0",
             **STAGES[stage],
@@ -339,11 +355,20 @@ def run_deployment(
     stage: str,
     await_load_id: str | None = None,
     await_gold_rows: int | None = None,
-) -> None:
+    require_gold: str | None = None,
+    require_shadow: str | None = None,
+) -> dict:
     """Run one deployment in `stage` until it completes a cycle, then stop it.
 
     Every deployment waits for a cycle *this* deployment announced, which is the
     proof that it ran rather than inheriting the previous stage's output.
+
+    `require_gold` / `require_shadow` narrow that wait to a cycle that made a
+    specific decision, and the announced cycle is returned. The wait then carries
+    the assertion itself: a caller that wants "this deployment skipped the
+    comparison" says so, rather than sleeping and inspecting afterwards, so a
+    deployment that never made that decision fails as a timeout naming what it
+    was waiting for instead of as a confusing later assertion.
     """
 
     cat = catalog()
@@ -352,10 +377,13 @@ def run_deployment(
     try:
         if await_load_id is not None:
             wait_for_completed(fs(), progress_path, await_load_id)
-        watcher.wait_for_cycle_complete()
+        cycle = watcher.wait_for_cycle_complete(
+            gold=require_gold, shadow=require_shadow
+        )
         if await_gold_rows is not None:
             wait_for_gold_rows(cat, namespace, await_gold_rows)
         assert process.poll() is None, "the deployment stopped before it was told to"
+        return cycle
     finally:
         process.terminate()
         try:
@@ -426,6 +454,10 @@ def isolated_lake():
                 pass
         try:
             cat.drop_namespace(namespace)
+        except Exception:
+            pass
+        try:
+            fs().delete_file(f"{BUCKET}/{shadow_receipt_path(progress_path)}")
         except Exception:
             pass
         try:

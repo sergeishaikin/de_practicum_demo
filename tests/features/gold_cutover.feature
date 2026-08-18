@@ -36,6 +36,22 @@ Feature: Gold cutover and rollback
     Then the daily metrics are unchanged
     And the incremental business state is untouched
 
+  Scenario: A certified comparison is not repeated by a later deployment
+    Given a lake holding two batches of committed order observations
+    When the deployment serves metrics from the full rebuild
+    Then the daily metrics are published
+    And the incremental business state holds the current version of each order
+
+    When the metrics source is switched to the incremental state
+    Then the daily metrics are unchanged
+    And the incremental business state is untouched
+
+    When a second deployment serves metrics from the incremental state
+    Then it announces a cycle that skipped both the comparison and the rebuild
+    And the daily metrics are unchanged
+    And the incremental business state is untouched
+    And the daily metrics table gained no snapshot
+
   Scenario: A deployment that serves metrics from the incremental state without validation refuses to start
     Given a lake holding two batches of committed order observations
     When a deployment is started that serves metrics from the incremental state with validation disabled
