@@ -87,6 +87,7 @@ def start_medallion(
     namespace: str,
     outbox_prefix: str,
     progress_path: str,
+    shadow_receipt_path: str,
     *,
     gold_source: str,
     shadow: bool,
@@ -111,6 +112,12 @@ def start_medallion(
             "SHADOW_COMPARE": "1" if shadow else "0",
             "BRONZE_OUTBOX_PREFIX": outbox_prefix,
             "MEDALLION_PROGRESS_PATH": progress_path,
+            # Per-run, like every other object this test owns. The default is a
+            # single canonical key, so without this a run would read and
+            # overwrite shared control state in whatever MinIO it points at -
+            # harmless by snapshot identity, but this test declares an isolated
+            # namespace and must not leave anything outside it.
+            "MEDALLION_SHADOW_RECEIPT_PATH": shadow_receipt_path,
             "MEDALLION_COMPLETION_LEDGER_PREFIX": f"{namespace}/completion-ledger",
             "MEDALLION_INTERVAL_SECONDS": "1",
             "METRICS_ENABLED": "0",
@@ -189,6 +196,7 @@ def test_m4_persisted_silver_gold_shadow_and_rollback():
     namespace = f"m4_{run_id}"
     outbox_prefix = f"m4/{run_id}/outbox"
     progress_path = f"m4/{run_id}/progress.json"
+    shadow_receipt_path = f"m4/{run_id}/shadow-certification.json"
     cat = catalog()
     fs = storage()
     cat.create_namespace_if_not_exists(namespace)
@@ -225,6 +233,7 @@ def test_m4_persisted_silver_gold_shadow_and_rollback():
             namespace,
             outbox_prefix,
             progress_path,
+            shadow_receipt_path,
             gold_source="persisted_silver",
             shadow=True,
         )
@@ -256,6 +265,7 @@ def test_m4_persisted_silver_gold_shadow_and_rollback():
             namespace,
             outbox_prefix,
             progress_path,
+            shadow_receipt_path,
             gold_source="persisted_silver",
             shadow=True,
         )
@@ -273,6 +283,7 @@ def test_m4_persisted_silver_gold_shadow_and_rollback():
             namespace,
             outbox_prefix,
             progress_path,
+            shadow_receipt_path,
             gold_source="legacy",
             shadow=True,
         )
