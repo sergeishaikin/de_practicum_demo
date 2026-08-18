@@ -220,7 +220,7 @@ Plans:
 - [x] 04-02-PLAN.md — Metric identity in the sink: additive cycle/phase schema, cycle-only Prometheus observation, the executable historical rule (wave 2)
 - [x] 04-03-PLAN.md — Cycle identity in the medallion: cycle_id threading, phase records, non-overlapping durations, snapshot ids (wave 3)
 - [x] 04-04-PLAN.md — Cycle-complete stdout marker and marker-based harness liveness, replacing the Gold-snapshot assumption (wave 4)
-- [ ] 04-05-PLAN.md — GLD-01 Gold source provenance and no-op rebuild skip, plus the narrow ADR-0001 D-4 amendment (wave 5)
+- [x] 04-05-PLAN.md — GLD-01 Gold source provenance and no-op rebuild skip, plus the narrow ADR-0001 D-4 amendment (wave 5)
 - [ ] 04-06-PLAN.md — SHD-01 durable shadow certificate and the receipt-gated fast path (wave 6)
 - [ ] 04-07-PLAN.md — Documentation contract correction and Phase 4 requirement registration (wave 7)
 - [ ] 04-08-PLAN.md — POL-01 steady-state shadow policy as ADR-0002; exact rollout-matrix assertion (wave 7)

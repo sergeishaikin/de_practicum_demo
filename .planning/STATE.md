@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 4 EXECUTING - 04-01 through 04-04 complete and summarized; 04-05 (GLD-01) is next. Phase 1 01-07 (DEC-01) remains live and unexecuted.
+stopped_at: Phase 4 EXECUTING - 04-01 through 04-05 complete and summarized; 04-06 (SHD-01) is next. Phase 1 01-07 (DEC-01) remains live and unexecuted.
 last_updated: "2026-08-18T00:00:00.000Z"
-last_activity: 2026-08-18 -- Executed 04-04 (cycle-complete liveness marker); closed and summarized
+last_activity: 2026-08-18 -- Executed 04-05 (Gold provenance and the elided rebuild); closed and summarized
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 28
-  completed_plans: 21
-  percent: 75
+  completed_plans: 22
+  percent: 79
 ---
 
 # Project State
@@ -21,18 +21,18 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-08-09)
 
 **Core value:** Business-key current state must remain correct and recoverable while the pipeline processes only committed incremental work.
-**Current focus:** Phase 4 — Medallion Telemetry and Redundant Work Elimination (executing, 4 of 10 plans)
+**Current focus:** Phase 4 — Medallion Telemetry and Redundant Work Elimination (executing, 5 of 10 plans)
 
 ## Current Position
 
 Phase: 4 (Medallion Telemetry and Redundant Work Elimination) — EXECUTING
 Previous: Phase 3 (Staging Source Freshness Gate) — COMPLETE
-Plan: 4 of 10 executed (04-01 wave 1, 04-02 wave 2, 04-03 wave 3, 04-04 wave 4); 04-05 is next
-Status: EXECUTING. Ten plans across eight waves. Wave 4 landed the harness liveness signal, so wave 5 may now delete the every-cycle-Gold invariant without hanging ci-m5-gates. 04-09 (BENCH-01) is not autonomous and needs authorised mutation of the canonical dwh.
+Plan: 5 of 10 executed (04-01 wave 1, 04-02 wave 2, 04-03 wave 3, 04-04 wave 4, 04-05 wave 5); 04-06 is next
+Status: EXECUTING. Ten plans across eight waves. Wave 5 deleted the every-cycle-Gold invariant; the harness liveness signal from wave 4 is what keeps ci-m5-gates meaningful without it, and the live proof of both arrives on the PR. 04-09 (BENCH-01) is not autonomous and needs authorised mutation of the canonical dwh.
 Previous phase: Phase 3 COMPLETE - warehouse-dbt-contract green, fresh PASS / stale ERROR STALE exit exactly 1, 8/8 mutations killed. PR sergeishaikin#1.
-Last activity: 2026-08-18 -- Executed 04-04 (cycle-complete liveness marker); closed and summarized
+Last activity: 2026-08-18 -- Executed 04-05 (Gold provenance and the elided rebuild); closed and summarized
 
-Progress: ████░░░░░░ 40% of Phase 4 (4 of 10 plans executed)
+Progress: █████░░░░░ 50% of Phase 4 (5 of 10 plans executed)
 
 **Open work outside Phase 4:** Phase 1 `01-07-PLAN.md` (DEC-01 rollout decision)
 is authorized and still unexecuted. Phase 4 did **not** absorb or supersede it —
@@ -54,6 +54,7 @@ will route to Phase 1 ahead of Phase 4.
 | Phase 01 P02C | 30m | 2 tasks | 4 files |
 | Phase 02 P01 | 1h 12m | 3 tasks | 30 files |
 | Phase 04 P04 | unrecorded | 3 tasks | 3 files |
+| Phase 04 P05 | unrecorded | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -95,7 +96,11 @@ will route to Phase 1 ahead of Phase 4.
 - [Phase 4]: A deployment proves it ran by announcing a completed cycle on stdout, not by leaving a new Gold snapshot. The marker format `cycle-complete cycle_id= gold= shadow= duration_ms=` is fixed for the rest of the phase; `gold=skipped` and `shadow=skipped` are defined but unreachable until 04-05 and 04-06.
 - [Phase 4]: No marker is printed for an aborted or early-returning cycle. Absence of the signal is the signal, so a deployment that never completed a cycle cannot pass as one that did.
 - [Phase 4]: 04-04's live layer was deliberately not executed locally — no Docker, no stack. The subprocess/pipe wiring between the emit site and `CycleWatcher` is proved by `ci-m5-gates.yml` on the PR; everything either side of the pipe is proved by stackless tests.
-- [Phase 4]: The `-m bdd` gate named in 04-03 Task 2 is a plan defect — 23 of those tests also carry `integration`/`airflow` markers and need a live stack the plan is not authorised to start. The executed substitute is `-m "bdd and not integration and not airflow"`. 04-04 or 04-07 should restate it.
+- [Phase 4]: Gold is memoized, not incrementalised. It stays a full, exactly verifiable rebuild; only a rebuild provably identical to the published Gold state is elided, certified by `source-silver-snapshot-id` on the Gold commit and read from `current_snapshot()` alone.
+- [Phase 4]: The Gold skip is scoped to `GOLD_SOURCE=persisted_silver`. Under `legacy` the Gold input is the in-memory rebuild derived from Bronze, so that path passes no basis, writes every cycle and stamps nothing. A Bronze-provenance skip is a separate decision nobody has taken.
+- [Phase 4]: Absent, unparsable, stale and `None` provenance all rebuild. Reading only the current Gold snapshot means a Trino maintenance rewrite of Gold costs exactly one extra rebuild rather than being vouched for by a superseded snapshot.
+- [Phase 4]: ADR-0001 D-4 is amended, not violated. Its decision and all six reasons stand byte-identical; only *"on every cycle"* became *"on every cycle in which persisted Silver changed"*, recorded as a dated superseding section citing `artifacts/b2-rollout/06-o1-window.json`. A partial or delta Gold is outside the amendment.
+- [Phase 4]: The `-m bdd` gate named in 04-03 Task 2 is a plan defect — 23 of those tests also carry `integration`/`airflow` markers and need a live stack the plan is not authorised to start. The executed substitute is `-m "bdd and not integration and not airflow"`. 04-05 Task 3 repeated the same defect verbatim and the same substitute was used; 04-07 should restate the gate once for the whole phase.
 
 ### Pending Todos
 
