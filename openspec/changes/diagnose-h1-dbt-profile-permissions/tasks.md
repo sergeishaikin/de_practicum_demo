@@ -4,12 +4,12 @@
 - [x] 1.2 Have the probe print `id`, `ls -ld .`, `ls -ld dbt`, `ls -la dbt`, `stat dbt`, `stat dbt/profiles.yml` (tolerating absence), `stat dbt/profiles.yml.example` and `find dbt -maxdepth 1 -printf '%u:%g %m %p\n'`
 - [x] 1.3 Have the probe also record the effective compose mounts and container user for every service that mounts `dbt/`, so the mutation can be attributed to a named service rather than inferred
 - [x] 1.4 Include the probe output in the existing artifact upload, so the observation survives the run
-- [ ] 1.5 Push and let the H1 run that this push triggers carry the probe — do not spend a dedicated run
+- [x] 1.5 Push and let the H1 run that this push triggers carry the probe — do not spend a dedicated run - run `32242181301`, no dedicated rebuild bought
 
 ## 2. Establish provenance
 
-- [ ] 2.1 Record the probe output verbatim in `evidence.md` in this change
-- [ ] 2.2 Classify as A (a `profiles.yml` exists, owned by a container UID), B (`dbt/` itself is unwritable to the runner), or C (no container mutation — a workflow or checkout contract problem)
+- [x] 2.1 Record the probe output verbatim in `evidence.md` in this change
+- [x] 2.2 Classify as A (a `profiles.yml` exists, owned by a container UID), B (`dbt/` itself is unwritable to the runner), or C (no container mutation — a workflow or checkout contract problem) - **A confirmed**: root-owned zero-byte `profiles.yml` born at stack start; `dbt/` itself untouched
 - [ ] 2.3 If the observation contradicts the predicted case A, stop and revise `design.md` before any fix is written
 
 ## 3. Fix at the owner of the mutation
