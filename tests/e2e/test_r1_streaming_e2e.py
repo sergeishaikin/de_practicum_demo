@@ -327,8 +327,15 @@ def test_r1_offset_loss_fails_loudly() -> None:
         # Two independent proofs of the same boundary, neither of them a sampled
         # coincidence: the landed row names Kafka offset 0, and the raw query
         # committed batch 0 to its checkpoint.
+        def one_landed() -> bool:
+            assert_container_running(stream_name)
+            try:
+                return landing_rows(_fs(), run_id) == 1
+            except FileNotFoundError:
+                return False
+
         wait_until(
-            lambda: landing_rows(_fs(), run_id) == 1,
+            one_landed,
             180,
             "the published record lands",
             logs=(lambda: docker("logs", stream_name),),
