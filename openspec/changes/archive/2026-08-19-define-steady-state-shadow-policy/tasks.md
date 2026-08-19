@@ -23,5 +23,5 @@
 - [x] 3.1 Run `uv run --locked ruff check .`, `uv run --locked black --check .`, `uv run --locked pytest`, and the coverage gate `uv run --locked pytest tests --cov=iceberg --cov-report=term-missing --cov-fail-under=90`; record the figures each returned
 - [x] 3.2 Run `uv run --locked pytest -q tests/test_m5_fitness_functions.py -m architecture` and record the count
 - [x] 3.3 Write `evidence.md` in this change: the negative proof, the gate figures, and any place where a source artifact's description did not match the code
-- [ ] 3.4 Commit atomically, push, and confirm the repository gates are green in live CI on the pushed SHA
-- [ ] 3.5 Record the migration outcome for `04-08` in `.planning/STATE.md` as a ledger entry only, and stop — `04-09` is not begun
+- [x] 3.4 Commit atomically, push, and confirm the repository gates are green in live CI on the pushed SHA
+- [x] 3.5 Record the migration outcome for `04-08` in `.planning/STATE.md` as a ledger entry only, and stop — `04-09` is not begun

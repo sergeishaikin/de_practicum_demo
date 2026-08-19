@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 4 EXECUTING - 04-01 through 04-07 complete and summarized; 04-08 (POL-01 / ADR-0002) is the next wave-7 plan and is NOT authorised. Phase 1 01-07 (DEC-01) remains live and unexecuted.
-last_updated: "2026-08-18T00:00:00.000Z"
+stopped_at: GSD execution is frozen. 04-01 through 04-07 were executed as GSD plans; 04-08's obligation (POL-01 / ADR-0002) was discharged on 2026-08-19 in the mapped OpenSpec change define-steady-state-shadow-policy, not through GSD. 04-09 (BENCH-01) remains unauthorised and mutates canonical warehouse state. Phase 1 01-07 (DEC-01) remains live and unexecuted.
+last_updated: "2026-08-19T00:00:00.000Z"
 last_activity: 2026-08-18 -- Executed 04-07 (documentation contract correction and Phase 4 requirement registration); closed and summarized
 progress:
   total_phases: 4
@@ -28,7 +28,7 @@ are not a queue. Each obligation has a successor:
 | Frozen GSD plan | OpenSpec change |
 |---|---|
 | `01-07` — decide D-3a / O2 / no-change | `close-b2-rollout-decision` |
-| `04-08` — steady-state shadow policy (ADR-0002) | `define-steady-state-shadow-policy` |
+| `04-08` — steady-state shadow policy (ADR-0002) | `define-steady-state-shadow-policy` - discharged 2026-08-19: ADR-0002 ratifies shadow validation as mandatory whenever `GOLD_SOURCE=persisted_silver`, with conditions C1-C7 for reopening it, and `RUNTIME_ROLLOUT_MATRIX` is now pinned by set equality. The matrix itself is unchanged |
 | `04-09` — before/after benchmark | `benchmark-medallion-fast-path` |
 | `04-10` — Arrow/Python boundary profile | `profile-arrow-python-boundary` |
 | H1 clean-stack R1 E2E failure (found 2026-08-18) | `diagnose-cold-start-r1-e2e` - closed 2026-08-19, classification **not established**: the failure did not reproduce and is timing-sensitive; evidence capture is now in place for the next occurrence |
