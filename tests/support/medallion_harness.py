@@ -34,6 +34,7 @@ from pyarrow.fs import S3FileSystem
 from pyiceberg.catalog.rest import RestCatalog
 
 from medallion import iceberg_medallion as m
+from tests.support.progress_read_diagnostics import read_progress_json
 from tests.support.writer_harness import (
     ACCESS_KEY,
     BUCKET,
@@ -173,8 +174,10 @@ def wait_for_completed(
     object_path = f"{BUCKET}/{progress_path}"
     while time.time() < deadline:
         try:
-            with filesystem.open_input_file(object_path) as source:
-                progress = json.loads(source.read().decode("utf-8"))
+            # A corrupted read raises ProgressReadCorruption, which is deliberately
+            # not caught here: the poll tolerates "not written yet", never "read
+            # back as something other than JSON".
+            progress = read_progress_json(filesystem, object_path)
             if load_id in progress.get("completed", {}):
                 return
         except (FileNotFoundError, OSError):

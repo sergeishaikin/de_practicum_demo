@@ -59,6 +59,21 @@ jobs:
           tests/integration/test_m4_gold_cutover.py
       - name: PR blocking BDD specifications
         run: uv run --locked pytest -q tests/features -m "bdd and integration"
+      - name: Capture progress-read corruption evidence
+        # Written by tests/support/progress_read_diagnostics.py at the moment a
+        # progress object fails to parse. The undecoded bytes are the evidence,
+        # so they are uploaded as-is rather than summarised. Read-only, and
+        # `if: failure()` so it costs nothing on a green run.
+        if: failure()
+        run: |
+          ls -laR artifacts/read-corruption || echo "no capture directory: the failure was not a corrupted read"
+      - name: Upload progress-read corruption evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m5-read-corruption
+          path: artifacts/read-corruption/**
+          if-no-files-found: ignore
       - name: Cleanup
         if: always()
         run: >

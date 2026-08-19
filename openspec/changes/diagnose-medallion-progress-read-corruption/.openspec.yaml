@@ -1,0 +1,7 @@
+schema: spec-driven
+created: 2026-08-19
+
+# Diagnostic first: establish why a progress object reads back as non-JSON
+# before changing any behaviour. No capability requirement changes until the
+# cause is known and a fix is chosen.
+skip_specs: true
