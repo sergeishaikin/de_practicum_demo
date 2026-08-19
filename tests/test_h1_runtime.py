@@ -55,6 +55,57 @@ def test_postgres_health_means_reachable_over_tcp() -> None:
     assert "-p 5432" in probe
 
 
+def test_trino_is_not_ready_while_it_is_still_starting() -> None:
+    """`/v1/info` returns 200 during startup, so the payload decides readiness.
+
+    H1's bootstrap treated any 200 as ready and the next statement died with
+    `Trino server is still initializing`, twice in a row. The probe now requires
+    the server to say it finished starting.
+    """
+
+    import importlib
+    import io
+    import json as json_module
+    import sys
+    from contextlib import contextmanager
+
+    # Imported the way the script runs, with scripts/ on the path - its own
+    # `from validate_runtime_config import ...` depends on that.
+    sys.path.insert(0, str(ROOT / "scripts"))
+    try:
+        bootstrap_stack = importlib.import_module("bootstrap_stack")
+    finally:
+        sys.path.pop(0)
+
+    @contextmanager
+    def responding(payload: dict, status: int = 200):
+        body = io.BytesIO(json_module.dumps(payload).encode("utf-8"))
+        body.status = status
+        yield body
+
+    def urlopen_returning(payload: dict, status: int = 200):
+        def fake(url, timeout=None):
+            return responding(payload, status)
+
+        return fake
+
+    original = bootstrap_stack.urllib.request.urlopen
+    try:
+        for payload, status, expected in [
+            ({"starting": True}, 200, False),
+            ({"starting": False}, 200, True),
+            ({}, 200, False),
+            ({"starting": False}, 503, False),
+        ]:
+            bootstrap_stack.urllib.request.urlopen = urlopen_returning(payload, status)
+            assert bootstrap_stack._trino_ready("http://trino/v1/info") is expected, (
+                payload,
+                status,
+            )
+    finally:
+        bootstrap_stack.urllib.request.urlopen = original
+
+
 def test_every_postgres_readiness_probe_is_tcp() -> None:
     """No readiness probe may ask the socket whether the server is up.
 
