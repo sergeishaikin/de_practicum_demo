@@ -53,19 +53,29 @@ has nothing but the numbering to go on.
 
 ### What the numbering actually encodes
 
-`NG-0.9` is numbered ninth because it belongs to the foundational layer, not
-because it is ninth in value. The register's own machine-computed layering
-places it in **layer 1**, alongside `NG-0.2` and `NG-0.4`:
+`NG-0.9` is numbered ninth because of where it sat in the source package's
+narrative, not because it is ninth in value. The register's own machine-computed
+layering places it in **layer 0**, alongside `NG-0.1`, with no hard dependency at
+all:
 
 ```text
-layer 0   NG-0.1
-layer 1   NG-0.2, NG-0.4, NG-0.9
-layer 2   NG-0.3, NG-0.5, NG-0.6
-layer 3   NG-0.7
-layer 4   NG-0.8, NG-1.1
-layer 5   NG-1.2, NG-2.1
-layer 6   NG-1.3, NG-2.2
+layer 0   NG-0.1, NG-0.9
+layer 1   NG-0.2, NG-0.4, NG-1.2, NG-2.1
+layer 2   NG-0.3, NG-0.5, NG-0.6, NG-1.1
+layer 3   NG-0.7, NG-1.3
+layer 4   NG-0.8
+layer 5   NG-2.2
 ```
+
+> **Amended 2026-08-19** by `reconcile-next-generation-hard-dependencies`. As
+> first written, this ADR recommended `NG-0.9` before `NG-0.1` while the register
+> declared `NG-0.1` a hard dependency of it — a contradiction this document
+> created and did not notice. The reconciliation established that four items
+> carried inherited layering conventions rather than technical prerequisites, and
+> that `NG-0.9` has none. **No recommendation below was changed**: the corrected
+> dependency model permits the order this ADR already advised. The layering above
+> and the *Blocks* column are restated from the corrected register; the reasoning
+> is untouched.
 
 ---
 
@@ -88,15 +98,15 @@ Decay is the axis that reorders this programme, and the one most often skipped.
 
 | Item | Blocks | Cost | Risk | Decay | Placement |
 |---|---|---|---|---|---|
-| NG-0.1 provenance contract | 0.2, 0.4, 0.9 and all telemetry naming | M | Low | **High** | Wave 1 |
-| NG-0.9 typing gate | nothing formally | **S** | Low | **Highest** | Wave 1 |
-| NG-0.2 OpenLineage | 0.3 | L | Med — Spark listener compatibility | Med | Wave 2 |
-| NG-0.4 OTel Collector | 0.5, 0.6 | M | Low | Med | Wave 2 |
-| NG-0.3 OpenMetadata | 0.7, 0.8, 2.1 | **XL** | **High** — resources and connector coverage | Low | Wave 3 |
-| NG-0.5 Tempo | 0.7 | S/M | Low | Low | Wave 3 |
-| NG-0.6 Loki | 0.7 | M | Low | Med — the cost is structured logging, not Loki | Wave 3 |
-| NG-0.7 correlation / SLO | 0.8, 1.1, 1.2, 2.1 | M | Low | Low | Wave 4 |
-| NG-0.8 data reliability | 1.2, 2.1 | M | Low | Low | Wave 5 |
+| NG-0.1 provenance contract | 0.2, 0.4, 1.2, 2.1 and all telemetry naming | M | Low | **High** | Wave 1 |
+| NG-0.9 typing gate | nothing | **S** | Low | **Highest** | Wave 1 |
+| NG-0.2 OpenLineage | 0.3, 1.1 | L | Med — Spark listener compatibility | Med | Wave 2 |
+| NG-0.4 OTel Collector | 0.5, 0.6, 1.1 | M | Low | Med | Wave 2 |
+| NG-0.3 OpenMetadata | 0.7, 0.8, 2.2 | **XL** | **High** — resources and connector coverage | Low | Wave 3 |
+| NG-0.5 Tempo | 0.7, 2.2 | S/M | Low | Low | Wave 3 |
+| NG-0.6 Loki | 0.7, 2.2 | M | Low | Med — the cost is structured logging, not Loki | Wave 3 |
+| NG-0.7 correlation / SLO | 0.8, 2.2 | M | Low | Low | Wave 4 |
+| NG-0.8 data reliability | 2.2 | M | Low | Low | Wave 5 |
 | NG-2.1 MLflow | 2.2 | M | Low | Low | Wave 6A |
 | NG-2.2 incident agent | nothing | L | Med — plus recurring provider cost | Low | Wave 6A |
 | NG-1.1 Flink | 1.3 | **XL** | **High** — version matrix | Low | Wave 6B |
@@ -106,10 +116,9 @@ Decay is the axis that reorders this programme, and the one most often skipped.
 ### Recommended programme order
 
 ```text
-Stage 0:
-  paper-gate NG-1.3
-  -> if no distinct application-serving workload can be defined:
-       DO NOT IMPLEMENT Pinot
+Stage 0 - paper gate, not an execution slot:
+  evaluate whether a distinct application-serving query corpus exists
+  -> if none can be defined: DO NOT IMPLEMENT Pinot
 
 Wave 1:
   NG-0.9
@@ -118,10 +127,9 @@ Wave 1:
 Wave 2:
   NG-0.2
   NG-0.4
-  (development may overlap; live verification separately)
 
 Wave 3:
-  NG-0.3   preceded by OM-PREFLIGHT, below
+  NG-0.3
   NG-0.5
   NG-0.6
 
@@ -132,15 +140,24 @@ Wave 5:
   NG-0.8
 
 Wave 6A - preferred:
-  NG-2.1 + NG-2.2 as one product slice
+  NG-2.1
+  NG-2.2
 
 Wave 6B - alternative:
   NG-1.1
   NG-1.2
 
-Last / conditional:
+Last, conditional:
   NG-1.3
 ```
+
+Every execution slot above is a bare item id on its own line, and
+`validate_backlog.py` parses them in order and fails if any item appears before
+one of its hard dependencies. Annotations therefore live here rather than in the
+block: Wave 2's two items may be developed concurrently but are verified
+separately; Wave 3's NG-0.3 opens with OM-PREFLIGHT, below; and Wave 6A's two
+items are one product slice delivered as two bounded changes. Stage 0 is a
+decision, not a slot, so it names no bare id.
 
 Summarised as priority bands:
 
@@ -339,6 +356,13 @@ silent reordering:
   making the streaming branch the preferred one.
 - Measured profile receipts show the resource ceiling is materially different
   from the estimate above, changing what can be verified concurrently.
-- A dependency contradiction resolves in a direction that changes the layering —
-  for example `NG-1.1` being confirmed as *not* gated on `NG-0.3`, which would
-  detach the Flink branch from the long pole.
+- ~~A dependency contradiction resolves in a direction that changes the
+  layering — for example `NG-1.1` being confirmed as *not* gated on `NG-0.3`,
+  which would detach the Flink branch from the long pole.~~
+  **This condition fired on 2026-08-19.** `NG-1.1` was confirmed as *not* gated
+  on `NG-0.3`, and the Flink branch is detached from the long pole: it now sits
+  in layer 2 rather than layer 4. `NG-1.2` and `NG-2.1` moved to layer 1 for the
+  same reason. The recommendation was re-examined and **kept**: Wave 6A and 6B
+  are late by preference — cost, risk and what each demonstrates — not because
+  the graph forced them there, and the graph never was what placed them.
+  A future contradiction resolving the same way remains a reopen condition.

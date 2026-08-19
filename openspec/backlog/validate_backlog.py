@@ -16,7 +16,15 @@ It checks, for every ``<backlog>/*/00-INDEX.md``:
   earlier rows;
 * every item's ``Authorised`` cell reads ``no`` or an ISO date;
 * every referenced item file exists and carries the headers that mark it as
-  unauthorised future work.
+  unauthorised future work;
+* any ordering document the register points at covers every item exactly once and
+  never places an item before one of its hard dependencies.
+
+That last check exists because the register cannot catch it alone. A recommended
+ordering published in a separate document — an ADR, say — can contradict the
+dependency graph without either file being internally inconsistent, and on
+2026-08-19 exactly that happened: ADR-0003 recommended ``NG-0.9`` first while the
+register declared ``NG-0.1`` a hard dependency of it. Both documents validated.
 
 Run it directly::
 
@@ -37,6 +45,11 @@ ITEM_ID = re.compile(r"^NG-\d+\.\d+$")
 ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 VALID_GATES = frozenset({"ADOPT", "EXPERIMENT"})
 NO_DEPENDENCIES = "-"
+
+# A register names its ordering document with this line; the ordering document
+# marks each execution slot as a bare item id on a line of its own.
+ORDERING_POINTER = re.compile(r"^Recommended ordering:\s*`([^`]+)`\s*$")
+ORDERING_SLOT = re.compile(r"^\s*(NG-\d+\.\d+)\s*$")
 
 REQUIRED_ITEM_MARKERS = (
     "**Status:** PROPOSED",
@@ -216,6 +229,73 @@ def compute_layers(rows: list[Row], report: Report) -> None:
     report.layers.update(depth)
 
 
+def find_ordering_document(register: Path, repo_root: Path) -> Path | None:
+    """Resolve the ordering document a register points at, if it names one."""
+    for line in register.read_text(encoding="utf-8").splitlines():
+        match = ORDERING_POINTER.match(line.strip())
+        if match:
+            return repo_root / match.group(1)
+    return None
+
+
+def parse_ordering(document: Path) -> list[str]:
+    """Read execution slots, in order, from an ordering document.
+
+    A slot is a bare item id alone on its line. Anything with surrounding prose
+    is commentary - a paper gate, an annotation - and is deliberately not a slot,
+    so the document can explain itself without confusing the check.
+    """
+    slots: list[str] = []
+    for line in document.read_text(encoding="utf-8").splitlines():
+        match = ORDERING_SLOT.match(line)
+        if match:
+            slots.append(match.group(1))
+    return slots
+
+
+def check_ordering(
+    register: Path, rows: list[Row], repo_root: Path, report: Report
+) -> None:
+    """A published ordering may not place an item before a hard dependency."""
+    document = find_ordering_document(register, repo_root)
+    if document is None:
+        return
+    if not document.is_file():
+        report.fail(register, f"ordering document not found: {document}")
+        return
+
+    slots = parse_ordering(document)
+    position = {item: index for index, item in enumerate(slots)}
+    known = {row.item for row in rows}
+    label = document.name
+
+    for item in slots:
+        if item not in known:
+            report.fail(register, f"{label}: orders unknown item {item!r}")
+
+    if len(slots) != len(position):
+        duplicates = sorted({i for i in slots if slots.count(i) > 1})
+        report.fail(register, f"{label}: item(s) ordered more than once: {duplicates}")
+
+    missing = sorted(known - set(slots))
+    if missing:
+        report.fail(register, f"{label}: item(s) never ordered: {missing}")
+
+    for row in rows:
+        if row.item not in position:
+            continue
+        for dep in row.depends_on:
+            if dep not in position:
+                continue
+            if position[dep] >= position[row.item]:
+                report.fail(
+                    register,
+                    f"{label}: orders {row.item} at slot {position[row.item]} but "
+                    f"its hard dependency {dep} at slot {position[dep]}; an "
+                    "ordering may not place an item before a dependency",
+                )
+
+
 def check_item_files(register: Path, rows: list[Row], report: Report) -> None:
     """Referenced files exist and still declare themselves unauthorised."""
     for row in rows:
@@ -229,9 +309,16 @@ def check_item_files(register: Path, rows: list[Row], report: Report) -> None:
                 report.fail(register, f"{row.file}: missing required marker {marker!r}")
 
 
-def validate(backlog_root: Path) -> Report:
-    """Validate every register under ``backlog_root``."""
+def validate(backlog_root: Path, repo_root: Path | None = None) -> Report:
+    """Validate every register under ``backlog_root``.
+
+    ``repo_root`` anchors the ordering-document pointer, which a register writes
+    as a repository-relative path. It defaults to the backlog's grandparent -
+    ``<repo>/openspec/backlog`` - so the ordinary invocation needs no argument.
+    """
     report = Report()
+    if repo_root is None:
+        repo_root = backlog_root.parent.parent
     registers = sorted(backlog_root.glob("*/00-INDEX.md"))
     if not registers:
         report.errors.append(f"{backlog_root}: no register found")
@@ -249,6 +336,7 @@ def validate(backlog_root: Path) -> Report:
         check_authorisation(register, rows, report)
         check_dependencies(register, rows, report)
         check_item_files(register, rows, report)
+        check_ordering(register, rows, repo_root, report)
         compute_layers(rows, report)
 
         for row in rows:
@@ -271,9 +359,15 @@ def main(argv: list[str] | None = None) -> int:
         default=Path(__file__).resolve().parent,
         help="directory holding the backlog registers (default: this file's dir)",
     )
+    parser.add_argument(
+        "--repo-root",
+        type=Path,
+        default=None,
+        help="anchor for ordering-document paths (default: the backlog's grandparent)",
+    )
     args = parser.parse_args(argv)
 
-    report = validate(args.backlog_root)
+    report = validate(args.backlog_root, args.repo_root)
 
     if report.errors:
         print(f"backlog validation FAILED ({len(report.errors)} problems)")

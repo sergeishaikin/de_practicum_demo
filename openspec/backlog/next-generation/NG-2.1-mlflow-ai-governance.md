@@ -24,7 +24,20 @@ The program SHALL NOT install MLflow first and invent a use case later.
 
 ## Dependencies
 
-NG-0.1, NG-0.3 through NG-0.9.
+**Hard:** NG-0.1, whose Iceberg-snapshot-as-version-primitive contract this
+item's dataset provenance requirement depends on directly.
+
+**Not gating:** NG-0.3 through NG-0.9 were previously listed. MLflow's evaluation,
+prompt and model governance needs no catalog, trace backend, log backend,
+correlation layer or reliability model; it carries its own `ml` profile and its
+own tracing.
+
+**Eligibility is not the same as readiness.** This item SHALL NOT be started
+merely because NG-0.1 is complete: its product decision forbids installing MLflow
+before a real ML/LLM/agent vertical slice exists, which in practice binds it to
+NG-2.2.
+
+Reconciled on 2026-08-19 in `reconcile-next-generation-hard-dependencies`.
 
 ## Goal
 

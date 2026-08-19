@@ -46,53 +46,59 @@ Column contracts, so the register stays parseable:
 | NG-0.6 | `NG-0.6-grafana-loki.md` | ADOPT | NG-0.4 | `add-loki-log-backend` | no |
 | NG-0.7 | `NG-0.7-grafana-correlation.md` | ADOPT | NG-0.3, NG-0.4, NG-0.5, NG-0.6 | `add-grafana-correlation-slo` | no |
 | NG-0.8 | `NG-0.8-data-reliability.md` | ADOPT | NG-0.3, NG-0.7 | `unify-data-reliability` | no |
-| NG-0.9 | `NG-0.9-engineering-quality-gates.md` | ADOPT | NG-0.1 | `add-static-typing-gate` | no |
-| NG-1.1 | `NG-1.1-apache-flink-shadow-streaming.md` | EXPERIMENT | NG-0.1, NG-0.2, NG-0.3, NG-0.4, NG-0.5, NG-0.6, NG-0.7, NG-0.9 | `evaluate-flink-shadow-streaming` | no |
-| NG-1.2 | `NG-1.2-clickhouse-hot-analytics.md` | EXPERIMENT | NG-0.1, NG-0.4, NG-0.5, NG-0.6, NG-0.7, NG-0.8, NG-0.9 | `evaluate-clickhouse-hot-analytics` | no |
+| NG-0.9 | `NG-0.9-engineering-quality-gates.md` | ADOPT | - | `add-static-typing-gate` | no |
+| NG-1.1 | `NG-1.1-apache-flink-shadow-streaming.md` | EXPERIMENT | NG-0.1, NG-0.2, NG-0.4 | `evaluate-flink-shadow-streaming` | no |
+| NG-1.2 | `NG-1.2-clickhouse-hot-analytics.md` | EXPERIMENT | NG-0.1 | `evaluate-clickhouse-hot-analytics` | no |
 | NG-1.3 | `NG-1.3-apache-pinot-realtime-serving.md` | EXPERIMENT | NG-1.1, NG-1.2 | `evaluate-pinot-realtime-serving` | no |
-| NG-2.1 | `NG-2.1-mlflow-ai-governance.md` | ADOPT | NG-0.1, NG-0.3, NG-0.4, NG-0.5, NG-0.6, NG-0.7, NG-0.8, NG-0.9 | `add-mlflow-ai-governance` | no |
-| NG-2.2 | `NG-2.2-data-platform-incident-agent.md` | EXPERIMENT | NG-2.1 | `evaluate-data-platform-incident-agent` | no |
+| NG-2.1 | `NG-2.1-mlflow-ai-governance.md` | ADOPT | NG-0.1 | `add-mlflow-ai-governance` | no |
+| NG-2.2 | `NG-2.2-data-platform-incident-agent.md` | EXPERIMENT | NG-0.3, NG-0.5, NG-0.6, NG-0.7, NG-0.8, NG-2.1 | `evaluate-data-platform-incident-agent` | no |
 
 A row changes only in two ways: `Authorised` flips to the date the operator
 authorised it, and the row records the change's disposition once the change is
 archived. A backlog row SHALL NOT be edited to look like progress that the change
 record does not carry.
 
-### Soft preferences and one unresolved tension
+### What the `Depends on` column means
 
-The `Depends on` column records only what SHALL be complete first. These are
-recorded here rather than in the column because they are not gating:
+A hard dependency is a **technical prerequisite**: the dependent item cannot be
+designed, implemented, or have its acceptance evidence produced until it exists.
+Anything weaker — a preference, a recommendation, a sensible order, a rule that
+applies only once the other item exists — is not a dependency and is recorded
+below instead.
 
-- **NG-1.2** prefers NG-1.1, because Flink can produce the curated serving
+The column was reconciled against all fourteen item bodies on 2026-08-19 in
+`reconcile-next-generation-hard-dependencies`. Before that it carried inherited
+layering conventions, which made the register disagree with the recommended
+ordering in ADR-0003 and over-gated four items.
+
+### Soft preferences, not gates
+
+- **NG-0.9 SHOULD be done early**, and ADR-0003 recommends it first. Its cost
+  rises as more Python is added. That is scheduling, not gating: nothing in
+  NG-0.9 consumes an identity, dataset name, provenance envelope or telemetry
+  label, so it has no hard dependency at all.
+- **New first-party modules land in typed scope once NG-0.9 exists.** That is a
+  rule NG-0.9 imposes on later items, not a prerequisite those items have.
+- **NG-1.2 prefers NG-1.1**, because Flink can produce the curated serving
   stream — but NG-1.2 explicitly permits evaluation from an isolated Kafka
-  projection first, so it is not gated on Flink.
-- **NG-2.1** SHALL NOT be started merely because its dependencies are met. Its
-  own product decision forbids installing MLflow before a real ML/agent slice
-  exists, which in practice binds it to NG-2.2.
+  projection first.
+- **NG-1.1 recommends NG-0.3**, so lineage impact is visible. Its own acceptance
+  evidence — parity, the failure matrix, resource measurement — needs no catalog.
+- **NG-2.1 SHALL NOT be started merely because its dependency is met.** Its
+  product decision forbids installing MLflow before a real ML/agent slice exists,
+  which in practice binds it to NG-2.2.
+- **NG-1.3 is conditional on a paper gate** before anything is provisioned: if no
+  distinct application-serving query corpus can be defined, its own correct
+  outcome is `DO NOT IMPLEMENT`.
 
-### Recorded contradictions
+### Recommended ordering
 
-Two places where the package disagrees with itself. Both are recorded rather
-than silently decided, and neither may be settled by an implementing change's
-design alone — see *Backlog contradictions stop implementation* in
-`openspec/specs/engineering-governance/spec.md`.
+Recommended ordering: `docs/adr/0003-next-generation-backlog-prioritisation.md`
 
-- **NG-1.1 — required or recommended?** Its `Dependencies` section lists "NG-0.1
-  through NG-0.7", which includes NG-0.3, and then states that OpenMetadata is
-  "recommended before adoption". Both cannot be true. The register carries the
-  **stricter reading** as a provisional interpretation — NG-0.3 is a hard
-  dependency — because over-gating can only delay work whereas under-gating can
-  start it prematurely. This is an interim reading, not a resolution.
-- **NG-1.2 — weaker in the item than in the register.** The item states "NG-0.1
-  and observability/quality gates"; the register carries NG-0.1 and
-  NG-0.4 – NG-0.9. The register is again the stricter reading.
-
-When `evaluate-flink-shadow-streaming` or `evaluate-clickhouse-hot-analytics` is
-authorised, it SHALL stop before state-changing work and have the contradiction
-resolved — as a bounded backlog correction, or as an authoritative
-interpretation recorded in this register — **before** its own design is
-accepted. An implementing change SHALL NOT decide retroactively which line of
-the backlog was the correct one.
+That document records the recommended execution order. It is a preference, not an
+authorisation and not a dependency. `validate_backlog.py` reads the pointer above
+and fails if the ordering it publishes places any item before one of its hard
+dependencies — the defect class that produced the NG-0.9 contradiction.
 
 ## Dependency layers
 
@@ -106,26 +112,25 @@ layer have no dependency on each other**, which is where the available
 parallelism is.
 
 ```text
-layer 0   NG-0.1  provenance / identity contract
+layer 0   NG-0.1  provenance / identity contract    -
+          NG-0.9  engineering quality gates         -
 
-layer 1   NG-0.2  OpenLineage                     needs 0.1
-          NG-0.4  OTel Collector                  needs 0.1
-          NG-0.9  engineering quality gates       needs 0.1
+layer 1   NG-0.2  OpenLineage                       needs 0.1
+          NG-0.4  OTel Collector                    needs 0.1
+          NG-1.2  ClickHouse hot analytics          needs 0.1
+          NG-2.1  MLflow governance                 needs 0.1
 
-layer 2   NG-0.3  OpenMetadata                    needs 0.2
-          NG-0.5  Tempo                           needs 0.4
-          NG-0.6  Loki                            needs 0.4
+layer 2   NG-0.3  OpenMetadata                      needs 0.1, 0.2
+          NG-0.5  Tempo                             needs 0.4
+          NG-0.6  Loki                              needs 0.4
+          NG-1.1  Flink shadow path                 needs 0.1, 0.2, 0.4
 
-layer 3   NG-0.7  correlation / SLO               needs 0.3, 0.4, 0.5, 0.6
+layer 3   NG-0.7  correlation / SLO                 needs 0.3, 0.4, 0.5, 0.6
+          NG-1.3  Pinot serving                     needs 1.1, 1.2
 
-layer 4   NG-0.8  data reliability                needs 0.3, 0.7
-          NG-1.1  Flink shadow path               needs 0.1-0.7, 0.9
+layer 4   NG-0.8  data reliability                  needs 0.3, 0.7
 
-layer 5   NG-1.2  ClickHouse hot analytics        needs 0.1, 0.4-0.9
-          NG-2.1  MLflow governance               needs 0.1, 0.3-0.9
-
-layer 6   NG-1.3  Pinot serving                   needs 1.1, 1.2
-          NG-2.2  incident agent                  needs 2.1
+layer 5   NG-2.2  incident agent                    needs 0.3, 0.5, 0.6, 0.7, 0.8, 2.1
 ```
 
 Layering is a dependency fact, not a schedule. Two items sharing a layer may
@@ -133,6 +138,10 @@ still be impossible to verify at the same time: several carry opt-in Compose
 profiles whose combined resource demand exceeds a single developer host, and
 that ceiling binds harder than the graph does. Sequencing within a layer is a
 decision for the operator at authorisation time.
+
+The layering is *permissive*, not prescriptive. NG-1.2 and NG-2.1 sit in layer 1
+because nothing technically blocks them there; ADR-0003 still schedules both
+late, for reasons the graph cannot express.
 
 ## Cross-cutting non-negotiable invariants
 

@@ -24,7 +24,19 @@ This is the proving ground for agent engineering practices; it is not authorised
 
 ## Dependencies
 
-NG-2.1 plus OpenMetadata, Grafana/OTel/Tempo/Loki and unified reliability.
+**Hard:** NG-2.1, NG-0.3, NG-0.5, NG-0.6, NG-0.7, NG-0.8.
+
+Every one is a tool this agent reads. The catalog supplies lineage; Tempo and
+Loki supply the traces and logs whose *absence* one acceptance scenario requires
+the agent to distinguish from a data-plane failure; correlation and the
+reliability model supply the freshness and severity context another scenario
+turns on. NG-0.4 follows transitively through NG-0.5 and NG-0.6.
+
+These were named in this section but only NG-2.1 reached the register, where they
+had been arriving transitively through NG-2.1's own over-broad dependency list.
+Trimming that list would have silently un-gated this item, so they are now
+recorded explicitly. Reconciled on 2026-08-19 in
+`reconcile-next-generation-hard-dependencies`.
 
 ## Goal
 

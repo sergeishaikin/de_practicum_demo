@@ -24,7 +24,16 @@ The default candidate is **mypy** because it is mature and CI-friendly, but the 
 
 ## Dependencies
 
-NG-0.1.
+**None.** This item has no hard technical prerequisite: nothing in it consumes
+an identity, dataset name, provenance envelope or telemetry label.
+
+NG-0.1 was previously listed here as an inherited layering convention. It was
+removed on 2026-08-19 in `reconcile-next-generation-hard-dependencies`, because
+it contradicted ADR-0003's recommendation to run this item first and blocked a
+change that nothing technically blocks.
+
+This item SHOULD still be done early — its cost rises with every later item that
+adds Python — but that is scheduling, not gating.
 
 ## Goal
 

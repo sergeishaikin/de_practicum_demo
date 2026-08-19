@@ -24,7 +24,20 @@ Compatibility baseline for the first implementation SHALL be **Flink 2.1.x with 
 
 ## Dependencies
 
-NG-0.1 through NG-0.7 and NG-0.9. OpenMetadata is recommended before adoption so lineage impact is visible.
+**Hard:** NG-0.1 (provenance identity the job must emit), NG-0.2 (the
+OpenLineage compatibility spike this item is required to run), NG-0.4 (the OTLP
+export boundary).
+
+**Not gating:** NG-0.3 is *recommended* so lineage impact is visible, but this
+item's acceptance evidence — parity, the failure matrix, resource measurement —
+needs no catalog. NG-0.5, NG-0.6 and NG-0.7 persist and correlate telemetry that
+this experiment does not require. NG-0.9 will place new Flink-adjacent Python in
+typed scope if it exists first, which is a rule NG-0.9 imposes rather than a
+prerequisite this item has.
+
+Reconciled on 2026-08-19 in `reconcile-next-generation-hard-dependencies`, which
+resolved this item's own contradiction: NG-0.3 was listed as a dependency and
+called "recommended" in the same section.
 
 ## Goal
 

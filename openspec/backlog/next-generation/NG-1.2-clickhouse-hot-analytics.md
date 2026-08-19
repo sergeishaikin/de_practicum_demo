@@ -24,7 +24,16 @@ This role is intentionally distinct from Apache Pinot in NG-1.3: ClickHouse serv
 
 ## Dependencies
 
-NG-0.1 and observability/quality gates; NG-1.1 is preferred because Flink can produce a curated serving stream, but ClickHouse MAY be evaluated directly from an isolated Kafka projection first.
+**Hard:** NG-0.1, for the canonical dataset naming this projection must link
+back to.
+
+**Not gating:** NG-1.1 is preferred, because Flink can produce a curated serving
+stream — but this item explicitly permits evaluation from an isolated Kafka
+projection first. NG-0.4 through NG-0.9 were previously listed; none blocks a
+projection and a benchmark, and this item's own acceptance gates qualify the
+catalog and Grafana links with "where available".
+
+Reconciled on 2026-08-19 in `reconcile-next-generation-hard-dependencies`.
 
 ## Goal
 
