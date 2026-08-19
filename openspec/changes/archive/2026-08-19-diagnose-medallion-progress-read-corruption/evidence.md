@@ -160,3 +160,30 @@ calls has stopped exercising the code that runs.
 | `04-09` not started, no benchmark receipt emulated | holds |
 | `04-10` disposition not revisited | holds |
 | No storage-protocol, atomicity or progress-format change | none |
+
+## Live proof, before and after
+
+| | run | SHA | result |
+|---|---|---|---|
+| before | `32264514538` | `a576c31` | M5 red, both steps, corruption in two tests |
+| before | `32270528355` | `271c2c3` | M5 red, corruption captured byte for byte |
+| **after** | **`32271503301`** | **`0811e60`** | **M5 green** |
+| after | `32271503597` | `0811e60` | CI green |
+| after | `32271503425` | `0811e60` | S1 green |
+| after | `32271503302` | `0811e60` | H1 green — no contradicting evidence |
+
+The defect has a live before-and-after on the same gate. H1 was checked because
+the fix touches the writer as well as the medallion, and a clean-stack run is
+where a writer regression would surface.
+
+## What this change deliberately did not do
+
+- **No security workstream.** The uninitialised-memory tail is severity evidence
+  for a defect that is now fixed, not a separate finding. Sequential reads remove
+  the exposure and the regression contracts hold it removed.
+- **No fix for the double `collapse_delta`.** It stays a follow-up observation
+  recorded in the 04-10 profile. Its 11.8 % synthetic share at 10^6 rows is not
+  grounds for an optimisation, and none was made.
+- **`04-09` not started.** No benchmark receipt created or emulated, no canonical
+  warehouse state touched.
+

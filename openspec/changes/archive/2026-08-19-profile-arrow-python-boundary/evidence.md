@@ -141,7 +141,8 @@ change adds a one-off script and an artifact, and no test.
 
 | Fence | Check | Result |
 |---|---|---|
-| `iceberg/` unmodified | `git diff --exit-code iceberg/` | clean |
+| `iceberg/` unmodified **by this change** | `git diff --exit-code iceberg/` at every commit of this change | clean |
+| | A later change, `diagnose-medallion-progress-read-corruption`, does modify two readers under `iceberg/` on this branch. That is its fix, not this one's. | recorded so the row above cannot be read as a claim about the branch |
 | No production code changed | `code_changed: []`, `iceberg_modified: false` in the receipt | holds |
 | No stub benchmark summary | `find . -name "04-bench-summary.json"` outside `.venv` | no match |
 | No fabricated disposition or reason | both `null` in `branch_adaptation`, asserted | holds |
@@ -149,3 +150,21 @@ change adds a one-off script and an artifact, and no test.
 | No new dependency | script imports stdlib, `pyarrow`, and `b2_spike` | holds |
 | No live service | pure functions over synthetic rows; nothing connected | holds |
 | `04-09` not started | no benchmark run, no canonical state touched | holds |
+
+## Live proof
+
+The profile and its disposition ride on the current head, `0811e60`, where every
+gate is green:
+
+| run | workflow | result |
+|---|---|---|
+| `32271503301` | M5 architecture gates | green |
+| `32271503597` | CI | green |
+| `32271503425` | S1 dbt semantic lineage | green |
+| `32271503302` | H1 clean reproducible stack | green |
+
+Earlier heads carrying this change (`7c4c7c7`, `a576c31`) saw M5 failures, but
+those belong to the progress-read defect diagnosed and fixed separately; none of
+them touched the profile, the script or the disposition. **The disposition is
+unchanged: `NOT WORTH DOING (unmeasurable baseline)`.**
+

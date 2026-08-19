@@ -25,5 +25,5 @@
 ## 5. Closure
 
 - [x] 5.1 Write `evidence.md` with the classification, the bytes that support it, and any deviation
-- [ ] 5.2 Commit, push, confirm live CI green on the pushed SHA
-- [ ] 5.3 Archive this change, then return to `04-10` without revisiting its disposition
+- [x] 5.2 Commit, push, confirm live CI green on the pushed SHA
+- [x] 5.3 Archive this change, then return to `04-10` without revisiting its disposition

@@ -32,6 +32,7 @@ are not a queue. Each obligation has a successor:
 | `04-09` — before/after benchmark | `benchmark-medallion-fast-path` |
 | `04-10` — Arrow/Python boundary profile | `profile-arrow-python-boundary` - discharged 2026-08-19, disposition **`NOT WORTH DOING (unmeasurable baseline)`**: the whole boundary costs 0.193 ms at the only observed delta (one key), and no post-change cycle exists to express it as a share of because 04-09 was never authorised. Flip point ~46k-61k rows. Production code unchanged; the double-collapse finding at `iceberg_medallion.py:621`/`630` is carried to a separate authorisation |
 | H1 clean-stack R1 E2E failure (found 2026-08-18) | `diagnose-cold-start-r1-e2e` - closed 2026-08-19, classification **not established**: the failure did not reproduce and is timing-sensitive; evidence capture is now in place for the next occurrence |
+| M5 progress-object read corruption (found 2026-08-19) | `diagnose-medallion-progress-read-corruption` - closed 2026-08-19, root cause **established**: `open_input_file` sizes itself from a HEAD taken before the progress document shrinks, so a read across the overwrite returned the smaller document padded with uninitialised process memory. Both production readers now read sequentially; live before/after on M5 |
 
 `01-07`'s outcome enum is unchanged by the migration: exactly one of
 `open_d3a`, `open_o2`, `no_change`, with the other two recorded as rejected.

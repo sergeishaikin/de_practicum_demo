@@ -25,6 +25,6 @@
 - [x] 3.1 Run `uv run --locked ruff check .`, `uv run --locked black --check .`, `uv run --locked pytest`, and the coverage gate; record the figures
 - [x] 3.2 Confirm the scope fence: `git diff --exit-code iceberg/` clean, no new dependency, no stub `04-bench-summary.json` anywhere in the tree
 - [x] 3.3 Write `evidence.md`: the measured numbers, the disposition and the rule it was chosen by, the Branch B adaptation as a documented deviation, and the double-collapse finding
-- [ ] 3.4 Commit atomically — remembering `git add -f` for the artifact, since `artifacts/` is gitignored — push, and confirm live CI is green on the pushed SHA
+- [x] 3.4 Commit atomically — remembering `git add -f` for the artifact, since `artifacts/` is gitignored — push, and confirm live CI is green on the pushed SHA
 - [x] 3.5 Record the migration outcome for `04-10` in `.planning/STATE.md` as a ledger entry only
-- [ ] 3.6 Merge the spec delta, archive the change, and STOP — no further plan is begun without separate authorisation
+- [x] 3.6 Merge the spec delta, archive the change, and STOP — no further plan is begun without separate authorisation
