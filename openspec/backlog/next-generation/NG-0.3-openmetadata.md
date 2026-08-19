@@ -8,6 +8,14 @@
 
 Normative terms `SHALL`, `SHALL NOT`, `SHOULD`, and `MAY` are intentional. A requirement is not complete because a container starts; it is complete only when its acceptance evidence is captured and the relevant live CI gates are green.
 
+## Freshness of external assumptions
+
+Versions, compatibility matrices, resource requirements, connector capabilities and product limitations recorded in this item are planning assumptions, not frozen truths. They were recorded against the baseline branch named above and are not re-verified while the item sits in the backlog.
+
+- **WHEN** this item is promoted to an authorised change
+- **THEN** every externally time-sensitive premise SHALL be re-verified against primary documentation before the design is accepted
+- **AND** a premise that cannot be re-verified SHALL be recorded as unverified rather than carried forward on the authority of this document.
+
 ## Product decision
 
 Adopt **OpenMetadata** as the first integrated data catalog / metadata graph / lineage UI. **DataHub is the fallback candidate, not a co-deployment.** A blocker that would force DataHub evaluation must be documented and measured; both products SHALL NOT be added simultaneously merely for comparison.

@@ -14,79 +14,109 @@ This package converts the proposed next-generation platform work into an ordered
 
 The existing platform remains the baseline: Kafka, Spark Structured Streaming, MinIO landing, PyIceberg/Iceberg Bronze-Silver-Gold, Trino, PostgreSQL/dbt/Airflow, Prometheus/Grafana, BDD, architecture gates, and clean-stack verification. New work extends that platform; it does not silently redefine existing ownership.
 
-## Backlog status and authorisation
+## Backlog register
+
+This table is the canonical, machine-checked register for the package. It is the
+single source of truth for order, dependencies, change ids and authorisation
+state; `validate_backlog.py` in the parent directory parses it and fails if any
+of those invariants break.
 
 Every item below is a **recorded backlog item**, not authorised work. Each opens
 as its own OpenSpec change under `openspec/changes/` when — and only when — the
-operator authorises it. The `Opens as` column fixes the change id in advance so
-that the same work cannot be started twice under two names.
+operator authorises it. Row order is the execution order and SHALL remain
+topologically valid: an item's dependencies always appear in earlier rows.
 
-| Item | Capability | Decision gate | Depends on | Opens as | Authorised |
+Column contracts, so the register stays parseable:
+
+- **Item** — `NG-<major>.<minor>`, unique.
+- **Gate** — exactly `ADOPT` or `EXPERIMENT`. Conditional wording belongs in the
+  item, not here.
+- **Depends on** — comma-separated item ids, or `-` for none. **Hard**
+  dependencies only; soft preferences are recorded in the notes below.
+- **Opens as** — the pre-assigned OpenSpec change id, unique.
+- **Authorised** — `no`, or the ISO date the operator authorised it.
+
+| Item | File | Gate | Depends on | Opens as | Authorised |
 |---|---|---|---|---|---|
-| NG-0.1 | Platform identity, provenance, product guardrails | ADOPT | current baseline | `add-platform-provenance-contract` | no |
-| NG-0.2 | OpenLineage runtime lineage protocol | ADOPT if end-to-end edge coverage is proven | NG-0.1 | `add-openlineage-runtime-lineage` | no |
-| NG-0.3 | OpenMetadata catalog, lineage and data UI | ADOPT unless a documented blocker forces fallback evaluation | NG-0.1, NG-0.2 | `add-openmetadata-catalog` | no |
-| NG-0.4 | OpenTelemetry Collector + instrumentation contract | ADOPT | NG-0.1 | `add-opentelemetry-collector` | no |
-| NG-0.5 | Grafana Tempo trace backend | ADOPT | NG-0.4 | `add-tempo-trace-backend` | no |
-| NG-0.6 | Grafana Loki log backend | ADOPT | NG-0.4 | `add-loki-log-backend` | no |
-| NG-0.7 | Grafana correlation, SLI/SLO and cross-links | ADOPT | NG-0.3–NG-0.6 | `add-grafana-correlation-slo` | no |
-| NG-0.8 | Unified data quality, freshness, SLA/SLO context | ADOPT | NG-0.3, NG-0.7 | `unify-data-reliability` | no |
-| NG-0.9 | Static typing + uniform software/architecture quality | ADOPT | NG-0.1 | `add-static-typing-gate` | no |
-| NG-1.1 | Apache Flink shadow streaming path | EXPERIMENT → ADOPT / KEEP / REMOVE | NG-0.1–NG-0.7, NG-0.9 | `evaluate-flink-shadow-streaming` | no |
-| NG-1.2 | ClickHouse hot operational analytics | EXPERIMENT → ADOPT / REMOVE | NG-0.1, NG-0.4–NG-0.9; preferably NG-1.1 | `evaluate-clickhouse-hot-analytics` | no |
-| NG-1.3 | Apache Pinot application-facing real-time serving | EXPERIMENT → ADOPT / REMOVE | NG-1.1; distinct use case from NG-1.2 | `evaluate-pinot-realtime-serving` | no |
-| NG-2.1 | MLflow experiments, prompt/model registry, evals | ADOPT only with a real ML/agent slice | NG-0.1, NG-0.3–NG-0.9 | `add-mlflow-ai-governance` | no |
-| NG-2.2 | Evaluated Data Platform Incident Agent | EXPERIMENT → ADOPT / REMOVE | NG-2.1 and operational metadata/telemetry | `evaluate-data-platform-incident-agent` | no |
+| NG-0.1 | `NG-0.1-platform-provenance-contract.md` | ADOPT | - | `add-platform-provenance-contract` | no |
+| NG-0.2 | `NG-0.2-openlineage.md` | ADOPT | NG-0.1 | `add-openlineage-runtime-lineage` | no |
+| NG-0.3 | `NG-0.3-openmetadata.md` | ADOPT | NG-0.1, NG-0.2 | `add-openmetadata-catalog` | no |
+| NG-0.4 | `NG-0.4-opentelemetry-collector.md` | ADOPT | NG-0.1 | `add-opentelemetry-collector` | no |
+| NG-0.5 | `NG-0.5-grafana-tempo.md` | ADOPT | NG-0.4 | `add-tempo-trace-backend` | no |
+| NG-0.6 | `NG-0.6-grafana-loki.md` | ADOPT | NG-0.4 | `add-loki-log-backend` | no |
+| NG-0.7 | `NG-0.7-grafana-correlation.md` | ADOPT | NG-0.3, NG-0.4, NG-0.5, NG-0.6 | `add-grafana-correlation-slo` | no |
+| NG-0.8 | `NG-0.8-data-reliability.md` | ADOPT | NG-0.3, NG-0.7 | `unify-data-reliability` | no |
+| NG-0.9 | `NG-0.9-engineering-quality-gates.md` | ADOPT | NG-0.1 | `add-static-typing-gate` | no |
+| NG-1.1 | `NG-1.1-apache-flink-shadow-streaming.md` | EXPERIMENT | NG-0.1, NG-0.2, NG-0.3, NG-0.4, NG-0.5, NG-0.6, NG-0.7, NG-0.9 | `evaluate-flink-shadow-streaming` | no |
+| NG-1.2 | `NG-1.2-clickhouse-hot-analytics.md` | EXPERIMENT | NG-0.1, NG-0.4, NG-0.5, NG-0.6, NG-0.7, NG-0.8, NG-0.9 | `evaluate-clickhouse-hot-analytics` | no |
+| NG-1.3 | `NG-1.3-apache-pinot-realtime-serving.md` | EXPERIMENT | NG-1.1, NG-1.2 | `evaluate-pinot-realtime-serving` | no |
+| NG-2.1 | `NG-2.1-mlflow-ai-governance.md` | ADOPT | NG-0.1, NG-0.3, NG-0.4, NG-0.5, NG-0.6, NG-0.7, NG-0.8, NG-0.9 | `add-mlflow-ai-governance` | no |
+| NG-2.2 | `NG-2.2-data-platform-incident-agent.md` | EXPERIMENT | NG-2.1 | `evaluate-data-platform-incident-agent` | no |
 
 A row changes only in two ways: `Authorised` flips to the date the operator
 authorised it, and the row records the change's disposition once the change is
-archived. A backlog row SHALL NOT be edited to look like progress that the
-change record does not carry.
+archived. A backlog row SHALL NOT be edited to look like progress that the change
+record does not carry.
 
-## Execution order
+### Soft preferences and one unresolved tension
 
-| Order | File | Product / capability | Decision gate | Depends on |
-|---|---|---|---|---|
-| 0.1 | `NG-0.1-platform-provenance-contract.md` | Platform identity, provenance, product guardrails | ADOPT | current baseline |
-| 0.2 | `NG-0.2-openlineage.md` | OpenLineage runtime lineage protocol | ADOPT if end-to-end edge coverage is proven | 0.1 |
-| 0.3 | `NG-0.3-openmetadata.md` | OpenMetadata catalog, lineage and data UI | ADOPT unless a documented blocker forces fallback evaluation | 0.1, 0.2 |
-| 0.4 | `NG-0.4-opentelemetry-collector.md` | OpenTelemetry Collector + instrumentation contract | ADOPT | 0.1 |
-| 0.5 | `NG-0.5-grafana-tempo.md` | Grafana Tempo trace backend | ADOPT | 0.4 |
-| 0.6 | `NG-0.6-grafana-loki.md` | Grafana Loki log backend | ADOPT | 0.4 |
-| 0.7 | `NG-0.7-grafana-correlation.md` | Grafana correlation, SLI/SLO and cross-links | ADOPT | 0.3–0.6 |
-| 0.8 | `NG-0.8-data-reliability.md` | Unified data quality, freshness, SLA/SLO context | ADOPT | 0.3, 0.7 |
-| 0.9 | `NG-0.9-engineering-quality-gates.md` | Static typing + uniform software/architecture quality | ADOPT | 0.1 |
-| 1.1 | `NG-1.1-apache-flink-shadow-streaming.md` | Apache Flink shadow streaming path | EXPERIMENT → ADOPT / KEEP / REMOVE | 0.1–0.7, 0.9 |
-| 1.2 | `NG-1.2-clickhouse-hot-analytics.md` | ClickHouse hot operational analytics | EXPERIMENT → ADOPT / REMOVE | 0.1, 0.4–0.9; preferably 1.1 |
-| 1.3 | `NG-1.3-apache-pinot-realtime-serving.md` | Apache Pinot application-facing real-time serving | EXPERIMENT → ADOPT / REMOVE | 1.1; distinct use case from 1.2 |
-| 2.1 | `NG-2.1-mlflow-ai-governance.md` | MLflow experiments, prompt/model registry, evals | ADOPT only with a real ML/agent slice | 0.1, 0.3–0.9 |
-| 2.2 | `NG-2.2-data-platform-incident-agent.md` | Evaluated Data Platform Incident Agent | EXPERIMENT → ADOPT / REMOVE | 2.1 and operational metadata/telemetry |
+The `Depends on` column records only what SHALL be complete first. These are
+recorded here rather than in the column because they are not gating:
 
-## Dependency graph
+- **NG-1.2** prefers NG-1.1, because Flink can produce the curated serving
+  stream — but NG-1.2 explicitly permits evaluation from an isolated Kafka
+  projection first, so it is not gated on Flink.
+- **NG-2.1** SHALL NOT be started merely because its dependencies are met. Its
+  own product decision forbids installing MLflow before a real ML/agent slice
+  exists, which in practice binds it to NG-2.2.
+
+One tension is **unresolved and deliberately not decided here**: NG-1.1's
+`Dependencies` section lists "NG-0.1 through NG-0.7", which includes NG-0.3, and
+then states that OpenMetadata is "recommended before adoption". Required or
+recommended cannot both be true. The register records the stricter reading
+(NG-0.3 is a hard dependency) because over-gating cannot cause premature work,
+whereas under-gating can. The contradiction SHALL be resolved in
+`evaluate-flink-shadow-streaming`'s design, not by editing this table.
+
+## Dependency layers
+
+Derived from the register above, not maintained separately. `validate_backlog.py`
+recomputes this layering from the `Depends on` column and fails if the register
+cannot produce it — so a drawing that disagrees with the table is a build error,
+not a documentation nit.
+
+An item's layer is the longest dependency path reaching it. **Items in the same
+layer have no dependency on each other**, which is where the available
+parallelism is.
 
 ```text
-0.1 provenance / invariants
- |
- +--> 0.2 OpenLineage --> 0.3 OpenMetadata ---+
- |                                            |
- +--> 0.4 OTel Collector --> 0.5 Tempo -------+
- |                       \-> 0.6 Loki --------+
- |                                            |
- +--> 0.9 engineering gates                   |
-                                              v
-                                    0.7 correlation / SLO
-                                              |
-                                              v
-                                      0.8 reliability
-                                              |
-                                              v
-                                 1.1 Flink shadow path
-                                    |            |
-                                    v            v
-                             1.2 ClickHouse   1.3 Pinot
+layer 0   NG-0.1  provenance / identity contract
 
-0.3 + 0.7 + 0.8 + 0.9 --> 2.1 MLflow --> 2.2 Incident Agent
+layer 1   NG-0.2  OpenLineage                     needs 0.1
+          NG-0.4  OTel Collector                  needs 0.1
+          NG-0.9  engineering quality gates       needs 0.1
+
+layer 2   NG-0.3  OpenMetadata                    needs 0.2
+          NG-0.5  Tempo                           needs 0.4
+          NG-0.6  Loki                            needs 0.4
+
+layer 3   NG-0.7  correlation / SLO               needs 0.3, 0.4, 0.5, 0.6
+
+layer 4   NG-0.8  data reliability                needs 0.3, 0.7
+          NG-1.1  Flink shadow path               needs 0.1-0.7, 0.9
+
+layer 5   NG-1.2  ClickHouse hot analytics        needs 0.1, 0.4-0.9
+          NG-2.1  MLflow governance               needs 0.1, 0.3-0.9
+
+layer 6   NG-1.3  Pinot serving                   needs 1.1, 1.2
+          NG-2.2  incident agent                  needs 2.1
 ```
+
+Layering is a dependency fact, not a schedule. Two items sharing a layer may
+still be impossible to verify at the same time: several carry opt-in Compose
+profiles whose combined resource demand exceeds a single developer host, and
+that ceiling binds harder than the graph does. Sequencing within a layer is a
+decision for the operator at authorisation time.
 
 ## Cross-cutting non-negotiable invariants
 
