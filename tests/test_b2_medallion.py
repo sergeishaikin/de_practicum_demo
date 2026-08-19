@@ -112,6 +112,46 @@ def test_completed_progress_is_bounded(monkeypatch) -> None:
     assert progress["completed"] == {"new": {"sequence": 2}}
 
 
+def test_the_progress_document_shrinks_when_work_completes(monkeypatch) -> None:
+    """Reserving work grows the document; completing it makes the document smaller.
+
+    `_reserve_b2_work` stores `source_paths` and `bronze_data_files` - full object
+    paths - under `work[load_id]`. Completion replaces that with a compact
+    `completed` entry, pops the reserved one and prunes. So the object a reader
+    is polling does not grow monotonically: it peaks, then shrinks, at exactly
+    the moment the reader is waiting for the completion to appear.
+
+    Recorded because a shrinking overwrite is the precondition for a read that
+    spans two versions, and two M5 failures showed a progress object read back as
+    a complete JSON document followed by bytes that were never written to it.
+    This test establishes the shrink. It does not establish that the shrink
+    causes those reads.
+    """
+
+    incoming = [row("a", 3, amount=30, event_date=date(2026, 1, 2))]
+    fs, catalog, silver, metrics, load_id = setup_run(
+        monkeypatch, incoming, [row("a", 1, amount=10)]
+    )
+    path = "de-practicum/test-progress/progress.json"
+
+    sizes: list[int] = []
+    real_save = m.save_progress
+
+    def recording_save(filesystem, progress) -> None:
+        real_save(filesystem, progress)
+        sizes.append(len(fs.objects[path]))
+
+    monkeypatch.setattr(m, "save_progress", recording_save)
+
+    m.run_b2(catalog, metrics, fs)
+
+    assert len(sizes) >= 2, sizes
+    assert max(sizes) > sizes[-1], (
+        f"progress never shrank: {sizes} - if reservation stopped storing object "
+        f"paths this test is stale, not wrong"
+    )
+
+
 def test_b2_run_commits_only_advancing_keys_and_completes_progress(monkeypatch) -> None:
     incoming = [
         row("a", 3, amount=30, event_date=date(2026, 1, 2)),
