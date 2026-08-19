@@ -70,13 +70,29 @@ recorded here rather than in the column because they are not gating:
   own product decision forbids installing MLflow before a real ML/agent slice
   exists, which in practice binds it to NG-2.2.
 
-One tension is **unresolved and deliberately not decided here**: NG-1.1's
-`Dependencies` section lists "NG-0.1 through NG-0.7", which includes NG-0.3, and
-then states that OpenMetadata is "recommended before adoption". Required or
-recommended cannot both be true. The register records the stricter reading
-(NG-0.3 is a hard dependency) because over-gating cannot cause premature work,
-whereas under-gating can. The contradiction SHALL be resolved in
-`evaluate-flink-shadow-streaming`'s design, not by editing this table.
+### Recorded contradictions
+
+Two places where the package disagrees with itself. Both are recorded rather
+than silently decided, and neither may be settled by an implementing change's
+design alone — see *Backlog contradictions stop implementation* in
+`openspec/specs/engineering-governance/spec.md`.
+
+- **NG-1.1 — required or recommended?** Its `Dependencies` section lists "NG-0.1
+  through NG-0.7", which includes NG-0.3, and then states that OpenMetadata is
+  "recommended before adoption". Both cannot be true. The register carries the
+  **stricter reading** as a provisional interpretation — NG-0.3 is a hard
+  dependency — because over-gating can only delay work whereas under-gating can
+  start it prematurely. This is an interim reading, not a resolution.
+- **NG-1.2 — weaker in the item than in the register.** The item states "NG-0.1
+  and observability/quality gates"; the register carries NG-0.1 and
+  NG-0.4 – NG-0.9. The register is again the stricter reading.
+
+When `evaluate-flink-shadow-streaming` or `evaluate-clickhouse-hot-analytics` is
+authorised, it SHALL stop before state-changing work and have the contradiction
+resolved — as a bounded backlog correction, or as an authoritative
+interpretation recorded in this register — **before** its own design is
+accepted. An implementing change SHALL NOT decide retroactively which line of
+the backlog was the correct one.
 
 ## Dependency layers
 

@@ -40,9 +40,9 @@ and the governance spec is explicit that it is historical evidence and not a
 work queue.
 
 So this change adds the missing third surface and lands the package in it, with
-one governing requirement so that a directory of `SHALL` statements about
-unbuilt systems cannot later be mistaken for either an authorisation or a
-description of the platform.
+the governing requirements needed so that a directory of `SHALL` statements about
+unbuilt systems cannot later be mistaken for an authorisation, for a description
+of the platform, or for a licence to chain one item into the next.
 
 ## What Changes
 
@@ -71,10 +71,11 @@ description of the platform.
 - A **promotion contract** in the backlog README: authorisation → pre-assigned
   change id → revalidate repository state and external premises → proposal,
   design, tasks, spec delta → apply → evidence → archive → stop.
-- Four requirements in the `engineering-governance` spec: recorded future work
+- Five requirements in the `engineering-governance` spec: recorded future work
   belongs in the backlog and authorises nothing; **backlog ordering is not
   chained authorisation**; backlog premises are revalidated at promotion; a
-  register is structurally checkable.
+  register is structurally checkable; and a backlog contradiction stops the
+  implementing change rather than being decided inside its design.
 - Pointers in `AGENTS.md` (Planning methodology) and `CLAUDE.md` (Working
   rules), which are the two files that tell a reader where planning lives.
 
@@ -115,14 +116,15 @@ None. The backlog surface is a planning artifact, not a platform capability.
 
 ### Modified Capabilities
 
-- `engineering-governance`: adds four requirements covering
+- `engineering-governance`: adds five requirements covering
   recorded-but-unauthorised work. The existing requirements say new work is
   proposed as a change and that authorisation is explicit per change; none of
   them says where work lives before it is proposed, that a completed dependency
-  confers nothing on its dependents, that a recorded premise expires, or that a
-  register must be checkable rather than merely drawn. Those four gaps are what
-  a backlog introduces, so they are closed in the same change that introduces
-  it. Adding the surface without the rules would create a directory of `SHALL`
+  confers nothing on its dependents, that a recorded premise expires, that a
+  register must be checkable rather than merely drawn, or that a
+  self-contradicting backlog stops the change that finds it rather than being
+  reinterpreted inside that change's design. Those five gaps are what a backlog
+  introduces, so they are closed in the same change that introduces it. Adding the surface without the rules would create a directory of `SHALL`
   statements with nothing to stop a later reader — or an autonomous agent —
   treating them as authorised, current, or self-chaining.
 
@@ -131,6 +133,6 @@ None. The backlog surface is a planning artifact, not a platform capability.
 - `openspec/backlog/README.md` — new, including the promotion contract.
 - `openspec/backlog/validate_backlog.py` — new, standalone structural check.
 - `openspec/backlog/next-generation/00-INDEX.md` and fourteen `NG-*.md` — new.
-- `openspec/specs/engineering-governance/spec.md` — four added requirements.
+- `openspec/specs/engineering-governance/spec.md` — five added requirements.
 - `AGENTS.md`, `CLAUDE.md` — one pointer each.
 - Runtime, `tests/`, CI, dependencies and `.planning/` — deliberately untouched.

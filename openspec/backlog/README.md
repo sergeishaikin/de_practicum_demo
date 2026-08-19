@@ -4,13 +4,14 @@ Work that is recorded but not authorised.
 
 ## What lives here
 
-`openspec/` has three surfaces and they mean different things:
+The repository has four planning surfaces and they mean different things:
 
 | Directory | Meaning |
 |---|---|
 | `openspec/specs/` | Standing capabilities. What is true of the repository now. |
 | `openspec/changes/` | Proposals in flight. Each one is authorised, scoped and being executed or archived. |
 | `openspec/backlog/` | Future work, recorded so it is not re-derived. **Nothing here is authorised.** |
+| `.planning/` | The frozen GSD execution record for Phases 1–4. Historical evidence; never resumed. |
 
 A backlog item is a specification of work that has been thought through far
 enough to be picked up later without re-deriving it, and deliberately not far

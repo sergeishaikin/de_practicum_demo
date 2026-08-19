@@ -1,7 +1,8 @@
 # Evidence — add-next-generation-backlog
 
-Executed 2026-08-19 on `test/dbt-extensive-testing`. Landed across two commits:
-`d8a3015` (initial package) and the governance-hardening commit that follows it.
+Executed 2026-08-19 on `test/dbt-extensive-testing`, across three commits:
+`d8a3015` (the package), `7d9977d` (checkable register, non-chaining
+authorisation, freshness obligation), and the archive commit that closes it.
 
 Authorised by the operator on 2026-08-19, for this change only. All fourteen
 backlog items remain `Authorised: no`.
@@ -13,7 +14,7 @@ backlog items remain `Authorised: no`.
 | `openspec/backlog/README.md` | 1 — surfaces table, rules, promotion contract, structural-check command |
 | `openspec/backlog/validate_backlog.py` | 1 — standalone structural check |
 | `openspec/backlog/next-generation/` | 15 — `00-INDEX.md` register + NG-0.1 … NG-2.2 |
-| `openspec/changes/add-next-generation-backlog/` | 5 + spec delta (4 requirements) |
+| `openspec/changes/add-next-generation-backlog/` | 5 + spec delta (5 requirements) |
 | `AGENTS.md`, `CLAUDE.md` | 1 pointer each |
 
 ## Completion gate
@@ -83,13 +84,20 @@ which NG-1.2's own text calls a preference, not a requirement.
 
 ## Findings recorded rather than papered over
 
-- **NG-1.1 contradicts itself.** Its `Dependencies` section lists "NG-0.1
-  through NG-0.7" — which includes NG-0.3 — and then calls OpenMetadata
-  "recommended before adoption". The register takes the stricter reading
-  (NG-0.3 is a hard dependency), because over-gating can only delay work whereas
-  under-gating can start it prematurely. The contradiction is **not resolved
-  here**; it is handed to `evaluate-flink-shadow-streaming`, since deciding
-  NG-1.1's scope inside a governance change would breach this change's fence.
+- **Two items contradict the register, and neither is resolved here.** NG-1.1's
+  `Dependencies` section lists "NG-0.1 through NG-0.7" — which includes NG-0.3 —
+  and then calls OpenMetadata "recommended before adoption". NG-1.2's dependency
+  sentence is weaker than its register row. The register carries the stricter
+  reading in both cases, explicitly labelled **interim**, because over-gating can
+  only delay work whereas under-gating can start it prematurely.
+
+  An earlier draft handed both to the implementing change's design to settle.
+  That was corrected: a fifth governance requirement now makes a discovered
+  contradiction *stop* the change that finds it, to be resolved as a bounded
+  backlog correction or a recorded authoritative interpretation before that
+  change's design is accepted. Letting an implementation pick a reading
+  retroactively rewrites what the backlog meant, and it will naturally pick
+  whichever reading suits the work already done.
 
 - **The structural check is not enforced by CI.** `tests/` is in the forbidden
   set of the authorised fence, so the checker ships as a standalone script
@@ -115,11 +123,37 @@ which NG-1.2's own text calls a preference, not a requirement.
 
 ## Live CI
 
-Not obtained. The branch tracks a fork remote and the repository's six workflows
-trigger on pull requests and on pushes to `main`; none of them fires for a push
-to this branch, and no pull request exists for it. **No claim of a green live CI
-run is made for this change.** The gate figures above were produced locally by
-the commands shown.
+**Obtained, and green.** An earlier draft of this evidence file claimed the
+opposite — that no workflow could trigger for this branch. That was wrong: pull
+request #1 is open on `test/dbt-extensive-testing`, so every push to the branch
+fires the PR-triggered workflows. The claim was written from the branch's
+tracking remote without checking for an open PR.
+
+All four workflows that trigger for this branch completed successfully on
+`7d9977d`, the SHA carrying the full backlog and governance content:
+
+| Run | Workflow | Conclusion |
+|---|---|---|
+| 32287628478 | CI | success |
+| 32287628412 | M5 architecture gates | success |
+| 32287628411 | S1 dbt semantic lineage | success |
+| 32287628419 | H1 clean reproducible stack | success |
+
+The preceding commit `d8a3015` was also green on the two workflows its paths
+triggered (M5 architecture gates, S1 dbt semantic lineage).
+
+The archive commit that follows carries no content beyond merging this change's
+spec delta into `openspec/specs/engineering-governance/spec.md` and moving the
+change directory into `changes/archive/`; its own run is reported at handoff
+rather than recorded here, since a receipt cannot contain the result of the
+commit that writes it.
+
+## Note for the operator, not a finding
+
+PR #1 is titled *"Phase 3: staging source freshness gate (+ dbt testing-layer
+docs)"*. The backlog and governance commits are landing on a pull request whose
+title describes unrelated work. Whether to split them into their own PR or
+retitle #1 is the operator's call; nothing was changed on that basis.
 
 ## Deliberately not done
 
@@ -131,4 +165,9 @@ the commands shown.
 - `tests/`, `pyproject.toml`, `uv.lock` and the CI workflows were not edited.
 - `.planning/` was not edited. The open `04-09` / BENCH-01 obligation recorded
   there is untouched and remains unauthorised.
-- NG-1.1's dependency contradiction was not resolved.
+- Neither dependency contradiction (NG-1.1, NG-1.2) was resolved; both are
+  recorded with interim readings and a rule that stops the change which finds
+  them.
+- No ADR was written. Recording the programme prioritisation is a separate,
+  programme-level decision and is deliberately not mixed into the change that
+  establishes backlog governance.

@@ -46,7 +46,9 @@
 - [x] 6.2 Requirement: backlog ordering is not chained authorisation — completing an item confers eligibility, never permission, with a scenario binding autonomous execution explicitly
 - [x] 6.3 Requirement: backlog premises are revalidated at promotion, including the case where a premise no longer holds
 - [x] 6.4 Requirement: a register is structurally checkable, and any published diagram is derivable from it
-- [x] 6.5 Confirm none of the four restates "authorisation is explicit and per change" in a second, driftable form
+- [x] 6.5 Requirement: a backlog contradiction stops the change that finds it — resolution happens as a bounded backlog correction or a recorded authoritative interpretation, never inside the implementing change's design
+- [x] 6.6 Rework the register's contradiction note accordingly: label the stricter readings as **interim interpretations**, record both defects (NG-1.1 and NG-1.2) rather than only NG-1.1, and drop the earlier "resolve in design" wording
+- [x] 6.7 Confirm none of the five restates "authorisation is explicit and per change" in a second, driftable form
 
 ## 7. Authorisation record and pointers
 

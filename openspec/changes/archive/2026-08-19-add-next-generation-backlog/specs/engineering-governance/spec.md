@@ -101,6 +101,45 @@ promotion rather than with the reader's judgement.
 - **THEN** the change records that the premise no longer holds and the scope is
   re-derived before design is accepted
 
+### Requirement: Backlog contradictions stop implementation
+
+WHEN an authorised change discovers that its backlog item contradicts the
+register, or contradicts itself, implementation SHALL stop before state-changing
+work. The contradiction SHALL be resolved explicitly — as a bounded backlog
+correction, or as an authoritative interpretation recorded in the register —
+**before** the change's design is accepted.
+
+An implementing change SHALL NOT decide, in its own design, which line of the
+backlog was the correct one. A governed specification that disagrees with itself
+is a defect in the specification; letting the implementation pick a reading
+retroactively rewrites what the backlog meant, and leaves no record that the
+question was ever open.
+
+A provisional reading recorded in the register to keep the structure valid is
+not a resolution, and SHALL be labelled as interim.
+
+#### Scenario: An item's dependency list contradicts the register
+
+- **WHEN** an authorised change finds its item declares a dependency the
+  register does not, or the reverse
+- **THEN** work stops before any state-changing step
+- **AND** the contradiction is resolved as a backlog correction or a recorded
+  authoritative interpretation before the design is accepted
+
+#### Scenario: An item contradicts itself
+
+- **WHEN** an item names something as a dependency in one section and calls it
+  a recommendation in another
+- **THEN** the register may carry the stricter reading as an interim
+  interpretation so the structure stays checkable
+- **AND** that interim reading is not treated as the decision
+
+#### Scenario: The contradiction is discovered mid-implementation
+
+- **WHEN** the disagreement surfaces after the change has begun
+- **THEN** the change stops rather than proceeding on whichever reading suits
+  the work already done
+
 ### Requirement: A backlog register is structurally checkable
 
 A backlog register SHALL be machine-checkable rather than only drawn, and the

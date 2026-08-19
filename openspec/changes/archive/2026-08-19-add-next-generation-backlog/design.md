@@ -90,14 +90,27 @@ actually gates. The column now holds hard dependencies only, as comma-separated
 ids. Soft preferences are recorded below the table where they cannot be mistaken
 for gates.
 
-**NG-1.1's self-contradiction is recorded, not resolved.** Its `Dependencies`
-section lists "NG-0.1 through NG-0.7" — which includes NG-0.3 — and then calls
-OpenMetadata "recommended before adoption". Both cannot hold. Deciding it here
-would be deciding NG-1.1's scope inside a governance change, which is exactly
-the boundary violation the fence exists to prevent. The register takes the
-stricter reading, because over-gating can only delay work while under-gating can
-start it prematurely, and the contradiction is handed to
-`evaluate-flink-shadow-streaming` to settle on evidence.
+**The two self-contradictions are recorded as interim readings, and neither the
+governance change nor the implementing change gets to settle them.** NG-1.1's
+`Dependencies` section lists "NG-0.1 through NG-0.7" — which includes NG-0.3 —
+and then calls OpenMetadata "recommended before adoption". NG-1.2's dependency
+sentence is weaker than its register row. Deciding either here would be deciding
+an item's scope inside a governance change, which is the boundary violation the
+fence exists to prevent.
+
+The first draft handed both to the implementing change's design. That was wrong,
+and it is corrected: if a governed specification disagrees with itself, letting
+the implementation pick a reading retroactively rewrites what the backlog meant,
+and leaves no record that the question was ever open — the implementation will
+naturally choose whichever reading suits the work already done. The register
+therefore carries the **stricter** reading, explicitly labelled interim, purely
+so the structure stays checkable; and a fifth governance requirement makes a
+discovered contradiction stop the change that finds it, to be resolved as a
+bounded backlog correction or a recorded authoritative interpretation *before*
+that change's design is accepted.
+
+Stricter is the safe interim reading because over-gating can only delay work,
+while under-gating can start it prematurely.
 
 **The layering is derived, not drawn.** The first draft's ASCII graph was a
 hand-made picture that could disagree with the table — and did, once the
