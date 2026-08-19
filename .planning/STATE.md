@@ -30,7 +30,7 @@ are not a queue. Each obligation has a successor:
 | `01-07` — decide D-3a / O2 / no-change | `close-b2-rollout-decision` - discharged 2026-08-19, outcome **`no_change`**: the telemetry gate passed, but the window holds one non-empty B2 cycle and no amplification (planned/added 1.0 and 1.028611, removals 0.0), and records no undiagnosed behaviour. D-3a and O2 stay deferred with reopen conditions in `artifacts/b2-rollout/07-rollout-decision.json`; neither is refuted |
 | `04-08` — steady-state shadow policy (ADR-0002) | `define-steady-state-shadow-policy` - discharged 2026-08-19: ADR-0002 ratifies shadow validation as mandatory whenever `GOLD_SOURCE=persisted_silver`, with conditions C1-C7 for reopening it, and `RUNTIME_ROLLOUT_MATRIX` is now pinned by set equality. The matrix itself is unchanged |
 | `04-09` — before/after benchmark | `benchmark-medallion-fast-path` |
-| `04-10` — Arrow/Python boundary profile | `profile-arrow-python-boundary` |
+| `04-10` — Arrow/Python boundary profile | `profile-arrow-python-boundary` - discharged 2026-08-19, disposition **`NOT WORTH DOING (unmeasurable baseline)`**: the whole boundary costs 0.193 ms at the only observed delta (one key), and no post-change cycle exists to express it as a share of because 04-09 was never authorised. Flip point ~46k-61k rows. Production code unchanged; the double-collapse finding at `iceberg_medallion.py:621`/`630` is carried to a separate authorisation |
 | H1 clean-stack R1 E2E failure (found 2026-08-18) | `diagnose-cold-start-r1-e2e` - closed 2026-08-19, classification **not established**: the failure did not reproduce and is timing-sensitive; evidence capture is now in place for the next occurrence |
 
 `01-07`'s outcome enum is unchanged by the migration: exactly one of

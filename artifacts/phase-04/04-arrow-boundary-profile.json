@@ -1,0 +1,186 @@
+{
+  "schema_version": 1,
+  "phase": "04-medallion-telemetry-and-redundant-work-elimination",
+  "plan": "04-10",
+  "requirement": "PRF-01",
+  "executed_as": "openspec change profile-arrow-python-boundary",
+  "environment": {
+    "python": "3.12.12",
+    "pyarrow": "21.0.0",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "processor": "Intel64 Family 6 Model 140 Stepping 1, GenuineIntel",
+    "machine": "AMD64"
+  },
+  "measured_steps": [
+    "arrow_to_python_delta: delta.to_pylist()",
+    "arrow_to_python_current: current_scan.to_arrow().to_pylist()",
+    "collapse_delta",
+    "resolve_against_current",
+    "python_to_arrow: _rows_to_silver reconstruction",
+    "production_sequence: the five above in the medallion's call order"
+  ],
+  "measurements": [
+    {
+      "delta_rows": 1,
+      "distinct_keys": 1,
+      "overlap_ratio_with_current": 0.5,
+      "current_rows": 0,
+      "repeats": 21,
+      "steps_ms_median": {
+        "arrow_to_python_delta_ms": 0.06990000838413835,
+        "arrow_to_python_current_ms": 0.039000005926936865,
+        "collapse_delta_ms": 0.002600019797682762,
+        "resolve_against_current_ms": 0.00300002284348011,
+        "python_to_arrow_ms": 0.0754999928176403
+      },
+      "steps_sum_ms": 0.1900000497698784,
+      "production_sequence_ms_median": 0.19300001440569758,
+      "collapse_runs_per_cycle": 2,
+      "rows_out": {
+        "collapsed": 1,
+        "resolved": 1,
+        "delta_rows_in": 1
+      }
+    },
+    {
+      "delta_rows": 100,
+      "distinct_keys": 50,
+      "overlap_ratio_with_current": 0.5,
+      "current_rows": 25,
+      "repeats": 21,
+      "steps_ms_median": {
+        "arrow_to_python_delta_ms": 1.182700041681528,
+        "arrow_to_python_current_ms": 0.28249999741092324,
+        "collapse_delta_ms": 0.15849998453631997,
+        "resolve_against_current_ms": 0.16419996973127127,
+        "python_to_arrow_ms": 0.12530002277344465
+      },
+      "steps_sum_ms": 1.9132000161334872,
+      "production_sequence_ms_median": 1.940599991939962,
+      "collapse_runs_per_cycle": 2,
+      "rows_out": {
+        "collapsed": 50,
+        "resolved": 50,
+        "delta_rows_in": 100
+      }
+    },
+    {
+      "delta_rows": 10000,
+      "distinct_keys": 5000,
+      "overlap_ratio_with_current": 0.5,
+      "current_rows": 2500,
+      "repeats": 7,
+      "steps_ms_median": {
+        "arrow_to_python_delta_ms": 102.65860002255067,
+        "arrow_to_python_current_ms": 25.353499979246408,
+        "collapse_delta_ms": 15.391900029499084,
+        "resolve_against_current_ms": 17.65490003162995,
+        "python_to_arrow_ms": 5.304299993440509
+      },
+      "steps_sum_ms": 166.36320005636662,
+      "production_sequence_ms_median": 162.75819996371865,
+      "collapse_runs_per_cycle": 2,
+      "rows_out": {
+        "collapsed": 5000,
+        "resolved": 5000,
+        "delta_rows_in": 10000
+      }
+    },
+    {
+      "delta_rows": 1000000,
+      "distinct_keys": 500000,
+      "overlap_ratio_with_current": 0.5,
+      "current_rows": 250000,
+      "repeats": 3,
+      "steps_ms_median": {
+        "arrow_to_python_delta_ms": 14438.613500038628,
+        "arrow_to_python_current_ms": 2940.427499997895,
+        "collapse_delta_ms": 2441.702299984172,
+        "resolve_against_current_ms": 2748.8009000080638,
+        "python_to_arrow_ms": 862.0278000016697
+      },
+      "steps_sum_ms": 23431.572000030428,
+      "production_sequence_ms_median": 21586.585200042464,
+      "collapse_runs_per_cycle": 2,
+      "rows_out": {
+        "collapsed": 500000,
+        "resolved": 500000,
+        "delta_rows_in": 1000000
+      }
+    }
+  ],
+  "limits": [
+    "Synthetic rows over pure functions. This bounds the boundary's cost; it does not predict production cost.",
+    "Does not reproduce cache behaviour under a real Iceberg scan, real payload distributions, or the Arrow buffer layout a catalog read produces.",
+    "Wall time on a shared developer machine. Medians reduce noise; they do not remove it.",
+    "Measured on one host, one interpreter and one pyarrow build. No cross-platform claim is made."
+  ],
+  "decision": {
+    "requirement": "PRF-01",
+    "measured_at": "2026-08-19",
+    "branch": "B (adapted)",
+    "branch_adaptation": {
+      "plan_expected": "artifacts/phase-04/04-bench-summary.json exists carrying disposition 'NOT MEASURED' and a reason to quote",
+      "actual_state": "artifacts/phase-04/ did not exist; the file has never been created",
+      "cause": "04-09 (BENCH-01) was never authorised, so it never ran and never produced a receipt",
+      "disposition_of_missing_artifact": null,
+      "reason_of_missing_artifact": null,
+      "note": "No disposition or reason is attributed to this artifact, because it has never contained either. No stub was created. The plan's must_have sanctions this form directly: 'or the absence of that profile is recorded as the reason it could not be'."
+    },
+    "denominator": {
+      "available": false,
+      "what_is_missing": "a post-change per-cycle duration measured on the code as it stands after 04-05 and 04-06",
+      "substitute_used": null,
+      "why_no_substitute": "The pre-change baseline in artifacts/b2-rollout/06-o1-window.json was produced by different code, before the Gold rebuild skip and the receipt-gated fast path. Using it as a denominator would express today's boundary as a share of yesterday's cycle."
+    },
+    "rule_fixed_in_advance": "NOT WORTH DOING (unmeasurable baseline) if the measured boundary cost is negligible in absolute terms at every delta size the pipeline has actually been observed to produce; INCONCLUSIVE otherwise. OPTIMISE is unreachable on this branch.",
+    "observed_production_delta": {
+      "keys": 1,
+      "files": 1,
+      "bytes": 4422,
+      "source": [
+        "artifacts/b2-rollout/06-o1-window.json",
+        "artifacts/b2-rollout/06-bounded-workload.json"
+      ],
+      "note": "The largest B2 delta anywhere in the committed evidence base. Every measurement above 1 row describes a regime this pipeline has never been observed in."
+    },
+    "disposition": "NOT WORTH DOING (unmeasurable baseline)",
+    "reason": "At the only delta size this pipeline has been observed to produce - one key, one row - the whole boundary costs 0.193 ms median end to end. That is negligible in absolute terms by any reading, so the rule fixed in advance selects NOT WORTH DOING. The 'unmeasurable baseline' qualifier is not a hedge about the measurement, which is sound; it records that no post-change cycle duration exists to express even a large boundary cost as a share of.",
+    "flip_point": {
+      "statement": "Interpolating the two large points, the boundary reaches one second of wall time at roughly 46,325-61,440 delta rows (21.59 us/row at 10^6, 16.28 us/row at 10^4).",
+      "rows_to_one_second_low": 46325,
+      "rows_to_one_second_high": 61440,
+      "basis": "Two points, linear interpolation. Not a fitted model, and per-row cost is not constant across the sweep - it rises from 16.28 us/row at 10^4 to 21.59 us/row at 10^6.",
+      "caveat": "One second is an absolute reference, deliberately not a share of a cycle. No measured cycle exists to take a share of, and inventing one is what this branch forbids.",
+      "what_would_reopen": "Observing B2 deltas four to five orders of magnitude larger than anything recorded, or a measured post-change cycle short enough that a sub-second boundary is a material share of it."
+    },
+    "where_the_time_goes": {
+      "finding": "Arrow-to-Python conversion dominates at every size, not the Python resolution logic.",
+      "at_1e6_rows_ms": {
+        "arrow_to_python_delta": 14438.613500038628,
+        "arrow_to_python_current": 2940.427499997895,
+        "collapse_delta": 2441.702299984172,
+        "resolve_against_current": 2748.8009000080638,
+        "python_to_arrow": 862.0278000016697
+      },
+      "consequence": "The locked instruction prefers an Arrow-native or vectorised implementation. This measurement says where that would have to be aimed if it were ever justified: at the to_pylist conversions, which cost about 17.4 s of the 21.6 s sequence at 10^6, rather than at collapse_delta and resolve_against_current, which together cost about 5.2 s. Vectorising the resolution logic while leaving the conversions in place would address the smaller share."
+    },
+    "findings_requiring_separate_authorisation": [
+      {
+        "id": "double-collapse",
+        "what": "iceberg_medallion.py:621 calls collapse_delta(incoming); line 630 calls resolve_against_current(current, incoming), which calls collapse_delta on the same input again. The delta is collapsed twice per cycle.",
+        "correctness": "Neutral. collapse_delta is pure and deterministic, so the second call returns the first call's result.",
+        "measured_cost": {
+          "share_of_sequence_at_1e6": 11.3,
+          "share_of_sequence_at_1_row": 1.3,
+          "unit": "percent of the production sequence median"
+        },
+        "status": "reported, not fixed",
+        "why_not_fixed": "A fix would change iceberg/, which this change is forbidden to touch. Carried to a separate authorisation rather than widening 04-10."
+      }
+    ],
+    "code_changed": [],
+    "iceberg_modified": false,
+    "cross_reference": "docs/adr/0002-steady-state-shadow-policy.md"
+  }
+}

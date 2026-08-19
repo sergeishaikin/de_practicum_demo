@@ -267,3 +267,15 @@ rollback trigger is the shadow signal itself.
   need.
 - It does not change `SHADOW_CONTRACT_VERSION`, the certificate format, or any runtime behaviour.
   Nothing under `iceberg/` is modified by this decision.
+
+---
+
+## Related measurement
+
+Where the remaining per-cycle time goes at the Arrow/Python boundary is measured
+separately in
+[`artifacts/phase-04/04-arrow-boundary-profile.json`](../../artifacts/phase-04/04-arrow-boundary-profile.json),
+produced by `scripts/profile_arrow_boundary.py` under PRF-01. That profile and
+this policy are the phase's two answers to the cost question — this one about
+work the cycle can decline, that one about work it still performs. Neither
+changes the other's conclusion.
