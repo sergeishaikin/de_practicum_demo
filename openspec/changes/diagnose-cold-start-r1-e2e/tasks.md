@@ -9,18 +9,18 @@
 
 ## 2. Produce a failing run under observation
 
-- [ ] 2.1 Push the diagnostic step and let H1 run on a fresh volume
-- [ ] 2.2 If the E2E step fails, download the artifact and record the four facts verbatim in `evidence.md` in this change
-- [ ] 2.3 If the E2E step passes, record that the failure did not reproduce, with the run id and timing, and treat non-reproduction as evidence rather than as resolution
+- [x] 2.1 Push the diagnostic step and let H1 run on a fresh volume - run `32193696670`, `pull_request`, SHA `399957b`
+- [x] 2.2 If the E2E step fails, download the artifact and record the four facts verbatim in `evidence.md` in this change - not applicable: E2E passed, the capture step was correctly skipped, and `evidence.md` records that no artifact exists
+- [x] 2.3 If the E2E step passes, record that the failure did not reproduce, with the run id and timing, and treat non-reproduction as evidence rather than as resolution - `3 passed, 3 skipped in 205.84s` against `1 failed ... in 348.99s`, same code
 
 ## 3. Classify
 
-- [ ] 3.1 Decide which of the three the evidence supports: an invalid warm-state assumption in the harness, a Spark/Kafka cold-start correctness defect, or CI orchestration and timing
-- [ ] 3.2 State the reasoning against each classification that was rejected, not only for the one chosen
-- [ ] 3.3 If the evidence supports none of them, record that as the outcome and name exactly what is still missing — do not widen the investigation to force a verdict
-- [ ] 3.4 Name the successor change that will carry the remedy, and state explicitly that no remedy was applied here
+- [x] 3.1 Decide which of the three the evidence supports: an invalid warm-state assumption in the harness, a Spark/Kafka cold-start correctness defect, or CI orchestration and timing - see `classification.md`
+- [x] 3.2 State the reasoning against each classification that was rejected, not only for the one chosen
+- [x] 3.3 If the evidence supports none of them, record that as the outcome and name exactly what is still missing — do not widen the investigation to force a verdict - outcome is `not established`, four missing facts named
+- [x] 3.4 Name the successor change that will carry the remedy, and state explicitly that no remedy was applied here
 
 ## 4. Close
 
-- [ ] 4.1 Confirm the scope fence held: no timeout raised, no sleep lengthened, no retry added, no checkpoint reset, no assertion weakened, no production Kafka or Spark semantics changed
-- [ ] 4.2 Update `.planning/STATE.md`'s migration row for this obligation with the classification outcome, since that table is where a reader looks for what happened to it
+- [x] 4.1 Confirm the scope fence held: no timeout raised, no sleep lengthened, no retry added, no checkpoint reset, no assertion weakened, no production Kafka or Spark semantics changed
+- [x] 4.2 Update `.planning/STATE.md`'s migration row for this obligation with the classification outcome, since that table is where a reader looks for what happened to it

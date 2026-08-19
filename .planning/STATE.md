@@ -31,7 +31,7 @@ are not a queue. Each obligation has a successor:
 | `04-08` — steady-state shadow policy (ADR-0002) | `define-steady-state-shadow-policy` |
 | `04-09` — before/after benchmark | `benchmark-medallion-fast-path` |
 | `04-10` — Arrow/Python boundary profile | `profile-arrow-python-boundary` |
-| H1 clean-stack R1 E2E failure (found 2026-08-18) | `diagnose-cold-start-r1-e2e` |
+| H1 clean-stack R1 E2E failure (found 2026-08-18) | `diagnose-cold-start-r1-e2e` - closed 2026-08-19, classification **not established**: the failure did not reproduce and is timing-sensitive; evidence capture is now in place for the next occurrence |
 
 `01-07`'s outcome enum is unchanged by the migration: exactly one of
 `open_d3a`, `open_o2`, `no_change`, with the other two recorded as rejected.
