@@ -185,7 +185,27 @@ def _progress_path() -> str:
 
 
 def _read_json(fs: S3FileSystem, path: str) -> dict:
-    with fs.open_input_file(path) as source:
+    """Read a small JSON object sequentially, never by its advertised size.
+
+    `open_input_file` is random access: it takes the object's length from a HEAD
+    at open and applies that length to the body it later fetches. These objects
+    are overwritten in place and they shrink - completing a work item replaces a
+    `work` entry holding full object paths with a compact `completed` one - so a
+    read issued across that overwrite is sized from the larger predecessor and
+    served the smaller successor. PyArrow returns the whole over-sized buffer,
+    and the tail is process memory that was never written.
+
+    Observed in CI on 2026-08-19: a 236-byte document returned as 521 bytes whose
+    last 285 were heap pointers and stray literals, while a second read and a
+    sequential read of the same object both returned the intact 236 bytes with an
+    identical digest. Evidence in the archived change
+    `diagnose-medallion-progress-read-corruption`.
+
+    `open_input_stream` reads the body to EOF, so it cannot be sized by a stale
+    HEAD. Same bytes, same parse, same failure on a genuinely bad object.
+    """
+
+    with fs.open_input_stream(path) as source:
         return json.loads(source.read().decode("utf-8"))
 
 

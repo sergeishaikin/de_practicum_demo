@@ -93,9 +93,13 @@ def read_progress_json(
     """
 
     info_before = _file_info(filesystem, object_path)
-    with filesystem.open_input_file(object_path) as source:
-        size_at_open = source.size()
+    # Sequential, matching the medallion's own `_read_json`. A random-access read
+    # is sized from a HEAD taken at open and returns that many bytes even when
+    # the body since became shorter; the capture below exists because that is
+    # what produced the corruption this module was written for.
+    with filesystem.open_input_stream(object_path) as source:
         raw = source.read()
+        size_at_open = len(raw)
 
     try:
         return json.loads(raw.decode("utf-8"))

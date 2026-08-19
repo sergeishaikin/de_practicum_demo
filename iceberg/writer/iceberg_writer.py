@@ -198,7 +198,12 @@ def _normalize_spark_path(path: str) -> str:
 def _read_spark_commit_log(fs: S3FileSystem, path: str) -> set[str]:
     """Read one Spark FileStreamSink metadata log and return added files."""
 
-    raw = fs.open_input_file(path).read().decode("utf-8")
+    # Sequential, not random access: `open_input_file` sizes itself from a HEAD
+    # taken at open and returns that many bytes even when the body since became
+    # shorter, exposing uninitialised memory as the tail. See _read_json in the
+    # medallion for the captured evidence.
+    with fs.open_input_stream(path) as source:
+        raw = source.read().decode("utf-8")
     lines = [line.strip() for line in raw.splitlines() if line.strip()]
     if not lines or lines[0] != "v1":
         raise ValueError(f"Unsupported or invalid Spark commit log: {path}")

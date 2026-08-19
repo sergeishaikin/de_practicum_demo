@@ -57,6 +57,7 @@ jobs:
           uv run --locked pytest -q -m integration
           tests/integration/test_m3_b2_recovery.py
           tests/integration/test_m4_gold_cutover.py
+          tests/integration/test_progress_read_under_shrink.py
       - name: PR blocking BDD specifications
         run: uv run --locked pytest -q tests/features -m "bdd and integration"
       - name: Capture progress-read corruption evidence

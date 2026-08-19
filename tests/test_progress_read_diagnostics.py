@@ -47,26 +47,29 @@ class _Info:
 
 
 class _FS:
-    """First random-access read is corrupt; later reads and the stream are clean.
+    """The primary read is corrupt; every comparison read is clean.
 
-    That is the shape of hypothesis B - the stored object is intact and the fault
-    is in the read - and it is what the capture must be able to demonstrate.
+    That is the shape the CI evidence showed: an intact object on the server and
+    a single read that returned it plus a tail of process memory. The capture has
+    to be able to demonstrate exactly that, so the double reproduces it - the
+    first sequential read (the caller's) is corrupt, the second sequential read
+    and the random-access read (both taken by the capture) are clean.
     """
 
     def __init__(self, good: bytes, corrupt: bytes) -> None:
         self.good = good
         self.corrupt = corrupt
-        self.opens = 0
+        self.streams = 0
 
     def get_file_info(self, path: str) -> _Info:
         return _Info(len(self.good))
 
     def open_input_file(self, path: str) -> _File:
-        self.opens += 1
-        return _File(self.corrupt if self.opens == 1 else self.good)
+        return _File(self.good)
 
     def open_input_stream(self, path: str) -> _File:
-        return _File(self.good)
+        self.streams += 1
+        return _File(self.corrupt if self.streams == 1 else self.good)
 
 
 @pytest.fixture()
@@ -132,7 +135,6 @@ def test_a_corrupt_stored_object_is_distinguishable_from_a_bad_read(diagnostics_
     """Hypothesis A: every read agrees, and all of them are corrupt."""
 
     fs = _FS(TRAILING_GARBAGE, TRAILING_GARBAGE)
-    fs.open_input_stream = lambda path: _File(TRAILING_GARBAGE)  # type: ignore[method-assign]
     report = _capture(fs)["report"]
     assert report["second_read"]["parses"] is False
     assert report["second_read"]["identical_to_first"] is True

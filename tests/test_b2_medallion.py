@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 from datetime import date, datetime
 
@@ -110,6 +111,34 @@ def test_completed_progress_is_bounded(monkeypatch) -> None:
     monkeypatch.setattr(m, "MAX_COMPLETED_PROGRESS", 1)
     m._prune_completed(progress)
     assert progress["completed"] == {"new": {"sequence": 2}}
+
+
+def test_progress_is_read_sequentially_not_by_advertised_size() -> None:
+    """`_read_json` must not use a random-access handle.
+
+    A random-access read takes the object's length from a HEAD at open and
+    applies it to a body fetched afterwards. Because the progress document
+    shrinks when work completes, that returns the smaller successor padded out to
+    the larger predecessor's length - and CI captured the padding as
+    uninitialised process memory on 2026-08-19.
+
+    Asserted here rather than only against a live object store, so the contract
+    fails in the fast suite instead of waiting for a race to recur.
+    """
+
+    used: list[str] = []
+
+    class RecordingFS:
+        def open_input_stream(self, path: str):
+            used.append("stream")
+            return io.BytesIO(b'{"completed":{}}')
+
+        def open_input_file(self, path: str):
+            used.append("file")
+            return io.BytesIO(b'{"completed":{}}')
+
+    assert m._read_json(RecordingFS(), "any/path.json") == {"completed": {}}
+    assert used == ["stream"], f"_read_json used {used}, expected a sequential read"
 
 
 def test_the_progress_document_shrinks_when_work_completes(monkeypatch) -> None:

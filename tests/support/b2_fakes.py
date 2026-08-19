@@ -77,6 +77,15 @@ class FakeFS:
         except KeyError as exc:
             raise FileNotFoundError(path) from exc
 
+    def open_input_stream(self, path: str):
+        # Production reads small JSON objects sequentially, never by an
+        # advertised size. The double has to offer the same API or it stops
+        # exercising the code that runs. Both forms return the stored bytes here
+        # because the double has no notion of a read spanning an overwrite -
+        # that is what tests/integration/test_progress_read_under_shrink.py is
+        # for, against a real object store.
+        return self.open_input_file(path)
+
     def open_output_stream(self, path: str):
         return OutputStream(self, path)
 
