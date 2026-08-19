@@ -14,10 +14,10 @@
 
 ## 3. Fix at the owner of the mutation
 
-- [ ] 3.1 Apply the minimal correction indicated by the established case, at the owner of the host-state mutation — not at the `cp`
-- [ ] 3.2 Keep `/opt/airflow/project/dbt/profiles.yml` resolvable for both Cosmos `ProfileConfig` call sites, since `dags/warehouse_dbt.py` and `dags/lakehouse_dbt_semantic.py` name that path
-- [ ] 3.3 Run the repository completion gate, plus `pytest tests/test_dags.py -m airflow` if the change touches anything the DagBag reads
-- [ ] 3.4 Confirm no `chmod`, `chown`, `sudo`, retry or sleep was introduced
+- [x] 3.1 Apply the minimal correction indicated by the established case, at the owner of the host-state mutation — not at the `cp` - the nested file mounts now target `/opt/airflow/dbt-profiles/...`, outside the read-write project mount
+- [x] 3.2 Keep `/opt/airflow/project/dbt/profiles.yml` resolvable for both Cosmos `ProfileConfig` call sites, since `dags/warehouse_dbt.py` and `dags/lakehouse_dbt_semantic.py` name that path - both DAGs read `DBT_PROFILE_PATH` / `DBT_WAREHOUSE_PROFILE_PATH`, supplied by compose
+- [x] 3.3 Run the repository completion gate, plus `pytest tests/test_dags.py -m airflow` if the change touches anything the DagBag reads - ruff, black, 394 passed / 63 deselected, compose config clean
+- [x] 3.4 Confirm no `chmod`, `chown`, `sudo`, retry or sleep was introduced
 
 ## 4. Prove and close
 

@@ -113,6 +113,8 @@ services:
       DBT_POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
       DBT_POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       DBT_POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      DBT_PROFILE_PATH: /opt/airflow/dbt-profiles/lakehouse/profiles.yml
+      DBT_WAREHOUSE_PROFILE_PATH: /opt/airflow/dbt-profiles/warehouse/profiles.yml
       AIRFLOW__COSMOS__ENABLE_TELEMETRY: "False"
       AIRFLOW__COSMOS__DBT_DOCS_PROJECTS: '{"lakehouse":{"dir":"/opt/airflow/project/dbt/target","index":"index.html","name":"Lakehouse dbt docs"},"warehouse":{"dir":"/tmp/warehouse_dbt_artifacts","index":"index.html","name":"Warehouse dbt docs"}}'
       MAINTENANCE_RETENTION: ${MAINTENANCE_RETENTION:-2h}
@@ -124,8 +126,14 @@ services:
       - ./dags:/opt/airflow/dags:ro
       - ./db:/opt/airflow/project/db:ro
       - ./dbt:/opt/airflow/project/dbt:rw
-      - ./dbt/profiles.yml.example:/opt/airflow/project/dbt/profiles.yml:ro
-      - ./dbt/warehouse/profiles.yml.example:/opt/airflow/project/dbt/warehouse/profiles.yml:ro
+      # Profiles are mounted OUTSIDE the read-write project mount. Mounting a
+      # file onto a path inside ./dbt made Docker create that target in the
+      # host checkout - root-owned and empty, because the daemon materialises
+      # a missing bind-mount target - which then blocked anything else from
+      # writing dbt/profiles.yml. Nothing here may target a path under
+      # /opt/airflow/project/dbt.
+      - ./dbt/profiles.yml.example:/opt/airflow/dbt-profiles/lakehouse/profiles.yml:ro
+      - ./dbt/warehouse/profiles.yml.example:/opt/airflow/dbt-profiles/warehouse/profiles.yml:ro
       - ./data/raw:/opt/airflow/project/data/raw:ro
       - de_demo_airflow_logs:/opt/airflow/logs
     command:

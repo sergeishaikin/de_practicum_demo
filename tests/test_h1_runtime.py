@@ -55,6 +55,42 @@ def test_postgres_health_means_reachable_over_tcp() -> None:
     assert "-p 5432" in probe
 
 
+def test_no_bind_mount_targets_a_path_inside_another_mount() -> None:
+    """A file mount nested inside a read-write directory mount mutates the checkout.
+
+    Docker materialises a missing bind-mount target before mounting over it. When
+    the target resolves inside another host mount, that placeholder is created in
+    the host checkout - root-owned and empty - and nothing running as the checkout
+    owner can replace it afterwards. H1 proved it: `dbt/profiles.yml` appeared as
+    `root:root`, 0 bytes, born at stack start, and `cp` then failed with
+    Permission denied.
+
+    The rule is structural, so it is checked structurally rather than by naming
+    the one pair that caused it.
+    """
+
+    compose = read("docker-compose.yml")
+    targets = []
+    for line in compose.splitlines():
+        entry = line.strip()
+        if not entry.startswith("- ./"):
+            continue
+        parts = entry[2:].split(":")
+        if len(parts) < 2 or not parts[1].startswith("/"):
+            continue
+        targets.append((parts[0], parts[1]))
+
+    directory_mounts = [target for source, target in targets if not Path(source).suffix]
+    nested = [
+        (source, target)
+        for source, target in targets
+        for directory in directory_mounts
+        if target != directory and target.startswith(directory + "/")
+    ]
+
+    assert not nested, f"bind mount target nested inside another mount: {nested}"
+
+
 def test_spark_runtime_has_baked_jars_and_no_runtime_package_resolution() -> None:
     compose = read("docker-compose.extended.yml")
     e2e = read("tests/e2e/test_lakehouse_e2e.py")

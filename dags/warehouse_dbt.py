@@ -182,7 +182,15 @@ DBT_PROJECT_PATH = Path(
 DBT_ARTIFACT_PATH = Path(
     os.getenv("DBT_WAREHOUSE_ARTIFACT_PATH", "/tmp/warehouse_dbt_artifacts")
 ).resolve()
-DBT_PROFILE_PATH = DBT_PROJECT_PATH / "profiles.yml"
+# Mounted outside DBT_PROJECT_PATH: see the note in docker-compose.yml - a file
+# mount inside the read-write project mount creates a root-owned file in the
+# host checkout.
+DBT_PROFILE_PATH = Path(
+    os.getenv(
+        "DBT_WAREHOUSE_PROFILE_PATH",
+        "/opt/airflow/dbt-profiles/warehouse/profiles.yml",
+    )
+).resolve()
 DBT_EXECUTABLE = os.getenv("DBT_EXECUTABLE_PATH", "dbt")
 DBT_ENV = {
     "DBT_POSTGRES_HOST": os.getenv("DBT_POSTGRES_HOST", "de-demo-postgres"),
