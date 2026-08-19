@@ -55,6 +55,46 @@ def test_postgres_health_means_reachable_over_tcp() -> None:
     assert "-p 5432" in probe
 
 
+def test_h1_dbt_expectation_matches_the_semantic_project() -> None:
+    """The pinned dbt total must equal what the project actually declares.
+
+    H1 asserts `PASS=n ... TOTAL=n` so that tests cannot vanish unnoticed. That
+    guard only works while n is right: the semantic project gained two unit
+    tests, the workflow still demanded 26, and a run where dbt reported
+    `PASS=28 ERROR=0` failed the step. Counting the sources here means the next
+    added test fails in this suite, in a second, rather than 40 minutes into a
+    clean rebuild.
+
+    The count is a declaration-shape heuristic over the project YAML, calibrated
+    against dbt's own reported total (26 data tests + 2 unit tests = 28). It is
+    deliberately noisy rather than clever: a YAML style it does not recognise
+    fails here loudly instead of silently drifting from the workflow.
+    """
+
+    workflow = read(".github/workflows/ci-h1-clean.yml")
+    pinned = re.search(r"PASS=(\d+) \.\*ERROR=0 \.\*TOTAL=(\d+)", workflow)
+    assert pinned, "H1 no longer pins a dbt test total"
+    passes, total = (int(group) for group in pinned.groups())
+    assert passes == total
+
+    declared = len(
+        re.findall(r"^\s+- name:", read("dbt/models/semantic/unit_tests.yml"), re.M)
+    )
+    sources_and_models = read("dbt/models/sources.yml") + read(
+        "dbt/models/semantic/semantic.yml"
+    )
+    data_tests = sum(
+        len(re.findall(pattern, sources_and_models))
+        for pattern in (r"- not_null", r"- unique", r"- accepted_values", r"not_null\]")
+    )
+    data_tests += len(list(Path("dbt/tests").glob("*.sql")))
+
+    assert total == data_tests + declared, (
+        f"H1 pins TOTAL={total}; the project declares "
+        f"{data_tests} data tests + {declared} unit tests"
+    )
+
+
 def test_trino_is_not_ready_while_it_is_still_starting() -> None:
     """`/v1/info` returns 200 during startup, so the payload decides readiness.
 

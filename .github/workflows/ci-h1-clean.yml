@@ -167,7 +167,10 @@ jobs:
           ../.venv-dbt/bin/dbt compile --profiles-dir .
           ../.venv-dbt/bin/dbt run --profiles-dir . --select semantic --threads 1
           ../.venv-dbt/bin/dbt test --profiles-dir . 2>&1 | tee /tmp/h1-dbt-test.log
-          grep -Eq 'PASS=26 .*ERROR=0 .*TOTAL=26' /tmp/h1-dbt-test.log
+          # 26 data tests plus the 2 semantic unit tests. The total is pinned on
+          # purpose - it catches tests silently disappearing, which ERROR=0 alone
+          # would not - so it has to be updated when the project gains tests.
+          grep -Eq 'PASS=28 .*ERROR=0 .*TOTAL=28' /tmp/h1-dbt-test.log
           ../.venv-dbt/bin/dbt docs generate --profiles-dir .
       - name: Prometheus and Grafana smoke
         run: |
