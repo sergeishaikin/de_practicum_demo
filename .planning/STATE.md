@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: GSD execution is frozen. 04-01 through 04-07 were executed as GSD plans; 04-08's obligation (POL-01 / ADR-0002) was discharged on 2026-08-19 in the mapped OpenSpec change define-steady-state-shadow-policy, not through GSD. 04-09 (BENCH-01) remains unauthorised and mutates canonical warehouse state. Phase 1 01-07 (DEC-01) remains live and unexecuted.
+stopped_at: GSD execution is frozen. 04-01 through 04-07 were executed as GSD plans; 04-08's obligation (POL-01 / ADR-0002) was discharged on 2026-08-19 in the mapped OpenSpec change define-steady-state-shadow-policy, not through GSD. 04-09 (BENCH-01) remains unauthorised and mutates canonical warehouse state. Phase 1 01-07 (DEC-01) was discharged on 2026-08-19 in close-b2-rollout-decision with outcome no_change.
 last_updated: "2026-08-19T00:00:00.000Z"
 last_activity: 2026-08-18 -- Executed 04-07 (documentation contract correction and Phase 4 requirement registration); closed and summarized
 progress:
@@ -27,7 +27,7 @@ are not a queue. Each obligation has a successor:
 
 | Frozen GSD plan | OpenSpec change |
 |---|---|
-| `01-07` — decide D-3a / O2 / no-change | `close-b2-rollout-decision` |
+| `01-07` — decide D-3a / O2 / no-change | `close-b2-rollout-decision` - discharged 2026-08-19, outcome **`no_change`**: the telemetry gate passed, but the window holds one non-empty B2 cycle and no amplification (planned/added 1.0 and 1.028611, removals 0.0), and records no undiagnosed behaviour. D-3a and O2 stay deferred with reopen conditions in `artifacts/b2-rollout/07-rollout-decision.json`; neither is refuted |
 | `04-08` — steady-state shadow policy (ADR-0002) | `define-steady-state-shadow-policy` - discharged 2026-08-19: ADR-0002 ratifies shadow validation as mandatory whenever `GOLD_SOURCE=persisted_silver`, with conditions C1-C7 for reopening it, and `RUNTIME_ROLLOUT_MATRIX` is now pinned by set equality. The matrix itself is unchanged |
 | `04-09` — before/after benchmark | `benchmark-medallion-fast-path` |
 | `04-10` — Arrow/Python boundary profile | `profile-arrow-python-boundary` |
