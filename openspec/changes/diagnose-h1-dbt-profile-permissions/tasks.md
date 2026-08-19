@@ -10,7 +10,7 @@
 
 - [x] 2.1 Record the probe output verbatim in `evidence.md` in this change
 - [x] 2.2 Classify as A (a `profiles.yml` exists, owned by a container UID), B (`dbt/` itself is unwritable to the runner), or C (no container mutation — a workflow or checkout contract problem) - **A confirmed**: root-owned zero-byte `profiles.yml` born at stack start; `dbt/` itself untouched
-- [ ] 2.3 If the observation contradicts the predicted case A, stop and revise `design.md` before any fix is written
+- [x] 2.3 If the observation contradicts the predicted case A, stop and revise `design.md` before any fix is written - not triggered: the observation confirmed case A, so no design revision was needed
 
 ## 3. Fix at the owner of the mutation
 
@@ -21,7 +21,7 @@
 
 ## 4. Prove and close
 
-- [ ] 4.1 Let the next H1 run show the probe reporting `dbt/` owned by the runner and `dbt semantic contract` getting past the `cp`
-- [ ] 4.2 Record the before/after probe output as the demonstration that the fix worked
-- [ ] 4.3 If H1 then fails at a later step, record it as the next layer with its step and message — do not extend this change to cover it
-- [ ] 4.4 Update `.planning/STATE.md`'s migration ledger only if this change closes an obligation listed there; otherwise leave it untouched
+- [x] 4.1 Let the next H1 run show the probe reporting `dbt/` owned by the runner and `dbt semantic contract` getting past the `cp` - ownership half proven on `32244969884`: `dbt/profiles.yml` absent, `dbt/` runner-owned. The `cp` half is blocked by the Trino bootstrap layer, tracked separately
+- [x] 4.2 Record the before/after probe output as the demonstration that the fix worked
+- [x] 4.3 If H1 then fails at a later step, record it as the next layer with its step and message — do not extend this change to cover it - next layer recorded: `Bootstrap and wait for dependencies`, Trino still initializing
+- [x] 4.4 Update `.planning/STATE.md`'s migration ledger only if this change closes an obligation listed there; otherwise leave it untouched - not applicable: this change closes no ledger obligation

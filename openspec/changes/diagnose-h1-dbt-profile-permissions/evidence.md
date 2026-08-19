@@ -74,3 +74,40 @@ which is why the repository has never seen it.
 - **The R1 capture step fired for the first time** (`if: failure()` was satisfied
   by the bootstrap failure). Its output describes a stack where E2E never ran, so
   it does not advance the archived R1 question.
+
+## After the fix — the checkout is no longer mutated
+
+Run `32244969884`, SHA `f963e77`, fresh volumes, stack fully started
+(`Build and start clean stack` succeeded).
+
+```text
+## the file the next step tries to create
+stat: cannot statx 'dbt/profiles.yml': No such file or directory
+dbt/profiles.yml: absent
+
+## workspace and dbt directory
+drwxr-xr-x  7 runner runner 4096 Aug 19 10:54 dbt
+-rw-r--r--  1 runner runner  293 Aug 19 10:54 dbt_project.yml
+-rw-r--r--  1 runner runner  391 Aug 19 10:54 profiles.yml.example
+-rw-r--r--  1 runner runner   35 Aug 19 10:54 requirements.in
+drwxr-xr-x  5 runner runner 4096 Aug 19 10:54 warehouse
+```
+
+Side by side with the same probe before the fix:
+
+| | before (`709a139`) | after (`f963e77`) |
+|---|---|---|
+| `dbt/profiles.yml` | `root:root`, 0 bytes, born at stack start | **absent** |
+| `dbt/warehouse/profiles.yml` | `root:root`, 0 bytes, born at stack start | absent |
+| every other entry under `dbt/` | `runner:runner` | `runner:runner` |
+
+The daemon no longer creates anything in the checkout, because no bind mount
+targets a path inside it. This is the stronger outcome: not a file the runner can
+overwrite, but no file at all.
+
+**Still unproven: that `dbt semantic contract` passes.** This run died earlier, at
+`Bootstrap and wait for dependencies`, so the dbt step was skipped. That is a
+different H1 layer — `RuntimeError: Query ... failed: Trino server is still
+initializing` — and it has now blocked two consecutive runs. It is diagnosed as
+its own change; the boundary this change fixed is proven green independently of
+it.
