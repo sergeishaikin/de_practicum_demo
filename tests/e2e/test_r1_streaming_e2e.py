@@ -11,6 +11,7 @@ import uuid
 from pathlib import Path
 
 import pytest
+from pyarrow.fs import FileType
 
 from tests.e2e.test_lakehouse_e2e import (
     BUCKET,
@@ -91,7 +92,9 @@ def _set_short_kafka_retention(topic: str) -> None:
         raise RuntimeError(f"kafka-configs failed: {proc.stderr.strip()}")
 
 
-def _kafka_earliest_offset(topic: str) -> int:
+def _kafka_offset(topic: str, when: str) -> int:
+    """`-2` is the earliest retained offset, `-1` the next offset to be written."""
+
     proc = subprocess.run(
         [
             "docker",
@@ -104,7 +107,7 @@ def _kafka_earliest_offset(topic: str) -> int:
             "--topic",
             topic,
             "--time",
-            "-2",
+            when,
         ],
         capture_output=True,
         text=True,
@@ -114,6 +117,26 @@ def _kafka_earliest_offset(topic: str) -> int:
         return -1
     lines = [line for line in proc.stdout.splitlines() if line.strip()]
     return int(lines[0].rsplit(":", 1)[-1]) if lines else -1
+
+
+def _kafka_earliest_offset(topic: str) -> int:
+    return _kafka_offset(topic, "-2")
+
+
+def _kafka_end_offset(topic: str) -> int:
+    return _kafka_offset(topic, "-1")
+
+
+def _raw_commit_exists(run_id: str, batch: int) -> bool:
+    """Whether the raw query durably committed `batch` to its checkpoint.
+
+    Read directly rather than inferred from a row count: a committed batch is
+    what makes the offset boundary survive the process, and it is the fact the
+    restart depends on.
+    """
+
+    path = f"{BUCKET}/e2e/{run_id}/checkpoints/raw/commits/{batch}"
+    return _fs().get_file_info(path).type == FileType.File
 
 
 @pytest.mark.e2e
@@ -263,7 +286,18 @@ def test_r1_malformed_event_dead_letter_reconciliation_and_replay() -> None:
 
 @pytest.mark.e2e
 def test_r1_offset_loss_fails_loudly() -> None:
-    """A committed checkpoint must not silently skip deleted Kafka records."""
+    """A committed checkpoint must not silently skip deleted Kafka records.
+
+    The choreography is deliberately sequential. An earlier version published
+    both records before the second start and then waited for `landing_rows == 1`
+    as a synchronisation barrier - a state that is only true between two
+    micro-batches. `maxOffsetsPerTrigger=1` bounds a batch to one offset but
+    guarantees no observable pause between batches, so on a cold runner both
+    records landed a second apart and the barrier was never seen. The fix is to
+    make the boundary durable rather than momentary: while the stream runs, the
+    topic holds exactly one record, so what it commits is not a matter of
+    timing.
+    """
 
     _preflight()
     run_id = f"r1loss{uuid.uuid4().hex[:8]}"
@@ -271,15 +305,9 @@ def test_r1_offset_loss_fails_loudly() -> None:
     stream_name: str | None = None
     try:
         kafka_create_topic(topic)
-        stream_name = start_streaming(
-            run_id,
-            topic,
-            max_offsets_per_trigger=1,
-        )
-        time.sleep(20)
-        docker_rm(stream_name)
-        stream_name = None
 
+        # Phase 1 - the only record in the topic is the one the checkpoint must
+        # come to own.
         kafka_publish(
             topic,
             [
@@ -288,6 +316,42 @@ def test_r1_offset_loss_fails_loudly() -> None:
                     "event_time": "2026-08-08T12:00:00+00:00",
                     "business_version": 1,
                 },
+            ],
+        )
+        stream_name = start_streaming(
+            run_id,
+            topic,
+            max_offsets_per_trigger=1,
+        )
+
+        # Two independent proofs of the same boundary, neither of them a sampled
+        # coincidence: the landed row names Kafka offset 0, and the raw query
+        # committed batch 0 to its checkpoint.
+        wait_until(
+            lambda: landing_rows(_fs(), run_id) == 1,
+            180,
+            "the published record lands",
+            logs=(lambda: docker("logs", stream_name),),
+        )
+        landed_offsets = (
+            landing_source_metadata(_fs(), run_id).column("kafka_offset").to_pylist()
+        )
+        assert landed_offsets == [0], landed_offsets
+        wait_until(
+            lambda: _raw_commit_exists(run_id, 0),
+            180,
+            "the raw checkpoint durably commits batch 0",
+            logs=(lambda: docker("logs", stream_name),),
+        )
+
+        docker_rm(stream_name)
+        stream_name = None
+
+        # Phase 2 - the record the restart will demand next exists only after the
+        # checkpoint that will demand it is already durable.
+        kafka_publish(
+            topic,
+            [
                 {
                     "order_id": f"r1-loss-second-{run_id}",
                     "event_time": "2026-08-08T12:00:01+00:00",
@@ -295,26 +359,12 @@ def test_r1_offset_loss_fails_loudly() -> None:
                 },
             ],
         )
-        stream_name = start_streaming(
-            run_id,
-            topic,
-            max_offsets_per_trigger=1,
-            trigger_seconds=60,
-        )
-
-        def one_landed() -> bool:
-            try:
-                return landing_rows(_fs(), run_id) == 1
-            except FileNotFoundError:
-                return False
-
         wait_until(
-            one_landed,
-            180,
-            "one Kafka record committed before offset loss",
+            lambda: _kafka_end_offset(topic) == 2,
+            120,
+            "the second record is published",
         )
-        docker_rm(stream_name)
-        stream_name = None
+
         _set_short_kafka_retention(topic)
         _delete_kafka_records(topic, 2)
         wait_until(
@@ -322,11 +372,14 @@ def test_r1_offset_loss_fails_loudly() -> None:
             120,
             "Kafka record becomes unavailable",
         )
+
+        # Phase 3 - same checkpoint, and the offset it wants next no longer
+        # exists. Silently resuming from the new earliest offset would skip
+        # committed data, so the query has to die instead.
         stream_name = start_streaming(
             run_id,
             topic,
             max_offsets_per_trigger=1,
-            trigger_seconds=60,
         )
 
         def failed() -> bool:
