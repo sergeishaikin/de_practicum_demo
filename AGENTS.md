@@ -112,6 +112,13 @@ the standing capabilities — `engineering-governance` (how work is authorised a
 fenced) and `verification-contract` (what counts as verified, alongside the
 canonical commands in this file). `openspec/changes/` holds proposals in flight.
 
+`openspec/backlog/` holds work that is specified but **not authorised** — see
+`openspec/backlog/README.md`. A backlog item is not an authorisation to execute
+and not evidence of current behaviour; starting one means opening the OpenSpec
+change its index row names, which requires its own explicit authorisation. The
+current backlog is the NG-0.1 … NG-2.2 next-generation platform package under
+`openspec/backlog/next-generation/`.
+
 GSD execution is frozen as of 2026-08-18. `.planning/` stays tracked as the
 historical execution record of Phases 1-4 and must not be resumed as a work
 queue; obligations that were never executed are listed with their OpenSpec
