@@ -6,12 +6,12 @@
 magnitude, medians over a recorded repeat count, no live service. Python 3.12.12,
 pyarrow 21.0.0. All figures in milliseconds.
 
-| rows | keys | rep | Arrow→Py delta | Arrow→Py current | collapse | resolve | Py→Arrow | Σ steps | production sequence |
-|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 1 | 1 | 21 | 0.070 | 0.039 | 0.003 | 0.003 | 0.075 | 0.190 | **0.193** |
-| 100 | 50 | 21 | 1.183 | 0.282 | 0.158 | 0.164 | 0.125 | 1.913 | 1.941 |
-| 10 000 | 5 000 | 7 | 102.659 | 25.353 | 15.392 | 17.655 | 5.304 | 166.363 | 162.758 |
-| 1 000 000 | 500 000 | 3 | 14 438.614 | 2 940.427 | 2 441.702 | 2 748.801 | 862.028 | 23 431.572 | 21 586.585 |
+| rows | keys | rep | Arrow→Py delta | Arrow→Py current | collapse | resolve | Py→Arrow | `component_sum_ms` | `production_sequence_total_ms` | seq/sum |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 1 | 21 | 0.048 | 0.034 | 0.002 | 0.003 | 0.067 | 0.155 | **0.219** | 1.4163 |
+| 100 | 50 | 21 | 1.071 | 0.575 | 0.157 | 0.175 | 0.131 | 2.109 | **1.791** | 0.8490 |
+| 10,000 | 5,000 | 7 | 94.037 | 23.879 | 14.595 | 17.021 | 4.525 | 154.058 | **156.257** | 1.0143 |
+| 1,000,000 | 500,000 | 3 | 10773.521 | 2880.988 | 2274.959 | 2453.869 | 701.752 | 19085.089 | **19263.456** | 1.0093 |
 
 Row counts check out at every size: 100 rows over 50 keys collapse to 50 and
 resolve to 50, with the delta carrying versions 1 and 2 per key against current
@@ -24,7 +24,7 @@ before the numbers were read.
 
 At the only delta size this pipeline has ever been observed to produce — one key,
 one row, 4 422 bytes, from `06-o1-window.json` — the entire boundary costs
-**0.193 ms** end to end. Negligible in absolute terms by any reading.
+**0.219 ms** end to end. Negligible in absolute terms by any reading.
 
 The `(unmeasurable baseline)` qualifier is not a hedge about the measurement,
 which is sound. It records that `artifacts/phase-04/04-bench-summary.json` does
@@ -32,8 +32,8 @@ not exist, so there is no post-change cycle duration to express even a large
 boundary cost as a share of.
 
 **Flip point.** The boundary reaches one second of wall time at roughly
-**46 325–61 440 rows**, interpolating the two large points (21.59 µs/row at 10⁶,
-16.28 µs/row at 10⁴). Two points and linear interpolation, not a fitted model —
+**51 911–63 997 rows**, interpolating the two large points (19.26 µs/row at 10⁶,
+15.63 µs/row at 10⁴). Two points and linear interpolation, not a fitted model —
 per-row cost is not constant across the sweep. One second is an absolute
 reference, deliberately not a share of a cycle, because no measured cycle exists
 to take a share of.
@@ -72,8 +72,18 @@ the reasoning that summing the four named steps would **understate** what a cycl
 pays, because the sequence collapses the delta twice. **That reasoning was
 wrong**, and the measurement is what exposed it: `resolve_against_current`
 measured on its own already includes its internal collapse, so the per-step sum
-covers both collapses too. Sum and sequence agree within 8 % at every size, and
-at 10⁶ the sum is the larger of the two.
+covers both collapses too.
+
+At the two large sizes the two figures agree closely — `seq/sum` is 1.0143 at
+10⁴ and 1.0093 at 10⁶. At 1 and 100 rows the ratio swings between 0.85 and 1.42,
+which is timer noise on sub-millisecond work rather than signal.
+
+**Two runs settle it.** The sweep was run twice, before and after the field
+breakout. In the first run the component sum was the *larger* of the two at 10⁶;
+in the second the sequence was. The sign of the difference is not stable across
+runs, which is what a difference of about 1 % on a 19-second measurement should
+look like if there is no systematic gap — and there is none, for the reason
+above.
 
 Both `design.md` and the script comment were corrected to say what the data
 shows. The sequence measurement was kept for a weaker but real reason: it is the
@@ -84,8 +94,8 @@ isolation.
 ## Where the time actually goes
 
 The dominant cost is **Arrow-to-Python conversion**, not the Python resolution
-logic. At 10⁶ rows the two `to_pylist()` calls cost ≈ 17.4 s of the 21.6 s
-sequence; `collapse_delta` and `resolve_against_current` together cost ≈ 5.2 s.
+logic. At 10⁶ rows the two `to_pylist()` calls cost ≈ 13.7 s of the 19.3 s
+sequence; `collapse_delta` and `resolve_against_current` together cost ≈ 4.7 s.
 
 This matters for the locked instruction, which prefers an Arrow-native or
 vectorised implementation. Were an optimisation ever justified, this measurement
@@ -102,11 +112,17 @@ same input again. The delta is collapsed twice per cycle.
 
 - **Correctness:** neutral. `collapse_delta` is pure and deterministic, so the
   second call returns the first call's result.
-- **Measured cost:** 11.3 % of the production sequence at 10⁶ rows, 1.3 % at one
+- **Measured cost:** 11.8 % of the production sequence at 10⁶ rows, 1.0 % at one
   row.
-- **Status:** reported, **not fixed**. A fix would change `iceberg/`, which this
-  change is forbidden to touch. Per the authorisation, the work stops here and
-  the finding is carried to a separate authorisation rather than widening 04-10.
+- **Status:** **observation only**, not fixed. A fix would change `iceberg/`,
+  which this change is forbidden to touch. Per the authorisation, the work stops
+  here and the finding is carried to a separate authorisation rather than
+  widening 04-10.
+- **It cannot license `OPTIMISE` on its own.** Recorded as
+  `cannot_justify_optimise` in the receipt: with no measured post-change cycle
+  there is no denominator against which 11.8 % of a synthetic 10⁶-row sequence
+  can be called material. The finding can only strengthen the evidence for a
+  future, separately authorised change.
 
 ## Gates
 

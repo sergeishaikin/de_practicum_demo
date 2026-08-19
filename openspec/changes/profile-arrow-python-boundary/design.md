@@ -51,8 +51,10 @@ The profile records both: the four named steps the plan asks for, and a
 that summing the four steps would **understate** the executed cost, because the
 sequence collapses the delta twice. That reasoning was wrong: the separately
 measured `resolve_against_current` already includes its own internal collapse, so
-the sum covers both collapses too. The measurements confirm it — sum and sequence
-agree within 8% at every size, and at 10^6 the sum is the larger of the two.
+the sum covers both collapses too. The measurements confirm it: `seq/sum` is
+1.0143 at 10^4 and 1.0093 at 10^6, and across two runs of the sweep the sign of
+the difference flipped — the sum was larger at 10^6 the first time, the sequence
+the second. A difference that changes direction between runs is noise, not a gap.
 
 The sequence measurement is kept for a different and weaker reason: it is the
 only figure that corresponds to something a cycle actually executes end to end,

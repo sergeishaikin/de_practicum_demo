@@ -164,6 +164,7 @@ def measure(size: int, keys: int, overlap: float, repeats: int) -> dict[str, Any
         "resolve_against_current_ms": resolve,
         "python_to_arrow_ms": python_to_arrow,
     }
+    component_sum = sum(steps.values())
     return {
         "delta_rows": size,
         "distinct_keys": min(keys, size),
@@ -171,8 +172,16 @@ def measure(size: int, keys: int, overlap: float, repeats: int) -> dict[str, Any
         "current_rows": len(current_rows),
         "repeats": repeats,
         "steps_ms_median": steps,
-        "steps_sum_ms": sum(steps.values()),
-        "production_sequence_ms_median": sequence,
+        # The plan's four steps, measured in isolation and added up. Arrow-to-
+        # Python is one plan step measured as its two production call sites.
+        "component_sum_ms": component_sum,
+        # The same work in the medallion's call order, including the second
+        # collapse_delta that resolve_against_current performs internally.
+        "production_sequence_total_ms": sequence,
+        "sequence_over_component_sum": (
+            sequence / component_sum if component_sum else None
+        ),
+        "sequence_minus_component_sum_ms": sequence - component_sum,
         "collapse_runs_per_cycle": 2,
         "rows_out": {
             "collapsed": len(collapsed),
@@ -202,6 +211,18 @@ def build_profile(sizes: list[int], overlap: float, key_ratio: float) -> dict[st
             "platform": platform.platform(),
             "processor": platform.processor() or "unknown",
             "machine": platform.machine(),
+        },
+        "sequence_vs_components": {
+            "observation_only": True,
+            "note": (
+                "component_sum_ms adds the plan's steps measured in isolation; "
+                "production_sequence_total_ms times the medallion's actual call "
+                "order, in which collapse_delta runs twice. The comparison is an "
+                "observation. A production change requires separate "
+                "authorisation, and on its own it can never justify OPTIMISE - "
+                "without a measured post-change cycle there is no denominator to "
+                "call any difference material against."
+            ),
         },
         "measured_steps": [
             "arrow_to_python_delta: delta.to_pylist()",

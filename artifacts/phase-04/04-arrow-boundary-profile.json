@@ -11,6 +11,10 @@
     "processor": "Intel64 Family 6 Model 140 Stepping 1, GenuineIntel",
     "machine": "AMD64"
   },
+  "sequence_vs_components": {
+    "observation_only": true,
+    "note": "component_sum_ms adds the plan's steps measured in isolation; production_sequence_total_ms times the medallion's actual call order, in which collapse_delta runs twice. The comparison is an observation. A production change requires separate authorisation, and on its own it can never justify OPTIMISE - without a measured post-change cycle there is no denominator to call any difference material against."
+  },
   "measured_steps": [
     "arrow_to_python_delta: delta.to_pylist()",
     "arrow_to_python_current: current_scan.to_arrow().to_pylist()",
@@ -27,14 +31,16 @@
       "current_rows": 0,
       "repeats": 21,
       "steps_ms_median": {
-        "arrow_to_python_delta_ms": 0.06990000838413835,
-        "arrow_to_python_current_ms": 0.039000005926936865,
-        "collapse_delta_ms": 0.002600019797682762,
-        "resolve_against_current_ms": 0.00300002284348011,
-        "python_to_arrow_ms": 0.0754999928176403
+        "arrow_to_python_delta_ms": 0.048200017772614956,
+        "arrow_to_python_current_ms": 0.0342000275850296,
+        "collapse_delta_ms": 0.002200016751885414,
+        "resolve_against_current_ms": 0.002600019797682762,
+        "python_to_arrow_ms": 0.06749999010935426
       },
-      "steps_sum_ms": 0.1900000497698784,
-      "production_sequence_ms_median": 0.19300001440569758,
+      "component_sum_ms": 0.154700072016567,
+      "production_sequence_total_ms": 0.2191000385209918,
+      "sequence_over_component_sum": 1.416289182448009,
+      "sequence_minus_component_sum_ms": 0.06439996650442481,
       "collapse_runs_per_cycle": 2,
       "rows_out": {
         "collapsed": 1,
@@ -49,14 +55,16 @@
       "current_rows": 25,
       "repeats": 21,
       "steps_ms_median": {
-        "arrow_to_python_delta_ms": 1.182700041681528,
-        "arrow_to_python_current_ms": 0.28249999741092324,
-        "collapse_delta_ms": 0.15849998453631997,
-        "resolve_against_current_ms": 0.16419996973127127,
-        "python_to_arrow_ms": 0.12530002277344465
+        "arrow_to_python_delta_ms": 1.0714999516494572,
+        "arrow_to_python_current_ms": 0.5746000097133219,
+        "collapse_delta_ms": 0.15699997311457992,
+        "resolve_against_current_ms": 0.17479999223724008,
+        "python_to_arrow_ms": 0.1314000110141933
       },
-      "steps_sum_ms": 1.9132000161334872,
-      "production_sequence_ms_median": 1.940599991939962,
+      "component_sum_ms": 2.1092999377287924,
+      "production_sequence_total_ms": 1.790700014680624,
+      "sequence_over_component_sum": 0.8489546615209103,
+      "sequence_minus_component_sum_ms": -0.3185999230481684,
       "collapse_runs_per_cycle": 2,
       "rows_out": {
         "collapsed": 50,
@@ -71,14 +79,16 @@
       "current_rows": 2500,
       "repeats": 7,
       "steps_ms_median": {
-        "arrow_to_python_delta_ms": 102.65860002255067,
-        "arrow_to_python_current_ms": 25.353499979246408,
-        "collapse_delta_ms": 15.391900029499084,
-        "resolve_against_current_ms": 17.65490003162995,
-        "python_to_arrow_ms": 5.304299993440509
+        "arrow_to_python_delta_ms": 94.03720003319904,
+        "arrow_to_python_current_ms": 23.87909998651594,
+        "collapse_delta_ms": 14.595100015867501,
+        "resolve_against_current_ms": 17.02100003603846,
+        "python_to_arrow_ms": 4.525099997408688
       },
-      "steps_sum_ms": 166.36320005636662,
-      "production_sequence_ms_median": 162.75819996371865,
+      "component_sum_ms": 154.05750006902963,
+      "production_sequence_total_ms": 156.25689999433234,
+      "sequence_over_component_sum": 1.0142764871837933,
+      "sequence_minus_component_sum_ms": 2.199399925302714,
       "collapse_runs_per_cycle": 2,
       "rows_out": {
         "collapsed": 5000,
@@ -93,14 +103,16 @@
       "current_rows": 250000,
       "repeats": 3,
       "steps_ms_median": {
-        "arrow_to_python_delta_ms": 14438.613500038628,
-        "arrow_to_python_current_ms": 2940.427499997895,
-        "collapse_delta_ms": 2441.702299984172,
-        "resolve_against_current_ms": 2748.8009000080638,
-        "python_to_arrow_ms": 862.0278000016697
+        "arrow_to_python_delta_ms": 10773.521000053734,
+        "arrow_to_python_current_ms": 2880.9882999630645,
+        "collapse_delta_ms": 2274.958699999843,
+        "resolve_against_current_ms": 2453.8687999593094,
+        "python_to_arrow_ms": 701.7518000211567
       },
-      "steps_sum_ms": 23431.572000030428,
-      "production_sequence_ms_median": 21586.585200042464,
+      "component_sum_ms": 19085.088599997107,
+      "production_sequence_total_ms": 19263.455800013617,
+      "sequence_over_component_sum": 1.0093458932130153,
+      "sequence_minus_component_sum_ms": 178.36720001650974,
       "collapse_runs_per_cycle": 2,
       "rows_out": {
         "collapsed": 500000,
@@ -145,25 +157,44 @@
       "note": "The largest B2 delta anywhere in the committed evidence base. Every measurement above 1 row describes a regime this pipeline has never been observed in."
     },
     "disposition": "NOT WORTH DOING (unmeasurable baseline)",
-    "reason": "At the only delta size this pipeline has been observed to produce - one key, one row - the whole boundary costs 0.193 ms median end to end. That is negligible in absolute terms by any reading, so the rule fixed in advance selects NOT WORTH DOING. The 'unmeasurable baseline' qualifier is not a hedge about the measurement, which is sound; it records that no post-change cycle duration exists to express even a large boundary cost as a share of.",
+    "reason": "At the only delta size this pipeline has been observed to produce - one key, one row - the whole boundary costs 0.219 ms median end to end. That is negligible in absolute terms by any reading, so the rule fixed in advance selects NOT WORTH DOING. The 'unmeasurable baseline' qualifier is not a hedge about the measurement, which is sound; it records that no post-change cycle duration exists to express even a large boundary cost as a share of.",
     "flip_point": {
-      "statement": "Interpolating the two large points, the boundary reaches one second of wall time at roughly 46,325-61,440 delta rows (21.59 us/row at 10^6, 16.28 us/row at 10^4).",
-      "rows_to_one_second_low": 46325,
-      "rows_to_one_second_high": 61440,
-      "basis": "Two points, linear interpolation. Not a fitted model, and per-row cost is not constant across the sweep - it rises from 16.28 us/row at 10^4 to 21.59 us/row at 10^6.",
+      "statement": "Interpolating the two large points, the boundary reaches one second of wall time at roughly 51,911-63,997 delta rows (19.26 us/row at 10^6, 15.63 us/row at 10^4).",
+      "rows_to_one_second_low": 51911,
+      "rows_to_one_second_high": 63997,
+      "basis": "Two points, linear interpolation. Not a fitted model, and per-row cost is not constant across the sweep - it moves from 15.63 us/row at 10^4 to 19.26 us/row at 10^6.",
       "caveat": "One second is an absolute reference, deliberately not a share of a cycle. No measured cycle exists to take a share of, and inventing one is what this branch forbids.",
       "what_would_reopen": "Observing B2 deltas four to five orders of magnitude larger than anything recorded, or a measured post-change cycle short enough that a sub-second boundary is a material share of it."
     },
     "where_the_time_goes": {
       "finding": "Arrow-to-Python conversion dominates at every size, not the Python resolution logic.",
       "at_1e6_rows_ms": {
-        "arrow_to_python_delta": 14438.613500038628,
-        "arrow_to_python_current": 2940.427499997895,
-        "collapse_delta": 2441.702299984172,
-        "resolve_against_current": 2748.8009000080638,
-        "python_to_arrow": 862.0278000016697
+        "arrow_to_python_delta_ms": 10773.521000053734,
+        "arrow_to_python_current_ms": 2880.9882999630645,
+        "collapse_delta_ms": 2274.958699999843,
+        "resolve_against_current_ms": 2453.8687999593094,
+        "python_to_arrow_ms": 701.7518000211567
       },
-      "consequence": "The locked instruction prefers an Arrow-native or vectorised implementation. This measurement says where that would have to be aimed if it were ever justified: at the to_pylist conversions, which cost about 17.4 s of the 21.6 s sequence at 10^6, rather than at collapse_delta and resolve_against_current, which together cost about 5.2 s. Vectorising the resolution logic while leaving the conversions in place would address the smaller share."
+      "conversions_ms": 13654.509300016798,
+      "resolution_logic_ms": 4728.827499959152,
+      "consequence": "The locked instruction prefers an Arrow-native or vectorised implementation. This measurement says where that would have to be aimed if it were ever justified: at the to_pylist conversions, which cost about 13.7 s of the 19.3 s sequence at 10^6, rather than at collapse_delta and resolve_against_current, which together cost about 4.7 s. Vectorising the resolution logic while leaving the conversions in place would address the smaller share."
+    },
+    "sequence_vs_component_sum": {
+      "observation_only": true,
+      "at_1e6": {
+        "component_sum_ms": 19085.088599997107,
+        "production_sequence_total_ms": 19263.455800013617,
+        "sequence_over_component_sum": 1.0093458932130153,
+        "sequence_minus_component_sum_ms": 178.36720001650974
+      },
+      "at_1_row": {
+        "component_sum_ms": 0.154700072016567,
+        "production_sequence_total_ms": 0.2191000385209918,
+        "sequence_over_component_sum": 1.416289182448009,
+        "sequence_minus_component_sum_ms": 0.06439996650442481
+      },
+      "interpretation": "The two agree closely, because resolve_against_current measured on its own already pays the second collapse; the component sum is not an underestimate of the executed path. The sequence figure is kept because it is the only number corresponding to work a cycle runs end to end.",
+      "cannot_justify_optimise": "Even had the sequence proved materially more expensive than the component sum, that on its own would not license OPTIMISE. With no measured post-change cycle there is no denominator against which any difference can be called material. Such a finding could only strengthen the evidence for a future, separately authorised change."
     },
     "findings_requiring_separate_authorisation": [
       {
@@ -171,11 +202,11 @@
         "what": "iceberg_medallion.py:621 calls collapse_delta(incoming); line 630 calls resolve_against_current(current, incoming), which calls collapse_delta on the same input again. The delta is collapsed twice per cycle.",
         "correctness": "Neutral. collapse_delta is pure and deterministic, so the second call returns the first call's result.",
         "measured_cost": {
-          "share_of_sequence_at_1e6": 11.3,
-          "share_of_sequence_at_1_row": 1.3,
+          "share_of_sequence_at_1e6": 11.8,
+          "share_of_sequence_at_1_row": 1.0,
           "unit": "percent of the production sequence median"
         },
-        "status": "reported, not fixed",
+        "status": "observation only; not fixed",
         "why_not_fixed": "A fix would change iceberg/, which this change is forbidden to touch. Carried to a separate authorisation rather than widening 04-10."
       }
     ],
