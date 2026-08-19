@@ -111,3 +111,26 @@ different H1 layer — `RuntimeError: Query ... failed: Trino server is still
 initializing` — and it has now blocked two consecutive runs. It is diagnosed as
 its own change; the boundary this change fixed is proven green independently of
 it.
+
+## Closing proof — `dbt semantic contract` executed and passed
+
+Run `32247139737`, SHA `61a57ef`, fresh volumes.
+
+```text
+✅ Probe dbt directory ownership     dbt/profiles.yml absent, dbt/ runner-owned
+✅ dbt semantic contract             Done. PASS=28 WARN=0 ERROR=0 TOTAL=28
+                                     Completed successfully
+```
+
+The step ran end to end: `cp profiles.yml.example profiles.yml` succeeded, the
+venv synced, dbt parsed, compiled, built both semantic views and ran all 28
+tests. Both halves of the closing criterion are now met — the checkout is not
+mutated, and the step that could not write into it no longer fails.
+
+The step's exit code was still 1 on that run, but for an unrelated reason: its
+own assertion demanded `PASS=26 ... TOTAL=26` while the project now declares 28.
+That is a separate layer, fixed in `61a57ef`, and it does not qualify the proof
+above — dbt's own summary is what proves the mount fix worked.
+
+H1 then failed at `Prometheus and Grafana smoke`, a step that had never
+executed. That is layer 6 and belongs to its own change.

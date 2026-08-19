@@ -177,6 +177,22 @@ jobs:
           curl -fsS http://localhost:19090/-/ready
           curl -fsS http://localhost:19090/api/v1/targets | grep -q '"health":"up"'
           curl -fsS http://localhost:13001/api/health | grep -q '"database":"ok"'
+      - name: Capture observability smoke diagnostics
+        # The smoke step pipes into grep, so a failure says only that one of its
+        # three assertions did not hold - not which, and not why. Every command
+        # here is a read with `|| true`, run before the stack is destroyed.
+        if: failure()
+        run: |
+          mkdir -p h1-smoke-diagnostics
+          D=h1-smoke-diagnostics
+          # Status codes go to one file so a curl failure is distinguishable from
+          # a body that simply does not match what the smoke step greps for.
+          echo "ready=$(curl -sS -o $D/prometheus-ready.txt -w '%{http_code}' http://localhost:19090/-/ready)" >> $D/http-status.txt || true
+          echo "targets=$(curl -sS -o $D/prometheus-targets.json -w '%{http_code}' http://localhost:19090/api/v1/targets)" >> $D/http-status.txt || true
+          echo "grafana=$(curl -sS -o $D/grafana-health.json -w '%{http_code}' http://localhost:13001/api/health)" >> $D/http-status.txt || true
+          docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml ps > $D/compose-ps.txt 2>&1 || true
+          docker logs de-demo-observability-exporter > h1-smoke-diagnostics/exporter.log 2>&1 || true
+          docker logs de-demo-grafana > h1-smoke-diagnostics/grafana.log 2>&1 || true
       - name: Runtime version evidence
         if: always()
         run: |
@@ -196,6 +212,7 @@ jobs:
             h1-clean-stack.log
             h1-r1-diagnostics/**
             h1-dbt-probe/**
+            h1-smoke-diagnostics/**
             dbt/target/**
       - name: Destroy clean stack
         if: always()
