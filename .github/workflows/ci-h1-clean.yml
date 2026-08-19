@@ -176,7 +176,10 @@ jobs:
         run: |
           curl -fsS http://localhost:19090/-/ready
           curl -fsS http://localhost:19090/api/v1/targets | grep -q '"health":"up"'
-          curl -fsS http://localhost:13001/api/health | grep -q '"database":"ok"'
+          # Asserted on the parsed field, not on a substring: Grafana 11 answers
+          # /api/health with indented JSON (`"database": "ok"`), so the compact
+          # pattern this used to grep for could never match.
+          curl -fsS http://localhost:13001/api/health | jq -e '.database == "ok"' > /dev/null
       - name: Capture observability smoke diagnostics
         # The smoke step pipes into grep, so a failure says only that one of its
         # three assertions did not hold - not which, and not why. Every command
