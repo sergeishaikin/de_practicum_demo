@@ -114,8 +114,8 @@ jobs:
           $MC alias set local http://localhost:9000 "$AWS_ACCESS_KEY_ID" "$AWS_SECRET_ACCESS_KEY" >/dev/null 2>&1 || true
           $MC ls --recursive local/de-practicum/e2e > h1-r1-diagnostics/minio-e2e-tree.txt 2>&1 || true
           # Broker-side corroboration.
-          $KAFKA kafka-consumer-groups --bootstrap-server localhost:9092 --all-groups --describe > h1-r1-diagnostics/kafka-consumer-groups.txt 2>&1 || true
-          $KAFKA kafka-get-offsets --bootstrap-server localhost:9092 > h1-r1-diagnostics/kafka-offsets.txt 2>&1 || true
+          $KAFKA /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --all-groups --describe > h1-r1-diagnostics/kafka-consumer-groups.txt 2>&1 || true
+          $KAFKA /opt/kafka/bin/kafka-get-offsets.sh --bootstrap-server localhost:9092 > h1-r1-diagnostics/kafka-offsets.txt 2>&1 || true
           # Any ad-hoc streaming container the test left behind, with its log.
           docker ps -a --filter name=e2e-streaming- --format '{{.Names}} {{.Status}} {{.CreatedAt}}' > h1-r1-diagnostics/e2e-streaming-containers.txt 2>&1 || true
           for c in $(docker ps -aq --filter name=e2e-streaming-); do
