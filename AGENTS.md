@@ -63,8 +63,17 @@ Before completing any non-documentation Python change, run:
 ```bash
 uv run --locked ruff check .
 uv run --locked black --check .
+uv run --locked mypy
 uv run --locked pytest
 ```
+
+`mypy` checks the typed scope declared in `pyproject.toml` — currently
+`iceberg/`. Ruff is a linter and not a type checker, so the two are
+complementary and neither substitutes for the other. The typed scope expands
+monotonically: new first-party modules join it by default, and a module already
+in scope is never removed to make CI green. Suppressions carry their narrow error
+code and a reason; `warn_unused_ignores` turns a suppression that stops being
+needed into an error.
 
 The existing CI workflow also defines this coverage check:
 

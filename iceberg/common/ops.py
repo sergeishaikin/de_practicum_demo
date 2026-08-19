@@ -180,10 +180,10 @@ class Metrics:
         load_id: str | None = None,
         rows_processed: int = 0,
         files_processed: int = 0,
-        bronze_rows: int = 0,
+        bronze_rows: int | None = 0,
         silver_rows: int = 0,
         gold_rows: int = 0,
-        duplicates_removed: int = 0,
+        duplicates_removed: int | None = 0,
         quality_violations: int = 0,
         duration_ms: int = 0,
         work_available: int = 0,
@@ -328,7 +328,9 @@ class _RuntimeMetrics:
 
     def __init__(self, port: str | None) -> None:
         self.enabled = bool(port)
-        if not self.enabled:
+        # Narrowed on `port` rather than on `self.enabled`: identical condition,
+        # but it lets a type checker see that `port` is a `str` below.
+        if not port:
             return
         try:
             from prometheus_client import Counter, Gauge, Histogram, start_http_server

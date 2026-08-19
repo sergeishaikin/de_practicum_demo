@@ -20,6 +20,7 @@ from pyiceberg.partitioning import PartitionField, PartitionSpec
 from pyiceberg.schema import Schema
 from pyiceberg.transforms import DayTransform
 from pyiceberg.types import (
+    IcebergType,
     DateType,
     DoubleType,
     IntegerType,
@@ -266,7 +267,7 @@ def list_new_files(fs: S3FileSystem, done: set[str]) -> list[FileInfo]:
     return new_files
 
 
-def read_batch(fs: S3FileSystem, files: list[FileInfo]) -> object:
+def read_batch(fs: S3FileSystem, files: list[FileInfo]) -> pa.Table:
     paths = [info.path for info in files]
     hive_partitioning = ds.partitioning(
         pa.schema([pa.field("event_date", pa.date32())]),
@@ -328,7 +329,7 @@ def ensure_table(catalog: RestCatalog) -> None:
         return
     existing_columns = set(schema_fn().column_names)
     update = update_schema_fn()
-    missing = []
+    missing: list[tuple[str, IcebergType, str]] = []
     if "business_version" not in existing_columns:
         missing.append(
             (

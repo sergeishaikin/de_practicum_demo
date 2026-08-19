@@ -62,6 +62,12 @@ A plain `pip install dbt-core` / `dbt-postgres` now resolves to the Fusion-era
 `dbt-core` 2.x line, which rejects the `postgres` adapter outright. The
 `--require-hashes` sync above avoids that by construction.
 
+Static typing is enforced by `uv run --locked mypy` over the scope declared in
+`pyproject.toml` (`[tool.mypy] files`), currently `iceberg/`. `iceberg/` is a
+`sys.path` root rather than a package, so the config sets `mypy_path`,
+`explicit_package_bases` and `namespace_packages`; without them mypy resolves
+`common/ops.py` under two module names and checks nothing.
+
 Follow the canonical **Verification contract** in `AGENTS.md`. It defines the
 completion gate, change-specific checks, stateful-test boundary, and required
 verification evidence; do not maintain a separate gate in this file.

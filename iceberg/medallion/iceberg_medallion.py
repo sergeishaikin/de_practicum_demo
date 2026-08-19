@@ -630,7 +630,9 @@ def run_b2(
         keys = sorted({row["order_id"] for row in incoming})
         keys_processed += len(keys)
         if keys:
-            current_scan = silver.scan(row_filter=In("order_id", keys))
+            current_scan = silver.scan(
+                row_filter=In("order_id", keys)  # type: ignore[misc,call-arg,arg-type]
+            )
             planned_files, planned_bytes = _planned_scan_cost(current_scan)
             files_planned += planned_files
             bytes_planned += planned_bytes
@@ -673,8 +675,11 @@ def run_b2(
             )
             silver.overwrite(
                 _rows_to_silver(resolved),
-                overwrite_filter=In(
-                    "order_id", sorted({row["order_id"] for row in resolved})
+                overwrite_filter=In(  # type: ignore[misc,call-arg]
+                    "order_id",  # type: ignore[arg-type]
+                    sorted(  # type: ignore[arg-type]
+                        {row["order_id"] for row in resolved}
+                    ),
                 ),
                 snapshot_properties={
                     SILVER_WORK_ID_KEY: load_id,
@@ -1308,7 +1313,7 @@ def _legacy_silver_cycle(
                 quality_violations=violations_total,
                 duration_ms=int((time.monotonic() - started) * 1000),
             )
-            return
+            return None
 
     silver_df = build_silver(bronze_df)
     ensure_table(catalog, silver_id, SILVER_SCHEMA, SILVER_PARTITION_SPEC)

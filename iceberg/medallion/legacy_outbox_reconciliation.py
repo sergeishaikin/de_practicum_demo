@@ -421,7 +421,13 @@ def reconcile_inflight_noop(catalog, fs, load_id: str) -> dict:
         normalized_rows.append(normalized)
 
     current_ids = sorted({str(row["order_id"]) for row in normalized_rows})
-    current = silver.scan(row_filter=In("order_id", current_ids)).to_arrow().to_pylist()
+    current = (
+        silver.scan(
+            row_filter=In("order_id", current_ids)  # type: ignore[misc,call-arg,arg-type]
+        )
+        .to_arrow()
+        .to_pylist()
+    )
     resolved = resolve_against_current(current, normalized_rows)
     if resolved:
         raise RuntimeError(

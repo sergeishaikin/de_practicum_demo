@@ -46,7 +46,7 @@ Column contracts, so the register stays parseable:
 | NG-0.6 | `NG-0.6-grafana-loki.md` | ADOPT | NG-0.4 | `add-loki-log-backend` | no |
 | NG-0.7 | `NG-0.7-grafana-correlation.md` | ADOPT | NG-0.3, NG-0.4, NG-0.5, NG-0.6 | `add-grafana-correlation-slo` | no |
 | NG-0.8 | `NG-0.8-data-reliability.md` | ADOPT | NG-0.3, NG-0.7 | `unify-data-reliability` | no |
-| NG-0.9 | `NG-0.9-engineering-quality-gates.md` | ADOPT | - | `add-static-typing-gate` | no |
+| NG-0.9 | `NG-0.9-engineering-quality-gates.md` | ADOPT | - | `add-static-typing-gate` | 2026-08-19 |
 | NG-1.1 | `NG-1.1-apache-flink-shadow-streaming.md` | EXPERIMENT | NG-0.1, NG-0.2, NG-0.4 | `evaluate-flink-shadow-streaming` | no |
 | NG-1.2 | `NG-1.2-clickhouse-hot-analytics.md` | EXPERIMENT | NG-0.1 | `evaluate-clickhouse-hot-analytics` | no |
 | NG-1.3 | `NG-1.3-apache-pinot-realtime-serving.md` | EXPERIMENT | NG-1.1, NG-1.2 | `evaluate-pinot-realtime-serving` | no |
