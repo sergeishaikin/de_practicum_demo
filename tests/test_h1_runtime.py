@@ -55,6 +55,32 @@ def test_postgres_health_means_reachable_over_tcp() -> None:
     assert "-p 5432" in probe
 
 
+def test_every_postgres_readiness_probe_is_tcp() -> None:
+    """No readiness probe may ask the socket whether the server is up.
+
+    During initdb on a fresh volume the image runs a temporary server on the
+    socket. A socket probe answers "ready" against it, the caller then connects,
+    and the temporary server is already shutting down - which is exactly the
+    `FATAL: the database system is shutting down` that broke the warehouse CI job
+    and the `Connection refused` that broke H1's airflow-db-init. Both consumers
+    speak TCP, so every probe must too.
+    """
+
+    sources = [
+        "docker-compose.yml",
+        "docker-compose.local-airflow.yml",
+        ".github/workflows/ci-pr.yml",
+    ]
+    socket_probes = [
+        f"{path}:{number}"
+        for path in sources
+        for number, line in enumerate(read(path).splitlines(), start=1)
+        if "pg_isready" in line and "-h " not in line
+    ]
+
+    assert not socket_probes, f"socket-only pg_isready probe: {socket_probes}"
+
+
 def test_no_bind_mount_targets_a_path_inside_another_mount() -> None:
     """A file mount nested inside a read-write directory mount mutates the checkout.
 

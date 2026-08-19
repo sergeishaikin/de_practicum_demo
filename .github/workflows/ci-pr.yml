@@ -96,7 +96,7 @@ jobs:
         run: |
           docker compose --env-file .env.example up -d de-demo-postgres
           for i in $(seq 1 30); do
-            docker exec de-demo-postgres pg_isready -U app -d dwh >/dev/null 2>&1 && break
+            docker exec de-demo-postgres pg_isready -h 127.0.0.1 -p 5432 -U app -d dwh >/dev/null 2>&1 && break
             sleep 2
           done
       - name: Seed staging and rebuild core with the production transform
