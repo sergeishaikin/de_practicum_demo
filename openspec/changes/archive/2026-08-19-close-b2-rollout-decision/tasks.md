@@ -18,5 +18,5 @@
 - [x] 3.2 Run `uv run --locked ruff check .`, `uv run --locked black --check .`, `uv run --locked pytest`, and the coverage gate; record the figures
 - [x] 3.3 Check the confirming CI on `25d240c` before closure; if it produced evidence capable of invalidating the 01-07 inputs, classify it before archiving, otherwise proceed
 - [x] 3.4 Write `evidence.md` in this change: the decisive conditions, the verbatim gate output, the deviation, and any discrepancy found between the frozen plan and the current repository
-- [ ] 3.5 Commit atomically, push, and confirm the repository gates are green in live CI on the pushed SHA
-- [ ] 3.6 Merge the spec delta, archive the change, and stop — `04-10` is not begun without separate authorisation, and `04-09` is not touched
+- [x] 3.5 Commit atomically, push, and confirm the repository gates are green in live CI on the pushed SHA
+- [x] 3.6 Merge the spec delta, archive the change, and stop — `04-10` is not begun without separate authorisation, and `04-09` is not touched
