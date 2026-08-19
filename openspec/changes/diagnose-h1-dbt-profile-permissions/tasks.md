@@ -1,9 +1,9 @@
 ## 1. Observe ownership on the runner
 
-- [ ] 1.1 Add an unconditional, read-only probe step to `.github/workflows/ci-h1-clean.yml` immediately before `dbt semantic contract`, every command `|| true` so it cannot change the run outcome
-- [ ] 1.2 Have the probe print `id`, `ls -ld .`, `ls -ld dbt`, `ls -la dbt`, `stat dbt`, `stat dbt/profiles.yml` (tolerating absence), `stat dbt/profiles.yml.example` and `find dbt -maxdepth 1 -printf '%u:%g %m %p\n'`
-- [ ] 1.3 Have the probe also record the effective compose mounts and container user for every service that mounts `dbt/`, so the mutation can be attributed to a named service rather than inferred
-- [ ] 1.4 Include the probe output in the existing artifact upload, so the observation survives the run
+- [x] 1.1 Add an unconditional, read-only probe step to `.github/workflows/ci-h1-clean.yml` immediately before `dbt semantic contract`, every command `|| true` so it cannot change the run outcome
+- [x] 1.2 Have the probe print `id`, `ls -ld .`, `ls -ld dbt`, `ls -la dbt`, `stat dbt`, `stat dbt/profiles.yml` (tolerating absence), `stat dbt/profiles.yml.example` and `find dbt -maxdepth 1 -printf '%u:%g %m %p\n'`
+- [x] 1.3 Have the probe also record the effective compose mounts and container user for every service that mounts `dbt/`, so the mutation can be attributed to a named service rather than inferred
+- [x] 1.4 Include the probe output in the existing artifact upload, so the observation survives the run
 - [ ] 1.5 Push and let the H1 run that this push triggers carry the probe — do not spend a dedicated run
 
 ## 2. Establish provenance

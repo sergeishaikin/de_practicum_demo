@@ -121,6 +121,42 @@ jobs:
           for c in $(docker ps -aq --filter name=e2e-streaming-); do
             docker logs "$c" > "h1-r1-diagnostics/$c.log" 2>&1 || true
           done
+      - name: Probe dbt directory ownership
+        # Unconditional and read-only. The step after this one fails on a clean
+        # runner with `cp: cannot create regular file 'profiles.yml': Permission
+        # denied`, and ownership of the checkout at this instant is the fact that
+        # says who mutated it. Not `if: failure()`: a capture that only runs after
+        # a failure collects nothing when the run fails elsewhere, and nothing at
+        # all when it passes. Every command is `|| true`.
+        if: always()
+        run: |
+          mkdir -p h1-dbt-probe
+          {
+            echo '## runner identity'
+            id || true
+            echo '## workspace and dbt directory'
+            ls -ld . || true
+            ls -ld dbt || true
+            ls -la dbt || true
+            stat dbt || true
+            echo '## the file the next step tries to create'
+            stat dbt/profiles.yml || echo 'dbt/profiles.yml: absent'
+            stat dbt/profiles.yml.example || true
+            echo '## owner and mode of every entry directly under dbt/'
+            find dbt -maxdepth 1 -exec ls -ld {} + || true
+            echo '## same question for the warehouse project'
+            stat dbt/warehouse/profiles.yml || echo 'dbt/warehouse/profiles.yml: absent'
+          } > h1-dbt-probe/ownership.txt 2>&1 || true
+          # Attribute the mutation to a named service rather than inferring it:
+          # which services mount dbt/, under which user, with which effective mounts.
+          # The rendered config carries every secret from .env, so it stays in
+          # /tmp and never reaches the artifact. Only mount lines are extracted,
+          # and anything that looks like a credential is dropped.
+          docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml config > /tmp/h1-compose-effective.yml 2>&1 || true
+          grep -n 'dbt' /tmp/h1-compose-effective.yml | grep -viE 'password|secret|key|token' > h1-dbt-probe/compose-dbt-mounts.txt 2>&1 || true
+          docker inspect de-demo-airflow --format '{{json .Mounts}}' > h1-dbt-probe/airflow-mounts.json 2>&1 || true
+          docker inspect de-demo-airflow --format 'User={{.Config.User}}' > h1-dbt-probe/airflow-user.txt 2>&1 || true
+          docker exec de-demo-airflow id > h1-dbt-probe/airflow-container-id.txt 2>&1 || true
       - name: dbt semantic contract
         working-directory: dbt
         run: |
@@ -156,6 +192,7 @@ jobs:
           path: |
             h1-clean-stack.log
             h1-r1-diagnostics/**
+            h1-dbt-probe/**
             dbt/target/**
       - name: Destroy clean stack
         if: always()
