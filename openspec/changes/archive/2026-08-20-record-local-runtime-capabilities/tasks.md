@@ -55,6 +55,6 @@
 - [x] 7.2 Confirm no secrets appear in the generated inventory
 - [x] 7.3 ruff, black, mypy, pytest with the coverage gate
 - [x] 7.4 Scope fence
-- [ ] 7.5 Commit, push, confirm live CI
-- [ ] 7.6 Evidence, archive, push
-- [ ] 7.7 Resume the NG programme without further authorisation
+- [x] 7.5 Commit, push, confirm live CI
+- [x] 7.6 Evidence, archive, push
+- [x] 7.7 Resume the NG programme without further authorisation
