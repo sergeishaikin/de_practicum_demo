@@ -1,6 +1,9 @@
-# OM-PREFLIGHT design boundary
+# NG-0.3 design record
 
-Status: design complete, implementation not started
+## Preflight decision
+
+Status: complete historical Milestone 2 decision boundary; superseded for
+current implementation description by the final design below.
 Milestone: 2 (OM-PREFLIGHT)
 Change: `add-openmetadata-catalog`
 Decision gate: this document must be accepted by the evidence collected in the
@@ -148,5 +151,137 @@ The milestone report must end with exactly one of:
 * `FAIL_SPEC_CONTRADICTION` — repository governance/specs cannot be satisfied
   simultaneously without operator direction.
 
-No Milestone 3 work starts until the operator explicitly says `CONTINUE` after
-the completed report.
+The historical Milestone 2 gate required an explicit operator `CONTINUE` after
+the completed report. That checkpoint was subsequently satisfied before
+Milestone 3 implementation; it is retained here to preserve the actual
+authorisation sequence rather than implying that the final design existed
+before implementation.
+
+## Final implemented design
+
+Milestone 3 implementation and local acceptance completed through commit
+`04f0402`. This section describes the current contract, not the earlier
+preflight hypothesis.
+
+### Control plane
+
+- The metadata plane is an optional `metadata` Compose profile.
+- OpenMetadata server and ingestion use immutable 1.13.3 image digests.
+- OpenSearch 3.3.0 uses an immutable image digest.
+- Metadata persistence uses isolated PostgreSQL state and credentials.
+- A bounded ingestion worker/process runs the official workflows and the
+  narrow compatibility adapter; no second repository Airflow scheduler is
+  introduced.
+
+### Metadata sources
+
+The implemented inventory consumes, where supported, the warehouse PostgreSQL
+schemas, existing Airflow API, Kafka topic metadata, Trino/Iceberg physical
+tables, both warehouse and semantic dbt artifact surfaces, and the available BI
+coverage. Unsupported or incomplete surfaces remain explicit in
+`docs/CATALOG-ACCEPTANCE.md`; the rendered report is not presented as a BI
+connector.
+
+### Runtime lineage
+
+NG-0.2 remains runtime authority. Real OpenLineage events travel through the
+dedicated Kafka lineage topic and the official OpenMetadata OpenLineage
+ingestion workflow remains primary. The accepted indexed path is:
+
+```text
+landing -> Bronze -> Silver -> Gold
+```
+
+The event and edge ownership are not rewritten by the catalog.
+
+### Object-store compatibility adapter
+
+The selected implementation is Option A: declarative, metadata-consumer-side
+materialization only.
+
+```text
+real OpenLineage object-store DatasetRef
+    -> deterministic StorageService/Container
+    -> Container -> existing Table lineage representation
+```
+
+The writer event is unchanged and remains the runtime authority. The adapter
+preserves `lineageDetails.source=OpenLineage`, records job/run/input
+correlation, normalizes `s3://`, `s3a://`, and `s3n://`, and derives identity
+from bucket plus collision-safe prefix encoding. Runtime IDs, credentials,
+hosts, and container IDs never participate in entity identity. Replays are
+idempotent. Before supplementing an event, the adapter checks for a native
+edge; future native OpenMetadata support therefore suppresses the supplement.
+Unknown, malformed, non-object-store, and Kafka inputs are ignored rather than
+guessed, and no landing Table or manually maintained runtime edge is created.
+
+### Authority model
+
+- OpenLineage: runtime first-party boundaries and runtime edges.
+- dbt artifacts: static model topology, column topology, and dbt test metadata.
+- Trino: physical Iceberg entity discovery.
+- Airflow: pipeline and orchestration metadata.
+- Kafka connector: messaging asset metadata.
+- OpenMetadata: catalog consumer and presentation layer.
+
+### Dataset identity
+
+Canonical entity identity is configuration-derived. Equivalent endpoint
+spellings resolve to one entity; Container names encode prefixes without slash
+versus underscore collisions, while the original prefix remains in `prefix`
+and `fullPath`. UUIDs are catalog implementation identifiers, not the logical
+identity contract.
+
+### Ownership and domains
+
+Ownership and domain assignments are seeded from checked-in configuration,
+not manually entered UI state. The acceptance receipt records the reproducible
+mapping for the core physical assets.
+
+### Credentials
+
+The metadata PostgreSQL reader role passed negative write probes. Airflow's
+local SimpleAuthManager remains an all-admin demo limitation, Trino is local
+unauthenticated, and Kafka is local PLAINTEXT; these are explicit limitations,
+not universal least-privilege claims.
+
+### Failure behavior
+
+Metadata/control-plane outage is fail-open for the data plane. The outage
+receipt covers metadata server, OpenSearch, and OpenLineage consumer
+interruptions; writer and medallion processing remained running and recovered.
+
+### Rebuild
+
+Metadata-only destroy/rebuild reconstructs stable FQNs, ownership, domains,
+discoverable assets, and lineage without changing canonical Kafka, PostgreSQL,
+or Iceberg state. Metadata UUIDs may change on rebuild and are not a stable
+contract.
+
+### Resource model
+
+The measured local permanent profile is recorded separately from vendor
+production guidance in `openspec/changes/add-openmetadata-catalog/evidence.md`.
+The local measurement is evidence for this demo, not production sizing
+approval.
+
+### Intentional remaining gap
+
+The only intentional remaining lineage gap is:
+
+```text
+Kafka -> Spark -> landing
+```
+
+It remains outside the NG-0.2 compatibility boundary because the repository's
+Spark 4.2 runtime has no proven compatible OpenLineage Spark integration build.
+
+### Historical sequence and governance correction
+
+Milestone 2 preflight design existed first; the operator reviewed and approved
+that preflight, then explicitly authorised Milestone 3 continuation. Milestone
+3 implementation and acceptance were completed. A later review found that the
+active design, tasks, and evidence files had remained preflight-scoped. This
+Milestone 3B section reconciles the active change before archive without
+rewriting earlier commits or claiming that the final implementation design was
+present before implementation.

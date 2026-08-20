@@ -31,10 +31,10 @@ auth and secrets model · clean start · measured resource envelope
 integration, classifies the gap, and evaluates DataHub only if the blocker is
 material.
 
-## What Changes
+## What Changes (proposal-time intent)
 
-Scope is decided by the preflight result and recorded in `design.md` before any
-integration work. In outline:
+At proposal time, scope was to be decided by the preflight result and recorded
+in `design.md` before any integration work. In outline:
 
 - **An opt-in `metadata` Compose profile.** OpenMetadata, OpenSearch and a
   dedicated metadata database, none of which join the core stack. `docker
@@ -69,9 +69,21 @@ integration work. In outline:
   a catalog may not become a second authority for an edge the runtime already
   owns.
 
-## Impact
+## Impact (proposal-time forecast)
 
-To be finalised by the preflight. Expected: `docker-compose.extended.yml`
+At proposal time, this was to be finalised by the preflight. Expected paths
+were `docker-compose.extended.yml`
 (profile), `iceberg/requirements.in` (Kafka transport dependency),
 `docs/CATALOG.md`, connector configuration as code, and tests covering the
 coverage inventory and the control-plane-outage rule.
+
+## Reconciliation note
+
+This proposal records the original Milestone 2 decision boundary and is kept
+as historical design context. The operator accepted the preflight and later
+explicitly authorised Milestone 3 continuation. Implementation and local
+acceptance subsequently completed through `04f0402`, including the
+metadata-side object-store Container compatibility adapter. The final current
+design, execution tasks, evidence, and standing capability delta are recorded
+in the reconciled sections/files in this active change; this note does not
+rewrite the proposal's earlier planning sequence.

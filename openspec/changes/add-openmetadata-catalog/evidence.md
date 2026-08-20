@@ -1,9 +1,12 @@
-# OM-PREFLIGHT evidence report
+# NG-0.3 evidence
+
+## Milestone 2 — OM-PREFLIGHT
 
 Date: 2026-08-20  
 Change: `add-openmetadata-catalog`  
-Scope: Milestone 2 only; no Milestone 3 Compose profile or emitter change was
-implemented.
+Historical scope: Milestone 2 preflight only; the implementation evidence
+below was collected later and is intentionally not folded into this original
+receipt.
 
 ## Exit classification
 
@@ -80,7 +83,112 @@ probe finds a material OpenMetadata gap (for example, inability to preserve
 runtime-edge authority or to support the repository dbt version without
 semantic rewrites).
 
-## Boundary
+## Historical boundary
 
-This report closes Milestone 2. No Milestone 3 implementation may start until
-the operator explicitly replies `CONTINUE`.
+This report closed Milestone 2. The operator subsequently reviewed the report
+and explicitly replied `CONTINUE`; Milestone 3 implementation then proceeded.
+The preflight boundary is retained as historical evidence and is not a current
+claim that implementation is absent.
+
+## Milestone 3 — implementation and local acceptance
+
+Milestone 3 implementation and local acceptance are complete through commit
+`04f0402`. The durable detailed acceptance receipt is
+[`docs/CATALOG-ACCEPTANCE.md`](../../../docs/CATALOG-ACCEPTANCE.md); the
+evidence below keeps the archived OpenSpec change self-contained.
+
+### Commits
+
+- `b9e802c` — added the optional OpenMetadata catalog profile and immutable
+  metadata configuration.
+- `ae25727` — recorded the first metadata acceptance Git receipt.
+- `c0be99a` — reconciled runtime lineage evidence and captured Gold UI proof.
+- `04f0402` — implemented the object-store Container compatibility adapter,
+  focused tests, final acceptance docs, screenshots, and API receipt.
+
+### Implementation
+
+The permanent metadata profile contains isolated persistence, immutable
+OpenMetadata/OpenSearch images, bootstrap/configuration, source connectors for
+PostgreSQL, Airflow, Kafka, Trino/Iceberg, OpenLineage, and both dbt artifact
+surfaces. A dbt 1.12.2 compatibility guard, ownership/domain seeding, and
+explicit BI coverage classification are checked in.
+
+The official OpenMetadata OpenLineage workflow remains primary. The narrow
+metadata-side adapter supplements only the proven object-store representation
+gap:
+
+```text
+real OpenLineage s3 DatasetRef
+    -> deterministic StorageService/Container
+    -> existing Bronze Table
+```
+
+It preserves `source=OpenLineage`, job/run/input correlation, deterministic
+bucket/prefix identity, s3/s3a/s3n normalization, replay idempotency, and the
+native-edge-first self-disabling guard. It does not rewrite the writer event,
+create a fake Table, map Kafka as storage, or invent an upstream edge.
+
+### Test receipt
+
+The focused reconciliation implementation ran:
+
+```text
+45 passed, 5 deselected
+ruff check: passed
+black: passed
+git diff --check: passed
+```
+
+The local runtime acceptance also ran the official runtime workflow: 42
+OpenLineage records processed, 0 warnings, 0 errors. Adapter replay produced
+`0 edge(s)` after the native Container → Bronze edge existed.
+
+### Runtime lineage
+
+The accepted runtime IDs are:
+
+| Edge | Run ID | Result |
+| --- | --- | --- |
+| landing → Bronze | `2f38572d-9b8b-556b-92d5-bb0208365f44` | real writer event; Container representation indexed |
+| Bronze → Silver | `617654c9-2b09-51fa-9d68-34d2cb02668a` | indexed OpenLineage edge |
+| Silver → Gold | `809ec936-32fa-5ba2-8dbb-d8e5c84b8db2` | indexed OpenLineage edge |
+
+The only intentional remaining gap is Kafka → Spark → landing.
+
+### UI and API evidence
+
+- Gold overview: `docs/evidence/openmetadata-gold-overview.png`.
+- Gold lineage: `docs/evidence/openmetadata-gold-lineage.png`.
+- Landing Container lineage: `docs/evidence/openmetadata-landing-container-lineage.png`.
+- Sanitized API receipt: `docs/evidence/openmetadata-landing-container-lineage.json`.
+
+The accepted landing Container is
+`landing_object_store.de-practicum.p_acceptance-20260820171302_x2f_orders__raw`
+with ID `d160b55c-ce1d-468e-bd59-9cc08b9807e7`, full path
+`s3://de-practicum/acceptance-20260820171302/orders_raw`, and an edge to
+`lakehouse_trino.iceberg.bronze.orders` with `lineageDetails.source=OpenLineage`.
+UUIDs may change after metadata-only rebuild; FQNs, ownership, domains, and
+lineage are the stable logical contract.
+
+### Quality, credentials, failure, resources, and rebuild
+
+dbt remains execution/result authority; OpenMetadata presents indexed model,
+column, test, and freshness context without creating a competing execution
+truth. PostgreSQL write probes denied CREATE/INSERT/UPDATE/DELETE for the
+metadata reader. Airflow SimpleAuthManager all-admin, local unauthenticated
+Trino, and Kafka PLAINTEXT remain explicit demo limitations.
+
+Metadata server, OpenSearch, and OpenLineage consumer failure injection left
+the writer/medallion data paths running and recovered after restart. The
+measured local permanent profile is approximately 2.31 GiB RSS for the metadata
+services; vendor production guidance and local measurements remain separate.
+Metadata-only destroy/rebuild preserved canonical source state while
+reconstructing the logical catalog contract.
+
+### Governance reconciliation note
+
+The final Milestone 3 design and task list were reconciled after Milestone 3
+local acceptance and before archive. This corrected stale preflight-scoped
+change documents; it did not retroactively alter implementation history or
+claim that the final design existed before the implementation.
