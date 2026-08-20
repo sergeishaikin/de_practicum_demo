@@ -46,8 +46,9 @@ implementation.
   business topics, offsets, or stale checkpoints.
 - [x] Probe Trino/Iceberg discovery and verify canonical FQN aliasing.
 - [x] Deliver one isolated OpenLineage event through Kafka using existing
-  emitter semantics and verify runtime-edge ownership, run IDs, and no duplicate
-  edge authority.
+  emitter semantics and verify transport parsing, run IDs, and no duplicate
+  edge authority; full indexed event-edge ownership remains the explicit
+  Milestone 3 limitation recorded in `evidence.md`.
 
 ## Wave D — guardrails and decision
 
