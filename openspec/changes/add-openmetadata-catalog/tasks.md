@@ -115,16 +115,15 @@ checkpoint. It is represented here as completed current truth.
 
 ## Milestone 4 — closure
 
-These tasks remain intentionally unchecked. They are the next governed closure
-step and are not authorized by Milestone 3B.
+These tasks record the completed governed closure step.
 
-- [ ] Run final local repository completion gates.
-- [ ] Run final metadata-profile acceptance required by the verification
+- [x] Run final local repository completion gates.
+- [x] Run final metadata-profile acceptance required by the verification
   contract.
-- [ ] Push closure-ready state if required.
-- [ ] Observe required live CI workflows.
-- [ ] Diagnose failures causally; no retry-until-green.
-- [ ] Consolidate final `evidence.md`.
+- [x] Push closure-ready state if required.
+- [x] Observe required live CI workflows.
+- [x] Diagnose failures causally; no retry-until-green.
+- [x] Consolidate final `evidence.md`.
 - [ ] Merge/apply spec deltas to standing truth through normal OpenSpec archive.
 - [ ] Update NG-0.3 lifecycle/disposition to `DONE` / `ADOPTED`.
 - [ ] Archive `add-openmetadata-catalog`.

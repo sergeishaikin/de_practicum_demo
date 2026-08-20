@@ -192,3 +192,78 @@ The final Milestone 3 design and task list were reconciled after Milestone 3
 local acceptance and before archive. This corrected stale preflight-scoped
 change documents; it did not retroactively alter implementation history or
 claim that the final design existed before the implementation.
+
+## Milestone 4 — final verification and closure candidate
+
+Date: 2026-08-20
+
+Closure candidate: `f61448889db0ad1c1cc3f36ae82465fa83b067a6`
+Branch: `test/dbt-extensive-testing`
+
+### Local completion gates
+
+The repository completion contract was run at the closure candidate:
+
+| Gate | Result |
+| --- | --- |
+| `uv run --locked ruff check .` | PASS |
+| `uv run --locked black --check .` | PASS; 95 files unchanged |
+| `uv run --locked mypy` | PASS; 9 source files, no issues |
+| `uv run --locked pytest` | PASS; 509 passed, 81 deselected |
+| `uv run --locked pytest tests --cov=iceberg --cov-report=term-missing --cov-fail-under=90` | PASS; 94.65% total |
+| SQLFluff dbt model/test lint | PASS |
+| Metadata contract and adapter tests | PASS; 12 passed |
+| `.env.example` merged metadata Compose config | PASS |
+| Backlog/OpenSpec/lifecycle validators | PASS before archive; rerun after archive |
+
+### Final-head local metadata smoke
+
+The final-head smoke reused the still-running accepted metadata profile and
+did not mutate canonical core volumes. API version returned `1.13.3` (HTTP
+200). The deterministic object-store Container was
+`landing_object_store.de-practicum.p_acceptance-20260820171302_x2f_orders__raw`
+(`d160b55c-ce1d-468e-bd59-9cc08b9807e7`, `deleted=false`) with full path
+`s3://de-practicum/acceptance-20260820171302/orders_raw`. Its Bronze lineage
+contained exactly one `OpenLineage` edge. Replaying the official runtime
+adapter returned `Object-store compatibility adapter materialized 0 edge(s)`.
+
+### Required live CI receipts
+
+All required workflows were green for the same closure-candidate SHA:
+
+| Workflow | Run | Result |
+| --- | ---: | --- |
+| CI | `32409960233` | success |
+| H1 clean reproducible stack | `32409960155` | success |
+| M5 architecture gates | `32409960154` | success |
+| S1 dbt semantic lineage | `32409960158` | success |
+| Metadata profile — isolated live acceptance | `32409960176` | success |
+
+The Metadata profile run exercised fresh core dependencies, isolated
+Bronze/Silver/Gold and Kafka fixtures, dbt artifact materialization and guard,
+OpenMetadata bootstrap/API checks, static ingestion, ownership, an isolated
+OpenLineage event, runtime ingestion, deterministic Container FQN/fullPath and
+Bronze lineage assertions, replay idempotency, diagnostics, and metadata-only
+cleanup.
+
+### Causal failures resolved before acceptance
+
+The first closure candidate failed only the newly introduced metadata gate for
+three evidenced reasons: semantic dbt artifacts were generated without views;
+the initial admin login was probed before the server was ready; and the CI
+fixture omitted the `orders` topic required by the checked-in ownership map.
+These were fixed respectively by materializing the semantic dbt stage, polling
+for a successful login with the container script path, and creating the
+isolated `orders` topic. Subsequent receipts above are green; no blind retry
+was used.
+
+### Closure decision and explicit limitations
+
+The metadata profile remains opt-in and locally sized below vendor production
+guidance. Airflow SimpleAuthManager, local unauthenticated Trino, Kafka
+PLAINTEXT, dbt 1.12.2 compatibility watch, BI coverage limits, and the
+intentional Kafka → Spark → landing lineage gap remain explicit limitations.
+OpenMetadata remains the data UI/control-plane projection; dbt, Trino/Iceberg,
+OpenLineage, and Grafana retain execution, storage, runtime-edge, and
+operational-telemetry authority respectively. With the final local and live
+gates green, NG-0.3 is ready to be archived and adopted.
