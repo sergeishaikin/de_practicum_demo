@@ -58,7 +58,7 @@ jobs:
             -e 's/^SUPERSET_SECRET_KEY=.*/SUPERSET_SECRET_KEY=metadata-ci-superset/' \
             -e 's/^METADATA_DB_PASSWORD=.*/METADATA_DB_PASSWORD=metadata-ci-db/' \
             -e 's/^METADATA_POSTGRES_SUPERUSER_PASSWORD=.*/METADATA_POSTGRES_SUPERUSER_PASSWORD=metadata-ci-postgres-admin/' \
-            -e 's/^METADATA_ADMIN_PASSWORD=.*/METADATA_ADMIN_PASSWORD=metadata-ci-admin/' \
+            -e 's/^METADATA_ADMIN_PASSWORD=.*/METADATA_ADMIN_PASSWORD=admin/' \
             -e 's/^METADATA_AIRFLOW_PASSWORD=.*/METADATA_AIRFLOW_PASSWORD=metadata-ci-airflow-reader/' \
             -e 's/^METADATA_SOURCE_READER_PASSWORD=.*/METADATA_SOURCE_READER_PASSWORD=metadata-ci-source-reader/' \
             .env
