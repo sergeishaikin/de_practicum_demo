@@ -73,3 +73,29 @@ when sampling is introduced.
 - **THEN** the field is omitted or redacted before export
 - **AND** the bounded local sampling policy retains error and critical-path
   diagnostic spans
+
+### Requirement: Backend routing and metric authority are locked
+
+Applications SHALL send telemetry only to the Collector OTLP boundary. A
+backend exporter SHALL be inserted in Collector configuration behind the
+named `telemetry-backend` slot; application configuration SHALL NOT name a
+Tempo, Loki or vendor endpoint. Existing PostgreSQL durable metrics and
+Prometheus application metrics remain authoritative for business and pipeline
+operations. Collector self-metrics SHALL be used only for Collector health,
+queue, retry and drop diagnostics.
+
+NG-0.4 SHALL NOT enable a `spanmetrics` connector or promote span-derived
+metrics to SLO/business-metric authority. Such a change requires explicit
+equivalence evidence and a separate authorised change.
+
+#### Scenario: A trace backend is added later
+
+- **WHEN** a separately authorised backend change selects an exporter
+- **THEN** it changes Collector configuration behind `telemetry-backend`
+- **AND** application OTLP endpoints and Kafka/data contracts remain unchanged
+
+#### Scenario: A span-derived metric is proposed
+
+- **WHEN** a design proposes turning spans into operational or business metrics
+- **THEN** NG-0.4 rejects the proposal under the span-metrics lockout
+- **AND** the existing Prometheus/PostgreSQL authority remains unchanged

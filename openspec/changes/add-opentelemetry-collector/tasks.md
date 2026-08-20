@@ -11,6 +11,12 @@
 - [x] 1.6 Define instrumentation, context, redaction, sampling, queue/retry/WAL,
       failure-injection, resource and CI contracts.
 - [x] 1.7 Add the required `observability-telemetry` specification delta.
+- [x] 1.7A Freeze the official Contrib distribution/image family, component
+      allow-list, OTLP/gRPC network contract and immutable-digest requirement.
+- [x] 1.7B Freeze Collector-only backend exporter insertion through the named
+      `telemetry-backend` slot; prohibit direct app backends and spanmetrics.
+- [x] 1.7C Freeze Prometheus/PostgreSQL metric authority and the span-derived
+      metric lockout; record the decision in `design.md` and `evidence.md`.
 - [ ] 1.8 Obtain operator acceptance of the Milestone 1 report.
 
 ## Milestone 2 — implementation (not authorised)

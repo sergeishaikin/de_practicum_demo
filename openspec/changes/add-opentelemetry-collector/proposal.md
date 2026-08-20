@@ -3,7 +3,8 @@
 NG-0.4 was explicitly authorised by the operator on 2026-08-20 under
 `operator:explicit-ng-0.4-milestone-1`. This change is currently limited to
 Milestone 1: repository recovery, design, compatibility/resource preflight and
-acceptance planning.
+acceptance planning. Milestone 1B freezes the backend contract below; it does
+not provision or run the selected distribution.
 
 Implementation is not authorised in this milestone. In particular, this change
 does not add a Collector service or image, install SDK dependencies, instrument
@@ -27,6 +28,8 @@ OpenTelemetry documentation before implementation can be accepted.
 - A required `observability-telemetry` specification delta.
 - Evidence for read-only compatibility/resource probes and a clear
   implementation readiness classification.
+- A frozen distribution, OTLP/network, backend insertion and span-metrics
+  authority contract for a later implementation grant.
 
 ## Non-goals
 

@@ -33,6 +33,26 @@ Captured 2026-08-20 on `test/dbt-extensive-testing` at `6d9ad95`.
 - [Kafka semantic conventions](https://opentelemetry.io/docs/specs/semconv/messaging/kafka/)
   is currently Development and documents `OTEL_SEMCONV_STABILITY_OPT_IN`, so
   convention mode must be pinned and compatibility-tested.
+- [Official Collector releases](https://github.com/open-telemetry/opentelemetry-collector-releases)
+  lists `otelcol-contrib` as an official distribution and publishes the
+  canonical GHCR/Docker image families. The current release observed during
+  this freeze is `v0.157.0`; implementation must resolve and record its
+  immutable digest rather than use a floating tag.
+
+### M1B backend-contract freeze
+
+| Contract | Frozen decision | Implementation lockout |
+|---|---|---|
+| Distribution | Official `otelcol-contrib` only | No core, Kubernetes, custom-builder or vendor distribution |
+| Image family | `ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib:0.157.0` pending immutable digest capture | No floating tag in merged runtime configuration |
+| Receiver/network | OTLP/gRPC on `otel-collector:4317`, 5s app export timeout, no host port; OTLP/HTTP 4318 disabled | No direct app-to-backend endpoint or public OTLP listener |
+| Components | `otlp`, `memory_limiter`, `batch`, `filter`/`attributes`, `debug`, `file_storage`, `health_check` | No unreviewed component; specifically no Kafka exporter, host receiver or spanmetrics connector |
+| Backend insertion | Collector config/profile only via named `telemetry-backend` exporter slot; debug sink until NG-0.5/0.6 | Applications never gain Tempo/Loki/vendor settings |
+| Metric authority | Existing PostgreSQL/Prometheus paths remain authoritative; Collector self-metrics cover only Collector health/pressure | No span-to-SLO/business metric conversion or OTLP migration in NG-0.4 |
+
+This freeze is design/preflight evidence only. The image digest, component
+availability in the selected release, and runtime resource measurements remain
+Milestone 2 acceptance prerequisites and were not fabricated here.
 
 These sources support the design decisions but do not establish implementation
 compatibility for a selected Collector distribution, exporter backend or
@@ -40,8 +60,8 @@ Python instrumentation package. Those are Milestone 2 acceptance evidence.
 
 ## Preflight classification
 
-**PASS_WITH_EXPLICIT_LIMITATIONS (design gate; implementation-ready after a
-separate grant), with implementation prerequisites.**
+**PASS_WITH_EXPLICIT_LIMITATIONS (M1B backend contract frozen; implementation
+ready only after a separate grant), with implementation prerequisites.**
 No repository or architecture hard stop was found. The existing metrics path,
 Kafka partitioning, canonical persistence and engine versions can remain
 unchanged. Implementation is still blocked until a subsequent operator grant

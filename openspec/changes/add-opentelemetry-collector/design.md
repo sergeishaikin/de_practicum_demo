@@ -26,18 +26,61 @@ Milestone 1.
 
 ### Boundary and deployment
 
-Applications export new traces and logs to a single OTLP endpoint owned by the
-Collector. OTLP/gRPC and OTLP/HTTP are both allowed at design time; the
-implementation must select one default and pin its endpoint, timeout and TLS
-behaviour. Existing Prometheus endpoints remain directly scraped. Collector
-self-metrics are exposed on a Prometheus-compatible endpoint and added to the
-existing scrape path without removing any target.
+Applications export new traces and logs to one OTLP/gRPC endpoint owned by the
+Collector. The implementation contract is `OTEL_EXPORTER_OTLP_PROTOCOL=grpc`
+and `OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317`, with a 5-second
+export timeout. The receiver binds `0.0.0.0:4317` on the Compose network only;
+no OTLP host port is published. OTLP/HTTP (`4318`) is not enabled in this
+change. TLS is not used on the isolated local Compose network; a deployment
+outside that network must not silently reuse this profile.
+
+The selected distribution is the official **OpenTelemetry Collector Contrib**
+(`otelcol-contrib`), using the canonical GHCR image
+`ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib:0.157.0`.
+The implementation MUST replace the tag with the exact immutable image digest
+and record the digest in the change evidence before it is merged. Core,
+Kubernetes, custom-builder and vendor distributions are out of scope.
+
+The component allow-list is intentionally small: `otlp` receiver (gRPC),
+`memory_limiter`, `batch`, `filter`/`attributes` redaction processors,
+`debug` exporter for the NG-0.4 smoke path, `file_storage` extension for the
+selected WAL queues, and `health_check` extension. Components outside this
+set require a separately recorded design decision. In particular, no Kafka
+exporter, vendor exporter, `spanmetrics` connector or automatic host/process
+receiver is admitted by NG-0.4.
+
+Existing Prometheus endpoints remain directly scraped. Collector self-metrics
+are exposed on a Prometheus-compatible endpoint and added to the existing
+scrape path without removing any target.
 
 The Collector is an opt-in Compose profile with a persistent, least-privilege
 storage volume. Core processing must remain startable with that profile
 disabled. Backend routing is deliberately deferred to NG-0.5/NG-0.6; the
-Milestone 2 profile may use a debug/black-hole test exporter until those items
-are separately authorised.
+Milestone 2 profile uses only the `debug` exporter as its backend-neutral smoke
+sink until those items are separately authorised. The implementation MUST
+insert a future backend exporter in the Collector configuration only: NG-0.5
+or NG-0.6 may add a named exporter under the `telemetry-backend` slot and wire
+that slot into the traces/logs pipelines. Applications and their OTLP endpoint
+MUST NOT change when a backend is added; no per-service Tempo/Loki/vendor
+configuration is permitted.
+
+### M1B backend and metrics authority freeze
+
+The OTLP receiver and application exporter contract above is frozen for M2.
+Backend insertion is a Collector config/profile change behind the named
+`telemetry-backend` slot, with one backend exporter per signal and no direct
+application-to-backend path. The `debug` exporter is the only M2 default and
+is not a durable backend.
+
+Operational metric authority remains unchanged. `iceberg/common/ops.py` and
+the durable PostgreSQL metrics path remain authoritative for business/pipeline
+metrics; existing Prometheus endpoints remain authoritative for live
+application metrics. Collector self-metrics are authoritative only for
+Collector health, queue, retry and drop diagnostics. NG-0.4 SHALL NOT add a
+`spanmetrics` connector, convert spans into SLO/business metrics, or migrate a
+Prometheus metric to OTLP. Any future span-derived metric or metric migration
+requires explicit equivalence evidence and a separately authorised OpenSpec
+change. This is a lockout, not a deferred implementation task.
 
 ### Resource identity and correlation
 
