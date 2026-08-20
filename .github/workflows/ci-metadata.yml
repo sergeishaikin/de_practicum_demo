@@ -102,6 +102,9 @@ jobs:
         run: |
           docker exec de-demo-minio mc alias set local http://localhost:9000 minio metadata-ci-minio
           docker exec de-demo-minio mc mb --ignore-existing local/de-practicum
+          docker exec de-demo-kafka /opt/kafka/bin/kafka-topics.sh \
+            --bootstrap-server localhost:9092 --create --if-not-exists \
+            --topic orders --partitions 1 --replication-factor 1
           docker exec de-demo-trino trino --execute "
             CREATE SCHEMA IF NOT EXISTS iceberg.bronze;
             CREATE SCHEMA IF NOT EXISTS iceberg.silver;
