@@ -62,6 +62,6 @@
 - [x] 7.1 ruff, black, mypy, pytest with the coverage gate
 - [x] 7.2 Backlog validation green against the real repository
 - [x] 7.3 Scope fence — no item body, no production code
-- [ ] 7.4 Commit, push, confirm live CI
-- [ ] 7.5 Evidence, archive, push
-- [ ] 7.6 Resume NG-0.2 without further authorisation
+- [x] 7.4 Commit, push, confirm live CI
+- [x] 7.5 Evidence, archive, push
+- [x] 7.6 Resume NG-0.2 without further authorisation
