@@ -1,8 +1,8 @@
 # NG-0.4 — OpenTelemetry Collector and Instrumentation Contract
 
-> **Lifecycle:** PLANNED
+> **Lifecycle:** ACTIVE
 > **Disposition:** pending
-> **Execution authorization:** NONE. This file specifies a future bounded change; it does not authorize implementation by itself.
+> **Execution authorization:** `operator:explicit-ng-0.4-milestone-1` granted 2026-08-20. This authorizes recovery, design and preflight only; it does not authorize implementation.
 > **Opens as:** `add-opentelemetry-collector`
 > **Repository:** `sergeishaikin/de_practicum_demo`
 > **Baseline branch used for analysis:** `test/dbt-extensive-testing`
