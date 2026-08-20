@@ -33,7 +33,7 @@ services:
       - ./db/tasks:/tasks:ro
       - ./db/task_checks:/task_checks:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app} -d ${POSTGRES_DB:-dwh}"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U ${POSTGRES_USER:-app} -d ${POSTGRES_DB:-dwh}"]
       interval: 5s
       timeout: 3s
       retries: 30

@@ -1,0 +1,22 @@
+# SQLFluff is configured as a *correctness* gate, not a formatter.
+#
+# The default rule set reports ~100 findings on this repo, of which 96 are pure
+# layout (74 are 2-space vs 4-space indent alone). Enforcing those would reformat
+# every model and test while catching no defect. The rules below are the ones
+# that flag genuinely ambiguous SQL - implicit join types, unknown result-column
+# counts, ambiguous ORDER BY and DISTINCT usage - which is what a linter can see
+# and a unit test cannot.
+#
+# Templated with `jinja`, not the `dbt` templater: sqlfluff's dbt templater must
+# track the dbt-core version, and this repo pins dbt-core by hash in two separate
+# runtimes. `apply_dbt_builtins` (on by default) stubs ref/source/config/var, so
+# the models parse without coupling the linter to either dbt install.
+
+[sqlfluff]
+dialect = postgres
+templater = jinja
+rules = AM01,AM02,AM03,AM04,AM05,AM06,AM07,CV02,CV03
+max_line_length = 100
+
+[sqlfluff:templater:jinja]
+apply_dbt_builtins = True

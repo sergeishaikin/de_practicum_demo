@@ -26,6 +26,12 @@ from cosmos.config import ExecutionConfig, ProfileConfig, ProjectConfig, RenderC
 from cosmos.constants import ExecutionMode
 from cosmos.operators import DbtDocsOperator
 
+# Deliberately a separate import line. `DbtSourceLocalOperator` is NOT
+# re-exported from `cosmos.operators` in astronomer-cosmos 1.15.0 — it lives in
+# `cosmos.operators.local`. Merging it into the line above raises ImportError at
+# parse time and takes the whole DagBag down, not just this DAG.
+from cosmos.operators.local import DbtSourceLocalOperator
+
 POSTGRES_HOST = os.getenv("DWH_HOST", "de-demo-postgres")
 POSTGRES_PORT = int(os.getenv("DWH_PORT", "5432"))
 POSTGRES_DB = os.getenv("DWH_DB", "dwh")
@@ -176,7 +182,15 @@ DBT_PROJECT_PATH = Path(
 DBT_ARTIFACT_PATH = Path(
     os.getenv("DBT_WAREHOUSE_ARTIFACT_PATH", "/tmp/warehouse_dbt_artifacts")
 ).resolve()
-DBT_PROFILE_PATH = DBT_PROJECT_PATH / "profiles.yml"
+# Mounted outside DBT_PROJECT_PATH: see the note in docker-compose.yml - a file
+# mount inside the read-write project mount creates a root-owned file in the
+# host checkout.
+DBT_PROFILE_PATH = Path(
+    os.getenv(
+        "DBT_WAREHOUSE_PROFILE_PATH",
+        "/opt/airflow/dbt-profiles/warehouse/profiles.yml",
+    )
+).resolve()
 DBT_EXECUTABLE = os.getenv("DBT_EXECUTABLE_PATH", "dbt")
 DBT_ENV = {
     "DBT_POSTGRES_HOST": os.getenv("DBT_POSTGRES_HOST", "de-demo-postgres"),
@@ -412,6 +426,33 @@ def warehouse_marts_validation():
     validate_task = validate_dbt_artifacts()
     publish_task = publish_mart_assets()
 
+    # Fail-closed load-recency gate at the point of consumption.
+    #
+    # The task fails on an ERROR-level dbt result status only. A warn is
+    # advisory: it exits zero and gates nothing. The warn threshold is
+    # deliberately never promoted into an error, and no test asserts it. See
+    # W1-dbt-ownership.md, which names the dbt flag that would do the promoting
+    # and why it stays off; the flag name is kept out of this file so the scope
+    # guard in tests/test_warehouse_dbt.py can forbid it by plain substring.
+    #
+    # "Result status", not "exit code", is the precise term. Cosmos runs dbt
+    # in-process here (`InvocationMode.DBT_RUNNER`, because dbt-core is pinned
+    # into this image's own Python), so the signal is
+    # `dbtRunnerResult.success is False` rather than a subprocess exit code. The
+    # CLI's exit code 1 and that boolean are computed by the same
+    # `FreshnessTask.interpret_results`, so the CI proof and this runtime path
+    # cannot diverge. `dbt_executable_path` is passed for consistency with
+    # `generate_dbt_docs` below, but it is not what makes dbt run.
+    check_source_freshness = DbtSourceLocalOperator(
+        task_id="check_source_freshness",
+        project_dir=str(DBT_PROJECT_PATH),
+        profile_config=_profile_config(),
+        dbt_executable_path=DBT_EXECUTABLE,
+        env=DBT_ENV,
+        emit_datasets=False,
+        install_deps=False,
+    )
+
     dbt_group = DbtTaskGroup(
         group_id="dbt_warehouse",
         project_config=_project_config(),
@@ -442,6 +483,7 @@ def warehouse_marts_validation():
         if task_id.endswith("dbt_producer_watcher")
     )
 
+    check_source_freshness >> dbt_group
     dbt_producer >> generate_docs
     validate_task >> publish_task
 

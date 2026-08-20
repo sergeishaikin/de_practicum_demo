@@ -1,0 +1,52 @@
+version: 2
+
+# Declared consumers of the warehouse marts. Without these the dbt graph ends at
+# the mart views and the question "who breaks if this model changes" has no
+# recorded answer on the PostgreSQL side, unlike the lakehouse project where the
+# Superset dashboard is declared.
+#
+# Only consumers that exist in this repository are declared. The Metabase chart
+# script under `.scripts/` reads `marts.streaming_orders` from the streaming
+# path, not these views, so it is deliberately not an exposure here.
+#
+# Both consumers execute the numbered SQL in `db/demo_sql/`. That SQL also reads
+# `marts.pipeline_runs` and `marts.v_smoke_last_run`, which dbt does not own, so
+# those relations are not `ref()`d below.
+
+exposures:
+  - name: demo_quality_report
+    label: Demo Quality Report
+    type: analysis
+    maturity: medium
+    description: >
+      `scripts/build_report.sh` / `.cmd` renders `reports/demo_quality_report.html`
+      from the numbered SQL in `db/demo_sql/`. Its layer snapshot, quality
+      scorecard, grain, null-key, reconcile and mart-preview sections read all
+      four mart views, so a column rename or a grain change in any of them
+      breaks the report.
+    owner:
+      name: Data Platform
+      email: data-platform@example.com
+    depends_on:
+      - ref('v_order_items_wide')
+      - ref('v_sales_daily')
+      - ref('v_customer_state_daily')
+      - ref('v_reconcile_sales_daily')
+
+  - name: warehouse_sql_quality_gates
+    label: Warehouse SQL Quality Gates
+    type: analysis
+    maturity: medium
+    description: >
+      `scripts/run_checks.sh` / `.cmd` / `.ps1` executes the same numbered SQL
+      gates in the Postgres container as an operator-facing check. It is a
+      separate entry point from the HTML report and fails visibly on grain
+      duplicates, null business keys and reconciliation drift.
+    owner:
+      name: Data Platform
+      email: data-platform@example.com
+    depends_on:
+      - ref('v_order_items_wide')
+      - ref('v_sales_daily')
+      - ref('v_customer_state_daily')
+      - ref('v_reconcile_sales_daily')

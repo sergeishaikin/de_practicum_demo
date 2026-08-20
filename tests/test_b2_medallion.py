@@ -3,14 +3,18 @@ from __future__ import annotations
 import io
 import json
 from datetime import date, datetime
-from types import SimpleNamespace
 
-import pyarrow as pa
 import pytest
-from pyarrow.fs import FileInfo, FileType
 
 from b2_spike import collapse_delta, resolve_against_current
 from medallion import iceberg_medallion as m
+from tests.support.b2_fakes import (
+    FakeCatalog,
+    FakeFS,
+    FakeIcebergTable,
+    rows_to_arrow,
+)
+from tests.support.fakes import FakeMetrics
 
 TS = datetime(2026, 1, 1, 12, 0, 0)
 
@@ -36,147 +40,6 @@ def row(
         "event_date": event_date,
         "business_version": version,
     }
-
-
-def rows_to_arrow(rows: list[dict]) -> pa.Table:
-    return pa.table(
-        {
-            name: pa.array(
-                [item.get(name) for item in rows],
-                type=m._SILVER_TYPES[name],
-            )
-            for name in m._SILVER_TYPES
-        }
-    )
-
-
-class OutputStream(io.BytesIO):
-    def __init__(self, fs: "FakeFS", path: str) -> None:
-        super().__init__()
-        self.fs = fs
-        self.path = path
-
-    def __exit__(self, exc_type, exc, traceback):
-        if exc_type is None:
-            self.fs.objects[self.path] = self.getvalue()
-        return False
-
-
-class FakeFS:
-    def __init__(self, objects: dict[str, bytes]) -> None:
-        self.objects = objects
-
-    def get_file_info(self, selector) -> list[FileInfo]:
-        return [
-            FileInfo(path, type=FileType.File)
-            for path in sorted(self.objects)
-            if path.startswith(selector.base_dir)
-        ]
-
-    def open_input_file(self, path: str):
-        try:
-            return io.BytesIO(self.objects[path])
-        except KeyError as exc:
-            raise FileNotFoundError(path) from exc
-
-    def open_output_stream(self, path: str):
-        return OutputStream(self, path)
-
-    def delete_file(self, path: str) -> None:
-        del self.objects[path]
-
-
-class FakeScan:
-    def __init__(self, table: "FakeIcebergTable", row_filter=None) -> None:
-        self.table = table
-        self.row_filter = row_filter
-
-    def to_arrow(self) -> pa.Table:
-        rows = self.table.rows
-        values = predicate_values(self.row_filter)
-        if values is not None:
-            rows = [item for item in rows if item["order_id"] in values]
-        return rows_to_arrow(rows)
-
-    def plan_files(self):
-        values = predicate_values(self.row_filter)
-        if not any(item["order_id"] in values for item in self.table.rows):
-            return iter(())
-        return iter(
-            [
-                SimpleNamespace(
-                    file=SimpleNamespace(file_size_in_bytes=self.table.file_size)
-                )
-            ]
-        )
-
-
-class FakeIcebergTable:
-    def __init__(self, rows: list[dict] | None = None) -> None:
-        self.rows = rows or []
-        self.file_size = len(self.rows) * 100
-        self.metadata = SimpleNamespace(snapshots=[])
-
-    def scan(self, row_filter=None) -> FakeScan:
-        return FakeScan(self, row_filter)
-
-    def overwrite(
-        self, arrow_table, overwrite_filter, snapshot_properties=None
-    ) -> None:
-        values = predicate_values(overwrite_filter)
-        removed_files = int(any(item["order_id"] in values for item in self.rows))
-        removed_bytes = self.file_size if removed_files else 0
-        self.rows = [item for item in self.rows if item["order_id"] not in values]
-        self.rows.extend(arrow_table.to_pylist())
-        self.file_size = arrow_table.nbytes
-        snapshot_id = len(self.metadata.snapshots) + 1
-        physical_cost = {
-            "deleted-data-files": str(removed_files),
-            "added-data-files": "1",
-            "removed-files-size": str(removed_bytes),
-            "added-files-size": str(self.file_size),
-        }
-        self.metadata.snapshots.append(
-            SimpleNamespace(
-                snapshot_id=snapshot_id,
-                summary=SimpleNamespace(
-                    additional_properties={
-                        **physical_cost,
-                        **(snapshot_properties or {}),
-                    }
-                ),
-            )
-        )
-
-    def current_snapshot(self):
-        return self.metadata.snapshots[-1] if self.metadata.snapshots else None
-
-
-def predicate_values(predicate) -> set[str]:
-    literals = getattr(predicate, "literals", None)
-    if literals is not None:
-        return {literal.value for literal in literals}
-    literal = getattr(predicate, "literal", None)
-    return {literal.value} if literal is not None else set()
-
-
-class FakeCatalog:
-    def __init__(self, bronze: FakeIcebergTable, silver: FakeIcebergTable) -> None:
-        self.tables = {
-            "bronze.orders": bronze,
-            "silver.orders_clean": silver,
-        }
-
-    def load_table(self, identifier: str):
-        return self.tables[identifier]
-
-
-class FakeMetrics:
-    def __init__(self) -> None:
-        self.records: list[dict] = []
-
-    def record(self, **kwargs) -> None:
-        self.records.append(kwargs)
 
 
 def outbox(load_id: str) -> tuple[str, bytes]:
@@ -250,6 +113,74 @@ def test_completed_progress_is_bounded(monkeypatch) -> None:
     assert progress["completed"] == {"new": {"sequence": 2}}
 
 
+def test_progress_is_read_sequentially_not_by_advertised_size() -> None:
+    """`_read_json` must not use a random-access handle.
+
+    A random-access read takes the object's length from a HEAD at open and
+    applies it to a body fetched afterwards. Because the progress document
+    shrinks when work completes, that returns the smaller successor padded out to
+    the larger predecessor's length - and CI captured the padding as
+    uninitialised process memory on 2026-08-19.
+
+    Asserted here rather than only against a live object store, so the contract
+    fails in the fast suite instead of waiting for a race to recur.
+    """
+
+    used: list[str] = []
+
+    class RecordingFS:
+        def open_input_stream(self, path: str):
+            used.append("stream")
+            return io.BytesIO(b'{"completed":{}}')
+
+        def open_input_file(self, path: str):
+            used.append("file")
+            return io.BytesIO(b'{"completed":{}}')
+
+    assert m._read_json(RecordingFS(), "any/path.json") == {"completed": {}}
+    assert used == ["stream"], f"_read_json used {used}, expected a sequential read"
+
+
+def test_the_progress_document_shrinks_when_work_completes(monkeypatch) -> None:
+    """Reserving work grows the document; completing it makes the document smaller.
+
+    `_reserve_b2_work` stores `source_paths` and `bronze_data_files` - full object
+    paths - under `work[load_id]`. Completion replaces that with a compact
+    `completed` entry, pops the reserved one and prunes. So the object a reader
+    is polling does not grow monotonically: it peaks, then shrinks, at exactly
+    the moment the reader is waiting for the completion to appear.
+
+    Recorded because a shrinking overwrite is the precondition for a read that
+    spans two versions, and two M5 failures showed a progress object read back as
+    a complete JSON document followed by bytes that were never written to it.
+    This test establishes the shrink. It does not establish that the shrink
+    causes those reads.
+    """
+
+    incoming = [row("a", 3, amount=30, event_date=date(2026, 1, 2))]
+    fs, catalog, silver, metrics, load_id = setup_run(
+        monkeypatch, incoming, [row("a", 1, amount=10)]
+    )
+    path = "de-practicum/test-progress/progress.json"
+
+    sizes: list[int] = []
+    real_save = m.save_progress
+
+    def recording_save(filesystem, progress) -> None:
+        real_save(filesystem, progress)
+        sizes.append(len(fs.objects[path]))
+
+    monkeypatch.setattr(m, "save_progress", recording_save)
+
+    m.run_b2(catalog, metrics, fs)
+
+    assert len(sizes) >= 2, sizes
+    assert max(sizes) > sizes[-1], (
+        f"progress never shrank: {sizes} - if reservation stopped storing object "
+        f"paths this test is stale, not wrong"
+    )
+
+
 def test_b2_run_commits_only_advancing_keys_and_completes_progress(monkeypatch) -> None:
     incoming = [
         row("a", 3, amount=30, event_date=date(2026, 1, 2)),
@@ -270,17 +201,17 @@ def test_b2_run_commits_only_advancing_keys_and_completes_progress(monkeypatch) 
     assert by_id["a"]["business_version"] == 5
     assert by_id["a"]["event_date"] == date(2026, 1, 2)
     assert by_id["b"]["business_version"] == 2
-    assert metrics.records[-1]["status"] == "success"
-    assert metrics.records[-1]["keys_processed"] == 2
-    assert metrics.records[-1]["files_planned"] == 1
-    assert metrics.records[-1]["bytes_planned"] == 100
-    assert metrics.records[-1]["files_removed"] == 1
-    assert metrics.records[-1]["files_added"] == 1
-    assert metrics.records[-1]["bytes_removed"] == 100
-    assert metrics.records[-1]["bytes_added"] > 0
-    assert metrics.records[-1]["snapshot_delta"] == 1
-    assert metrics.records[-1]["work_in_flight"] == 0
-    assert metrics.records[-1]["work_completed"] == 1
+    assert metrics.phase("b2")["status"] == "success"
+    assert metrics.phase("b2")["keys_processed"] == 2
+    assert metrics.phase("b2")["files_planned"] == 1
+    assert metrics.phase("b2")["bytes_planned"] == 100
+    assert metrics.phase("b2")["files_removed"] == 1
+    assert metrics.phase("b2")["files_added"] == 1
+    assert metrics.phase("b2")["bytes_removed"] == 100
+    assert metrics.phase("b2")["bytes_added"] > 0
+    assert metrics.phase("b2")["snapshot_delta"] == 1
+    assert metrics.phase("b2")["work_in_flight"] == 0
+    assert metrics.phase("b2")["work_completed"] == 1
     assert f"de-practicum/test-outbox/{load_id}.json" not in fs.objects
     ledger_path = f"de-practicum/test-completion-ledger/{load_id}.json"
     receipt = json.loads(fs.objects[ledger_path])
@@ -309,13 +240,13 @@ def test_b2_noop_records_planned_read_without_write_cost(monkeypatch) -> None:
     m.run_b2(catalog, metrics, fs)
 
     assert silver.rows == [current]
-    assert metrics.records[-1]["files_planned"] == 1
-    assert metrics.records[-1]["bytes_planned"] == 100
-    assert metrics.records[-1]["files_removed"] == 0
-    assert metrics.records[-1]["files_added"] == 0
-    assert metrics.records[-1]["bytes_removed"] == 0
-    assert metrics.records[-1]["bytes_added"] == 0
-    assert metrics.records[-1]["snapshot_delta"] == 0
+    assert metrics.phase("b2")["files_planned"] == 1
+    assert metrics.phase("b2")["bytes_planned"] == 100
+    assert metrics.phase("b2")["files_removed"] == 0
+    assert metrics.phase("b2")["files_added"] == 0
+    assert metrics.phase("b2")["bytes_removed"] == 0
+    assert metrics.phase("b2")["bytes_added"] == 0
+    assert metrics.phase("b2")["snapshot_delta"] == 0
 
 
 def test_b2_crash_before_commit_retries(monkeypatch) -> None:

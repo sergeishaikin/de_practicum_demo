@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import time
@@ -15,6 +16,7 @@ from validate_runtime_config import read_env_file
 PIPELINE_PROVENANCE_MIGRATION = (
     "/docker-entrypoint-initdb.d/007_pipeline_runs_ingestion_provenance.sql"
 )
+STG_LOADED_AT_MIGRATION = "/docker-entrypoint-initdb.d/008_stg_loaded_at.sql"
 
 
 def _run(*args: str) -> subprocess.CompletedProcess[str]:
@@ -36,6 +38,25 @@ def _http_ready(url: str) -> bool:
         return False
 
 
+def _trino_ready(url: str) -> bool:
+    """Trino answers `/v1/info` while it is still starting up.
+
+    The endpoint returns 200 with `{"starting": true}` during initialisation, so
+    a status-code probe calls the server ready and the first statement then dies
+    with `Trino server is still initializing`. Readiness has to mean the server
+    finished starting, which is what the payload says.
+    """
+
+    try:
+        with urllib.request.urlopen(url, timeout=5) as response:
+            if response.status != 200:
+                return False
+            payload = json.loads(response.read().decode("utf-8"))
+    except (OSError, ValueError):
+        return False
+    return payload.get("starting") is False
+
+
 def wait_for_stack(values: dict[str, str], deadline: float) -> None:
     checks = {
         "iceberg-rest": f"http://127.0.0.1:{values['ICEBERG_REST_PORT']}/v1/config",
@@ -43,10 +64,12 @@ def wait_for_stack(values: dict[str, str], deadline: float) -> None:
         "prometheus": f"http://127.0.0.1:{values['PROMETHEUS_HOST_PORT']}/-/ready",
         "grafana": f"http://127.0.0.1:{values['GRAFANA_HOST_PORT']}/api/health",
     }
+    # Trino needs a different question asked; everything else is status-only.
+    probes = {"trino": _trino_ready}
     pending = set(checks)
     while pending and time.monotonic() < deadline:
         for name, url in checks.items():
-            if name in pending and _http_ready(url):
+            if name in pending and probes.get(name, _http_ready)(url):
                 pending.remove(name)
         try:
             _docker_exec(
@@ -111,6 +134,18 @@ def bootstrap(values: dict[str, str], deadline: float) -> None:
         values["POSTGRES_DB"],
         "--file",
         PIPELINE_PROVENANCE_MIGRATION,
+    )
+    _docker_exec(
+        "de-demo-postgres",
+        "psql",
+        "-X",
+        "--set=ON_ERROR_STOP=1",
+        "--username",
+        values["POSTGRES_USER"],
+        "--dbname",
+        values["POSTGRES_DB"],
+        "--file",
+        STG_LOADED_AT_MIGRATION,
     )
     print(
         "[OK] H1 bootstrap: network, MinIO bucket, catalog schemas, "

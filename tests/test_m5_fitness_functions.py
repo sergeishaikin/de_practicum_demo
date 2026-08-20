@@ -6,7 +6,11 @@ from pathlib import Path
 import pytest
 
 from b2_spike import collapse_delta, resolve_against_current
-from common.cutover import evaluate_cutover_gate, validate_runtime_config
+from common.cutover import (
+    RUNTIME_ROLLOUT_MATRIX,
+    evaluate_cutover_gate,
+    validate_runtime_config,
+)
 from medallion import iceberg_medallion as m
 
 TS = datetime(2026, 8, 8, 12, 0, 0)
@@ -165,6 +169,31 @@ def test_runtime_rollout_matrix_accepts_safe_states(config) -> None:
         "legacy",
         "shadow",
         "cutover",
+    }
+
+
+@pytest.mark.architecture
+def test_runtime_rollout_matrix_holds_exactly_the_four_accepted_states() -> None:
+    """Equality, not membership: a fifth key must fail rather than pass unnoticed.
+
+    The two tests around this one assert that specific configurations are
+    accepted and that one specific configuration is refused. Both are membership
+    claims, so both stay green if some *other* key is added to the matrix - and
+    an accepted rollout state arriving as an unnoticed dictionary entry is the
+    whole risk POL-01 names. The rollout names are asserted with the keys because
+    `validate_runtime_config` returns the name to its caller, so re-pointing
+    `("b2", "legacy", "1")` at `cutover` would invert the matrix's meaning while
+    leaving its key set untouched.
+
+    See docs/adr/0002-steady-state-shadow-policy.md for why the set is these four
+    and what would have to be true before it could become five.
+    """
+
+    assert RUNTIME_ROLLOUT_MATRIX == {
+        ("legacy", "legacy", "0"): "legacy",
+        ("b2", "legacy", "0"): "rollback",
+        ("b2", "legacy", "1"): "shadow",
+        ("b2", "persisted_silver", "1"): "cutover",
     }
 
 

@@ -33,6 +33,181 @@ def test_clean_environment_pins_external_images_and_has_no_latest_tags() -> None
     assert "latest" not in env
 
 
+def test_postgres_health_means_reachable_over_tcp() -> None:
+    """Health must mean ready by the path dependents actually use.
+
+    `airflow-db-init` waits for `condition: service_healthy` and then connects to
+    `de-demo-postgres:5432` over TCP. A socket-only `pg_isready` answers "ready"
+    while initdb's temporary server is running on a fresh volume, before anything
+    listens on 5432 - so the dependent started and died with connection refused,
+    visible only on a cold start and therefore only in the H1 clean run.
+
+    This pins the probe rather than the string: a future simplification back to a
+    socket check fails here instead of in a 180-minute clean rebuild.
+    """
+
+    compose = read("docker-compose.yml")
+    postgres = compose.split("de-demo-postgres:", 1)[1].split("airflow-db-init:", 1)[0]
+    probe = postgres.split("healthcheck:", 1)[1].split("interval:", 1)[0]
+
+    assert "pg_isready" in probe
+    assert "-h 127.0.0.1" in probe
+    assert "-p 5432" in probe
+
+
+def test_h1_dbt_expectation_matches_the_semantic_project() -> None:
+    """The pinned dbt total must equal what the project actually declares.
+
+    H1 asserts `PASS=n ... TOTAL=n` so that tests cannot vanish unnoticed. That
+    guard only works while n is right: the semantic project gained two unit
+    tests, the workflow still demanded 26, and a run where dbt reported
+    `PASS=28 ERROR=0` failed the step. Counting the sources here means the next
+    added test fails in this suite, in a second, rather than 40 minutes into a
+    clean rebuild.
+
+    The count is a declaration-shape heuristic over the project YAML, calibrated
+    against dbt's own reported total (26 data tests + 2 unit tests = 28). It is
+    deliberately noisy rather than clever: a YAML style it does not recognise
+    fails here loudly instead of silently drifting from the workflow.
+    """
+
+    workflow = read(".github/workflows/ci-h1-clean.yml")
+    pinned = re.search(r"PASS=(\d+) \.\*ERROR=0 \.\*TOTAL=(\d+)", workflow)
+    assert pinned, "H1 no longer pins a dbt test total"
+    passes, total = (int(group) for group in pinned.groups())
+    assert passes == total
+
+    declared = len(
+        re.findall(r"^\s+- name:", read("dbt/models/semantic/unit_tests.yml"), re.M)
+    )
+    sources_and_models = read("dbt/models/sources.yml") + read(
+        "dbt/models/semantic/semantic.yml"
+    )
+    data_tests = sum(
+        len(re.findall(pattern, sources_and_models))
+        for pattern in (r"- not_null", r"- unique", r"- accepted_values", r"not_null\]")
+    )
+    data_tests += len(list(Path("dbt/tests").glob("*.sql")))
+
+    assert total == data_tests + declared, (
+        f"H1 pins TOTAL={total}; the project declares "
+        f"{data_tests} data tests + {declared} unit tests"
+    )
+
+
+def test_trino_is_not_ready_while_it_is_still_starting() -> None:
+    """`/v1/info` returns 200 during startup, so the payload decides readiness.
+
+    H1's bootstrap treated any 200 as ready and the next statement died with
+    `Trino server is still initializing`, twice in a row. The probe now requires
+    the server to say it finished starting.
+    """
+
+    import importlib
+    import io
+    import json as json_module
+    import sys
+    from contextlib import contextmanager
+
+    # Imported the way the script runs, with scripts/ on the path - its own
+    # `from validate_runtime_config import ...` depends on that.
+    sys.path.insert(0, str(ROOT / "scripts"))
+    try:
+        bootstrap_stack = importlib.import_module("bootstrap_stack")
+    finally:
+        sys.path.pop(0)
+
+    @contextmanager
+    def responding(payload: dict, status: int = 200):
+        body = io.BytesIO(json_module.dumps(payload).encode("utf-8"))
+        body.status = status
+        yield body
+
+    def urlopen_returning(payload: dict, status: int = 200):
+        def fake(url, timeout=None):
+            return responding(payload, status)
+
+        return fake
+
+    original = bootstrap_stack.urllib.request.urlopen
+    try:
+        for payload, status, expected in [
+            ({"starting": True}, 200, False),
+            ({"starting": False}, 200, True),
+            ({}, 200, False),
+            ({"starting": False}, 503, False),
+        ]:
+            bootstrap_stack.urllib.request.urlopen = urlopen_returning(payload, status)
+            assert bootstrap_stack._trino_ready("http://trino/v1/info") is expected, (
+                payload,
+                status,
+            )
+    finally:
+        bootstrap_stack.urllib.request.urlopen = original
+
+
+def test_every_postgres_readiness_probe_is_tcp() -> None:
+    """No readiness probe may ask the socket whether the server is up.
+
+    During initdb on a fresh volume the image runs a temporary server on the
+    socket. A socket probe answers "ready" against it, the caller then connects,
+    and the temporary server is already shutting down - which is exactly the
+    `FATAL: the database system is shutting down` that broke the warehouse CI job
+    and the `Connection refused` that broke H1's airflow-db-init. Both consumers
+    speak TCP, so every probe must too.
+    """
+
+    sources = [
+        "docker-compose.yml",
+        "docker-compose.local-airflow.yml",
+        ".github/workflows/ci-pr.yml",
+    ]
+    socket_probes = [
+        f"{path}:{number}"
+        for path in sources
+        for number, line in enumerate(read(path).splitlines(), start=1)
+        if "pg_isready" in line and "-h " not in line
+    ]
+
+    assert not socket_probes, f"socket-only pg_isready probe: {socket_probes}"
+
+
+def test_no_bind_mount_targets_a_path_inside_another_mount() -> None:
+    """A file mount nested inside a read-write directory mount mutates the checkout.
+
+    Docker materialises a missing bind-mount target before mounting over it. When
+    the target resolves inside another host mount, that placeholder is created in
+    the host checkout - root-owned and empty - and nothing running as the checkout
+    owner can replace it afterwards. H1 proved it: `dbt/profiles.yml` appeared as
+    `root:root`, 0 bytes, born at stack start, and `cp` then failed with
+    Permission denied.
+
+    The rule is structural, so it is checked structurally rather than by naming
+    the one pair that caused it.
+    """
+
+    compose = read("docker-compose.yml")
+    targets = []
+    for line in compose.splitlines():
+        entry = line.strip()
+        if not entry.startswith("- ./"):
+            continue
+        parts = entry[2:].split(":")
+        if len(parts) < 2 or not parts[1].startswith("/"):
+            continue
+        targets.append((parts[0], parts[1]))
+
+    directory_mounts = [target for source, target in targets if not Path(source).suffix]
+    nested = [
+        (source, target)
+        for source, target in targets
+        for directory in directory_mounts
+        if target != directory and target.startswith(directory + "/")
+    ]
+
+    assert not nested, f"bind mount target nested inside another mount: {nested}"
+
+
 def test_spark_runtime_has_baked_jars_and_no_runtime_package_resolution() -> None:
     compose = read("docker-compose.extended.yml")
     e2e = read("tests/e2e/test_lakehouse_e2e.py")
@@ -254,6 +429,51 @@ def test_pipeline_provenance_migration_is_additive_and_bootstrapped() -> None:
     dag = read("dags/warehouse_orders.py")
     assert 'os.getenv("DWH_PASSWORD", "app")' not in dag
     assert '_required_env("DWH_PASSWORD")' in dag
+
+
+def test_stg_loaded_at_migration_is_additive_and_bootstrapped() -> None:
+    """Two failure modes make these assertions load-bearing.
+
+    `db/init/` runs only on an empty PostgreSQL data directory, so without the
+    bootstrap replay this change works on a fresh stack and silently does
+    nothing on every existing one — the freshness gate would then read a column
+    that is not there. And the DDL must stay additive, because `stg.*` is a live
+    relation in every developer's warehouse; a destructive form here is not a
+    failed test, it is lost data.
+    """
+
+    migration = read("db/init/008_stg_loaded_at.sql")
+    bootstrap = read("scripts/bootstrap_stack.py")
+    # A future header edit must not be able to change a count assertion.
+    body = "\n".join(
+        line for line in migration.splitlines() if not line.strip().startswith("--")
+    )
+
+    for table in ("orders", "order_items", "order_payments", "customers"):
+        assert f"alter table if exists stg.{table}" in body
+    assert (
+        body.count(
+            "add column if not exists loaded_at timestamptz not null default now()"
+        )
+        == 4
+    )
+    # now() is transaction-start time, so one batch yields one timestamp across
+    # all four tables. clock_timestamp() would vary per row and break that.
+    assert "clock_timestamp" not in body
+    assert "drop" not in body.lower()
+    assert "create unique index" not in body.lower()
+
+    assert "008_stg_loaded_at.sql" in bootstrap
+    # The 007 contract must not regress while adding 008.
+    assert "007_pipeline_runs_ingestion_provenance.sql" in bootstrap
+    assert 'values["POSTGRES_DB"]' in bootstrap
+
+    # Naming loaded_at in a COPY column list would make PostgreSQL demand it in
+    # the CSV and break every load. PostgreSQL must supply the default instead.
+    assert "loaded_at" not in read("dags/warehouse_orders.py")
+    # The column arrives only through the additive migration, so the two files
+    # cannot drift into competing definitions.
+    assert "loaded_at" not in read("db/init/002_stg_tables.sql")
 
 
 def test_warehouse_asset_verifier_generates_unique_source_run_ids() -> None:

@@ -75,3 +75,33 @@ def test_s1_ci_and_lineage_documentation_are_present() -> None:
         assert command in workflow
     for marker in ("Bronze", "Silver", "Gold", "Superset", "D-3a", "lineage"):
         assert marker in documentation
+
+
+def test_semantic_models_have_pass_through_unit_tests() -> None:
+    """The semantic models are thin aliases, so their unit tests are scoped to the
+    only two things that SQL can get wrong: the rename, and staying a
+    pass-through. A WHERE, DISTINCT or GROUP BY added here would silently drop
+    rows while every contract and data test still passed."""
+
+    definitions = (ROOT / "dbt" / "models" / "semantic" / "unit_tests.yml").read_text(
+        encoding="utf-8"
+    )
+    for case, model in (
+        ("current_orders_passes_silver_through_without_filtering", "current_orders"),
+        (
+            "daily_order_metrics_renames_event_date_to_order_date",
+            "daily_order_metrics",
+        ),
+    ):
+        assert f"name: {case}" in definitions
+        assert f"model: {model}" in definitions
+
+    # The pass-through guard only works if two rows go in and two come out.
+    passthrough = definitions.split(
+        "current_orders_passes_silver_through_without_filtering"
+    )[1].split("- name:")[0]
+    assert passthrough.count("order_id: o-") == 4, "expected 2 given + 2 expected rows"
+
+    # The rename guard only works if the output column differs from the input.
+    assert "event_date:" in definitions
+    assert "order_date:" in definitions

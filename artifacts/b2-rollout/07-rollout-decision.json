@@ -1,0 +1,223 @@
+{
+  "schema_version": 1,
+  "phase": "01-b2-controlled-rollout",
+  "plan": "01-07",
+  "requirement": "DEC-01",
+  "executed_as": "openspec change close-b2-rollout-decision",
+  "decided_at": "2026-08-19T00:00:00.000Z",
+  "evidence_window": {
+    "observation_start": "2026-08-10T19:50:06.843792Z",
+    "observation_end": "2026-08-10T19:56:18.483663Z",
+    "frozen": true,
+    "reproduced_for_this_decision": false,
+    "note": "The window is historical and was not re-run. Nothing in this decision started a service or produced new telemetry."
+  },
+  "outcome": "no_change",
+  "outcome_meaning": "D-3a and O2 are not opened now, on this evidence. This is a deferral, not a finding that either is unnecessary; see reopen_conditions.",
+  "outcome_is_deterministic": true,
+  "outcome_derivation": "Each candidate outcome is a conjunction of conditions stated in 01-07-PLAN.md. open_d3a and open_o2 each fail at least one condition on the artifacts' own recorded values, and no_change is the residual branch for 'amplification not material or O1 sufficient'. No weighting, threshold selection or judgement was applied.",
+  "rejected_outcomes": [
+    "open_d3a",
+    "open_o2"
+  ],
+  "implementation_changes": [],
+  "gate_statuses": {
+    "telemetry_gate": {
+      "artifact": "artifacts/b2-rollout/06-telemetry-gate.json",
+      "disposition": "PASS",
+      "passed": true,
+      "failed_checks": [],
+      "checks_total": 13,
+      "checks_passed": 13
+    },
+    "o1_summary": {
+      "artifact": "artifacts/b2-rollout/06-o1-summary.json",
+      "disposition": "PASS",
+      "valid": true,
+      "validity_reasons": []
+    },
+    "cutover_receipt": {
+      "artifact": "artifacts/b2-rollout/05-cutover-receipt.json",
+      "disposition": "CUTOVER_PASS",
+      "cutover_succeeded": true
+    }
+  },
+  "measured": {
+    "successful_rows": 10,
+    "outer_cycles": 5,
+    "non_empty_b2_rows": 1,
+    "shadow_comparisons": 5,
+    "shadow_mismatches": 0,
+    "ff14_conflicts": 0,
+    "final_work_in_flight": 0,
+    "required_fields_complete": true,
+    "prometheus_queries_successful": 8,
+    "prometheus_correctness_series_present": true,
+    "physical_cost": {
+      "files_planned": 1,
+      "bytes_planned": 4422,
+      "files_removed": 0,
+      "files_added": 1,
+      "bytes_removed": 0,
+      "bytes_added": 4299,
+      "snapshot_delta": 1,
+      "files_planned_per_added": 1.0,
+      "bytes_planned_per_added": 1.028611,
+      "files_removed_per_added": 0.0,
+      "bytes_removed_per_added": 0.0
+    },
+    "measurement_limits": "One non-empty B2 cycle at demo volume inside a single six-minute window. Establishes no scaling relationship and no repeated pattern."
+  },
+  "outcome_reasons": [
+    "The telemetry gate is valid, so the window may be used to decide. An invalid window could not open either deferred item.",
+    "Write amplification is not material: planned files equal added files (1.0) and planned bytes exceed added bytes by 2.9 percent (1.028611), with nothing removed (0.0 on both removal ratios).",
+    "O1 is sufficient for what it observed: zero shadow mismatches, zero FF-14 conflicts, zero final in-flight work, complete required fields, and a present Prometheus correctness series. There is no undiagnosed behaviour."
+  ],
+  "rejection_reasons": {
+    "open_d3a": {
+      "conditions_required": [
+        "telemetry gate passed",
+        "the window contains repeated non-empty B2 cycles",
+        "measured planned/added and removed/added ratios show material scan/write amplification"
+      ],
+      "conditions_met": [
+        "telemetry gate passed"
+      ],
+      "conditions_failed": [
+        "repeated non-empty B2 cycles: the window contains exactly one (non_empty_b2_rows = 1), so no repetition exists to characterise",
+        "material amplification: files_planned_per_added = 1.0 and bytes_planned_per_added = 1.028611 with both removal ratios at 0.0, which is the absence of amplification rather than a small quantity of it"
+      ],
+      "decisive": "Either failed condition is sufficient on its own. The repetition condition is decided by a count and needs no baseline comparison at all.",
+      "what_would_have_had_to_be_true": "Several non-empty B2 cycles in a valid window, showing a consistent planned-to-added or removed-to-added ratio materially above 1, with the operational impact of that ratio stated."
+    },
+    "open_o2": {
+      "conditions_required": [
+        "telemetry gate valid",
+        "O1 records a real anomalous behaviour whose cause cannot be diagnosed from the captured fields and the raw window"
+      ],
+      "conditions_met": [
+        "telemetry gate valid"
+      ],
+      "conditions_failed": [
+        "no anomalous behaviour is recorded: validity_reasons is empty, shadow_mismatches = 0, ff14_conflicts = 0, final_work_in_flight = 0, required_fields_complete = true, and the corrected Prometheus correctness series is present"
+      ],
+      "decisive": "O2 exists to explain something observed and not understood. Nothing was observed that is not understood, so there is no subject for tracing.",
+      "what_would_have_had_to_be_true": "A concrete anomalous observation in a valid window - a mismatch, a conflict, stuck in-flight work, or an unexplained cost - that the recorded fields and raw rows cannot account for."
+    }
+  },
+  "spike2_caveat": {
+    "claim_in_source_plan": "material scan/write amplification relative to the documented SPIKE-2 baseline",
+    "spike2_figures": {
+      "artifact": "docs/spikes/SPIKE-2-b2.md",
+      "day_layout": {
+        "planned_files": 10,
+        "planned_files_fraction_of_table": "25.00%",
+        "planned_bytes": 43420,
+        "planned_bytes_fraction_of_table": "25.14%"
+      },
+      "bucket_layout": {
+        "planned_files": 27,
+        "planned_files_fraction_of_table": "4.22%",
+        "planned_bytes": 84831,
+        "planned_bytes_fraction_of_table": "4.24%"
+      }
+    },
+    "o1_figures": {
+      "files_planned_per_added": 1.0,
+      "bytes_planned_per_added": 1.028611
+    },
+    "compared": false,
+    "reason_not_compared": "The two quantities are not commensurable. SPIKE-2 reports the fraction of an existing table touched by a read; O1 reports planned bytes and files against those added by one write. They share no denominator, so combining them would produce a number with no referent. The open_d3a rejection therefore rests on the repetition condition, which requires no baseline.",
+    "consequence": "The source plan's phrasing presumes a comparability that does not hold between these two measurements. Recorded as a defect in the plan's wording, not worked around silently."
+  },
+  "runtime_disposition": {
+    "SILVER_MODE": "b2",
+    "GOLD_SOURCE": "persisted_silver",
+    "SHADOW_COMPARE": "1",
+    "rollout_state": "cutover",
+    "runtime_config_changed_during_window": false,
+    "runtime_restarted_for_instrumentation": true,
+    "changed_by_this_decision": false,
+    "note": "Read from 06-telemetry-gate.json runtime_after. This decision does not change the runtime and did not connect to one."
+  },
+  "rollback_status": {
+    "rollback_executed_during_window": false,
+    "rollback_reason": null,
+    "rollback_verified": true,
+    "rollback_invoked_on_live_runtime": false,
+    "rollback_test": "tests/integration/test_m4_gold_cutover.py",
+    "rollback_receipt": "artifacts/b2-rollout/05-rollback-receipt.json",
+    "note": "Rollback is verified by test, not by an invocation against the live runtime. Recorded as it stands rather than as a stronger claim."
+  },
+  "reopen_conditions": {
+    "D-3a": {
+      "status": "deferred",
+      "not_refuted": true,
+      "statement": "Physical layout tuning remains an open optimisation track. This decision does not find it unnecessary; it finds the current evidence unable to justify opening it.",
+      "reopen_when": [
+        "a valid telemetry window contains several non-empty B2 cycles rather than one",
+        "those cycles show a planned-to-added or removed-to-added ratio materially above 1, consistently rather than once",
+        "the operational impact of that ratio is stated in the terms the system is actually run at, not at demo volume",
+        "SPIKE-2's deferral rationale in ADR-0001 is revisited against that evidence"
+      ]
+    },
+    "O2": {
+      "status": "deferred",
+      "not_refuted": true,
+      "statement": "Tracing remains available as a diagnostic capability. This decision does not find it unnecessary; it finds that nothing in the observed window needed it.",
+      "reopen_when": [
+        "a valid window records a behaviour the captured fields and raw rows cannot explain",
+        "the missing explanation is identified specifically enough to say what a trace would have to show"
+      ]
+    }
+  },
+  "evidence": [
+    {
+      "path": "artifacts/b2-rollout/05-cutover-receipt.json",
+      "role": "cutover disposition, runtime tuple and rollback status",
+      "sha256": "50b2e1754a694b0acb669d481d493a9c21af723ff0afe401e0a327ab7fc98bc4",
+      "git_blob_sha1": "cef8787491000e045ed5221402f0ced70ffa49e6"
+    },
+    {
+      "path": "artifacts/b2-rollout/06-o1-window.json",
+      "role": "raw metric rows for the observation window",
+      "sha256": "013eed99cfb956880b6d29291fde485b90f68641770059cf1521d0852a9d8a81",
+      "git_blob_sha1": "a94e1bfcb1bff5d764914e8f296c1f8382a48075"
+    },
+    {
+      "path": "artifacts/b2-rollout/06-o1-summary.json",
+      "role": "validity, counts, physical cost and per-row ratios",
+      "sha256": "53c2fe5c81417900a02462c442aba29c6d0a271a35891823a68db87acf0a79e3",
+      "git_blob_sha1": "a9721f2125a782b77b33d5ddea76e8931a2e5efc"
+    },
+    {
+      "path": "artifacts/b2-rollout/06-telemetry-gate.json",
+      "role": "the gate whose PASS makes the window usable for a decision",
+      "sha256": "07b7105bbcc849ca3a23eb4d55526402c14495c2561bee98e7d9638ed7187e80",
+      "git_blob_sha1": "efe9fb78a584835914f9b77b16caac73c39611fe"
+    },
+    {
+      "path": "artifacts/b2-rollout/06-o1-prometheus.json",
+      "role": "Prometheus query results backing the observability checks",
+      "sha256": "f6a0ba9319a444c0fe35c511a2277584f0c8cd6137fa16663c1c67d66b59381f",
+      "git_blob_sha1": "e17da7099486b48a2f0d16f11ce48c02aeb078f0"
+    },
+    {
+      "path": "artifacts/b2-rollout/06-bounded-workload.json",
+      "role": "the bounded workload the window was observed under",
+      "sha256": "b77b5b08ca1178529f5c368ebfe5f286d7b547fab8d850b09d7bba5d18a3f4ed",
+      "git_blob_sha1": "9b87dce7907e555e3365e27b3c9771a7db2f3575"
+    },
+    {
+      "path": "docs/spikes/SPIKE-2-b2.md",
+      "role": "layout baseline, cited for its figures and explicitly not compared against O1",
+      "sha256": "48075e38c788ed210e79d0d6e92b1712fc150499f6cc17dc8cdfb5938d8cd761",
+      "git_blob_sha1": "f37ba7619adb71d0371e83aa6f76ba5b0ced8cce"
+    }
+  ],
+  "hash_note": "sha256 is over the working-tree bytes on the machine that produced this receipt; git_blob_sha1 is the content-addressed blob id, which is stable across checkouts because git stores LF. Verify with the second where line-ending normalisation differs.",
+  "historical_evidence_modified": false,
+  "d3a_opened": false,
+  "o2_opened": false,
+  "live_stack_started": false
+}

@@ -11,6 +11,13 @@ Scope boundary, checked against DoD rule 10 before writing:
   that an unaccepted stage never reaches a running service, because
   ``validate_runtime_config`` is called outside ``main()``'s retry loop and so
   terminates the process rather than being logged and retried.
+* the shadow certification receipt gets one scenario here for the same reason:
+  *what* a certificate decides is specified against in-memory doubles in
+  ``tests/test_m4_gold.py``, but cross-restart durability is not observable
+  there at all. A second, freshly started deployment reading a certificate a
+  previous process left in a real object store, and declining to redo a
+  comparison and a Gold rebuild because of it, needs a real catalog and a real
+  process boundary or it proves nothing.
 
 One rule the passing path cannot observe is recorded honestly rather than
 faked: with validation enabled the two projections are required to agree, so a
@@ -74,8 +81,8 @@ def context(lake) -> dict:
     }
 
 
-def _deploy(context: dict, stage: str, **kwargs) -> None:
-    h.run_deployment(
+def _deploy(context: dict, stage: str, **kwargs) -> dict:
+    return h.run_deployment(
         context["namespace"],
         context["outbox_prefix"],
         context["progress_path"],
@@ -128,6 +135,23 @@ def deploy_after_rollback(context: dict) -> None:
     _deploy(context, "shadow", await_gold_rows=2)
 
 
+@when("a second deployment serves metrics from the incremental state")
+def deploy_certified_cutover(context: dict) -> None:
+    _remember_state(context)
+    context["gold_snapshots"] = h.gold_snapshot_count(
+        context["catalog"], context["namespace"]
+    )
+    # The wait carries the assertion: this deployment has to *announce* a cycle
+    # that skipped both, and nothing it inherited can satisfy that.
+    context["cycle"] = _deploy(
+        context,
+        "cutover",
+        require_gold="skipped",
+        require_shadow="skipped",
+        await_gold_rows=2,
+    )
+
+
 @when(
     "a deployment is started that serves metrics from the incremental state "
     "with validation disabled"
@@ -172,6 +196,22 @@ def silver_untouched(context: dict) -> None:
     # produce the same rows would still add a snapshot.
     assert snapshots == before_snapshots, "the Gold switch rewrote persisted Silver"
     assert rows == before_rows
+
+
+@then("it announces a cycle that skipped both the comparison and the rebuild")
+def cycle_skipped_the_redundant_work(context: dict) -> None:
+    assert context["cycle"]["shadow"] == "skipped"
+    assert context["cycle"]["gold"] == "skipped"
+
+
+@then("the daily metrics table gained no snapshot")
+def gold_snapshots_unchanged(context: dict) -> None:
+    # Catalog-level proof of the Gold skip, independent of what the deployment
+    # said about itself.
+    assert (
+        h.gold_snapshot_count(context["catalog"], context["namespace"])
+        == context["gold_snapshots"]
+    )
 
 
 @then("the service exits instead of running")

@@ -1,3 +1,6 @@
+-- Tier-1: persist violating rows so a failure names which side diverged.
+{{ config(store_failures=true) }}
+
 -- Cross-model invariant: the state-level mart must be a pure partition of the
 -- daily mart. core.order_items carries exactly one customer_state per order, so
 -- summing the state grain by day has to reproduce v_sales_daily exactly.
@@ -22,8 +25,18 @@ with rolled_up as (
     gross_sales::numeric(12, 2) as gross_sales
   from {{ ref('v_sales_daily') }}
 )
-select 'v_sales_daily' as unmatched_side, *
+select
+  'v_sales_daily' as unmatched_side,
+  only_daily.sales_date,
+  only_daily.orders_cnt,
+  only_daily.items_cnt,
+  only_daily.gross_sales
 from (select * from daily except select * from rolled_up) as only_daily
 union all
-select 'v_customer_state_daily' as unmatched_side, *
+select
+  'v_customer_state_daily' as unmatched_side,
+  only_rolled_up.sales_date,
+  only_rolled_up.orders_cnt,
+  only_rolled_up.items_cnt,
+  only_rolled_up.gross_sales
 from (select * from rolled_up except select * from daily) as only_rolled_up

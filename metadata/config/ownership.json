@@ -1,0 +1,26 @@
+{
+  "teams": {
+    "data-platform": {
+      "domains": ["orders"],
+      "tables": [
+        "warehouse_postgres.dwh.marts.v_sales_daily",
+        "warehouse_postgres.dwh.marts.v_reconcile_sales_daily",
+        "lakehouse_trino.iceberg.semantic.current_orders",
+        "lakehouse_trino.iceberg.semantic.daily_order_metrics"
+      ],
+      "pipelines": [
+        "demo_airflow.warehouse_orders_ingestion",
+        "demo_airflow.warehouse_marts_validation"
+      ]
+    },
+    "streaming-platform": {
+      "domains": ["orders"],
+      "tables": [
+        "lakehouse_trino.iceberg.bronze.orders",
+        "lakehouse_trino.iceberg.silver.orders_clean",
+        "lakehouse_trino.iceberg.gold.orders_daily_metrics"
+      ],
+      "topics": ["demo_kafka.orders", "demo_kafka.${METADATA_LINEAGE_TOPIC}"]
+    }
+  }
+}

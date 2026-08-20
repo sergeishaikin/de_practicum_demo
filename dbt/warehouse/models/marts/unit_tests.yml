@@ -231,3 +231,65 @@ unit_tests:
           mart_gross_sales: 100.00
           source_gross_sales: 0.00
           diff_amount: 100.00
+
+  - name: customer_state_daily_partitions_each_day_by_state
+    description: >
+      The state grain adds one grouping key to the daily grain. Two states on one
+      day and one state across two days prove both keys participate, and that
+      orders_cnt stays distinct-per-group rather than distinct-per-day.
+    model: v_customer_state_daily
+    given:
+      - input: source('core', 'order_items')
+        rows:
+          - {order_id: order-1, order_item_id: 1, order_purchase_date: '2026-01-01', customer_state: SP, price: 20.00}
+          - {order_id: order-1, order_item_id: 2, order_purchase_date: '2026-01-01', customer_state: SP, price: 30.00}
+          - {order_id: order-2, order_item_id: 1, order_purchase_date: '2026-01-01', customer_state: SP, price: 100.00}
+          - {order_id: order-3, order_item_id: 1, order_purchase_date: '2026-01-01', customer_state: RJ, price: 50.00}
+          - {order_id: order-4, order_item_id: 1, order_purchase_date: '2026-01-02', customer_state: SP, price: 40.00}
+    expect:
+      rows:
+        - {sales_date: '2026-01-01', customer_state: SP, orders_cnt: 2, items_cnt: 3, gross_sales: 150.00}
+        - {sales_date: '2026-01-01', customer_state: RJ, orders_cnt: 1, items_cnt: 1, gross_sales: 50.00}
+        - {sales_date: '2026-01-02', customer_state: SP, orders_cnt: 1, items_cnt: 1, gross_sales: 40.00}
+
+  - name: sales_daily_sums_money_exactly_not_in_floating_point
+    description: >
+      0.10 + 0.20 is exactly 0.30 in numeric and 0.30000000000000004 in binary
+      floating point. This fails if the money columns are ever changed to a float
+      or double type.
+    model: v_sales_daily
+    given:
+      - input: source('core', 'order_items')
+        rows:
+          - {order_id: order-1, order_item_id: 1, order_purchase_date: '2026-01-01', price: 0.10, freight_value: 0.10}
+          - {order_id: order-1, order_item_id: 2, order_purchase_date: '2026-01-01', price: 0.20, freight_value: 0.20}
+    expect:
+      rows:
+        - {sales_date: '2026-01-01', orders_cnt: 1, items_cnt: 2, gross_sales: 0.30, freight_sum: 0.30}
+
+  - name: sales_daily_produces_no_rows_for_an_empty_source
+    description: >
+      An empty source must yield an empty mart, not a single all-NULL aggregate
+      row. GROUP BY guarantees this; an accidental removal of the grouping would
+      make the model emit one row of NULLs.
+    model: v_sales_daily
+    given:
+      - input: source('core', 'order_items')
+        rows: []
+    expect:
+      rows: []
+
+  - name: reconcile_sales_daily_is_empty_when_both_sides_are_empty
+    description: >
+      With nothing on either side the FULL JOIN must produce nothing at all - not
+      a zero-valued reconciliation row, which would falsely report a reconciled day.
+    model: v_reconcile_sales_daily
+    given:
+      - input: ref('v_sales_daily')
+        rows: []
+      - input: source('staging', 'orders')
+        rows: []
+      - input: source('staging', 'order_items')
+        rows: []
+    expect:
+      rows: []

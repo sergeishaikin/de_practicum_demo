@@ -1,0 +1,6 @@
+schema: spec-driven
+created: 2026-08-19
+
+# Diagnostic first: it establishes provenance for a host-state mutation and then
+# applies the minimal fix at its owner. No capability requirement changes.
+skip_specs: true
