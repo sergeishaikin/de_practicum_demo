@@ -33,6 +33,10 @@ from pyiceberg.types import (
     TimestampType,
 )
 
+from openlineage.client.event_v2 import RunState
+
+from common import lineage
+from common import provenance as prov
 from common.ops import Metrics
 from common.cutover import validate_runtime_config
 from b2_spike import collapse_delta, resolve_against_current
@@ -1769,6 +1773,123 @@ def _run_m4(
     )
 
 
+LINEAGE_SILVER_JOB = "iceberg-medallion.bronze-to-silver"
+LINEAGE_GOLD_JOB = "iceberg-medallion.silver-to-gold"
+
+_EMITTERS: dict[str, lineage.LineageEmitter] = {}
+
+
+def _lineage_emitter(job_name: str) -> lineage.LineageEmitter:
+    if job_name not in _EMITTERS:
+        _EMITTERS[job_name] = lineage.LineageEmitter(job_name)
+    return _EMITTERS[job_name]
+
+
+def _lineage_datasets() -> (
+    tuple[lineage.DatasetRef, lineage.DatasetRef, lineage.DatasetRef]
+):
+    return (
+        lineage.iceberg_dataset(CATALOG_URI, f"{BRONZE_NAMESPACE}.{BRONZE_TABLE}"),
+        lineage.iceberg_dataset(CATALOG_URI, f"{SILVER_NAMESPACE}.{SILVER_TABLE}"),
+        lineage.iceberg_dataset(CATALOG_URI, f"{GOLD_NAMESPACE}.{GOLD_TABLE}"),
+    )
+
+
+def register_lineage_edges() -> None:
+    """Claim this service's output datasets, at startup.
+
+    Deliberately not called from the cycle: a duplicate claim is a design error
+    that must stop the service before it processes anything, and a check that
+    can raise has no business on the data path.
+    """
+    _, silver, gold = _lineage_datasets()
+    lineage.register_edge_owner(silver, LINEAGE_SILVER_JOB)
+    lineage.register_edge_owner(gold, LINEAGE_GOLD_JOB)
+
+
+def _gold_snapshot_id(catalog: RestCatalog) -> int | None:
+    try:
+        return _snapshot_id(catalog.load_table(f"{GOLD_NAMESPACE}.{GOLD_TABLE}"))
+    except NoSuchTableError:
+        return None
+
+
+def _snapshot_for_lineage(read, catalog: RestCatalog, table_name: str) -> int | None:
+    """A snapshot id for a lineage facet, or ``None`` if it cannot be read.
+
+    The existing snapshot helpers absorb a missing table but not an unreachable
+    catalog. Lineage must not turn a metadata hiccup into a failed cycle, so
+    here every failure degrades to an absent identifier - which the envelope
+    then records with a reason rather than omitting.
+    """
+    try:
+        return read(catalog)
+    except Exception as exc:
+        print(
+            f"Lineage snapshot read failed ({table_name}): "
+            f"{type(exc).__name__}: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
+        return None
+
+
+def emit_cycle_lineage(catalog: RestCatalog, cycle_id: str) -> int:
+    """Record the two edges a completed medallion cycle performed.
+
+    Two events rather than one, because Bronze-to-Silver and Silver-to-Gold are
+    separately observable transformations and collapsing them would hide which
+    one moved. Returns how many were delivered, so a caller can assert on it.
+
+    Snapshot ids come from table metadata, never a scan: naming the state a
+    cycle produced must not cost more than the cycle did.
+    """
+    bronze, silver, gold = _lineage_datasets()
+
+    absent = {
+        prov.DAG_RUN_ID: "the medallion is a continuous service, not an Airflow task",
+        prov.TRACE_ID: "no tracing backend exists yet; NG-0.4 introduces one",
+    }
+    bronze_id = _snapshot_for_lineage(_bronze_snapshot_id, catalog, bronze.name)
+    silver_id = _snapshot_for_lineage(_silver_snapshot_id, catalog, silver.name)
+    gold_id = _snapshot_for_lineage(_gold_snapshot_id, catalog, gold.name)
+
+    delivered = 0
+    for job, source, target, source_id, target_id in (
+        (LINEAGE_SILVER_JOB, bronze, silver, bronze_id, silver_id),
+        (LINEAGE_GOLD_JOB, silver, gold, silver_id, gold_id),
+    ):
+        values: dict[str, object] = {
+            prov.CYCLE_ID: cycle_id,
+            prov.ICEBERG_TABLE: target.name,
+        }
+        unknown = dict(absent)
+        # The state written and the state read are separate concerns, and each
+        # is declared absent on its own terms rather than silently omitted.
+        if target_id is not None:
+            values[prov.ICEBERG_SNAPSHOT_ID] = target_id
+        else:
+            unknown[prov.ICEBERG_SNAPSHOT_ID] = (
+                f"{target.name} has no committed snapshot yet"
+            )
+        if source_id is not None:
+            values[prov.ICEBERG_SOURCE_SNAPSHOT_ID] = source_id
+        else:
+            unknown[prov.ICEBERG_SOURCE_SNAPSHOT_ID] = (
+                f"{source.name} has no committed snapshot yet"
+            )
+        envelope = prov.ProvenanceEnvelope(values=values, unknown=unknown)
+        if _lineage_emitter(job).emit(
+            run_id=lineage.run_id_for(f"{cycle_id}/{job}"),
+            event_type=RunState.COMPLETE,
+            inputs=[source],
+            outputs=[target],
+            envelope=envelope,
+        ):
+            delivered += 1
+    return delivered
+
+
 def run(
     catalog: RestCatalog,
     metrics: Metrics,
@@ -1793,6 +1914,10 @@ def run(
     if cycle is None:
         # An early return or an abort. Staying silent is the signal.
         return
+    # Lineage for a cycle that actually completed. Placed after the abort check
+    # so an aborted cycle never emits an edge it did not perform, and before the
+    # liveness marker only because emission cannot fail the caller either way.
+    emit_cycle_lineage(catalog, cycle.cycle_id)
     # The one site that emits the liveness marker.  stdout, unconditional and
     # flushed: a liveness signal that can be switched off, buffered away or
     # mixed into stderr diagnostics is not a liveness signal.
@@ -1805,6 +1930,7 @@ def run(
 
 def main() -> None:
     validate_runtime_config(RUNTIME_CONFIG)
+    register_lineage_edges()
     print(f"Iceberg medallion service started (silver mode: {SILVER_MODE})", flush=True)
     catalog = get_catalog()
     metrics = Metrics()

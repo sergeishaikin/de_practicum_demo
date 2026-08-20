@@ -53,6 +53,7 @@ apache-airflow==3.3.1 \
     #   apache-airflow-providers-common-compat
     #   apache-airflow-providers-common-io
     #   apache-airflow-providers-common-sql
+    #   apache-airflow-providers-openlineage
     #   apache-airflow-providers-smtp
     #   apache-airflow-providers-standard
     #   astronomer-cosmos
@@ -69,6 +70,7 @@ apache-airflow-providers-common-compat==1.18.0 \
     #   apache-airflow-core
     #   apache-airflow-providers-common-io
     #   apache-airflow-providers-common-sql
+    #   apache-airflow-providers-openlineage
     #   apache-airflow-providers-smtp
     #   apache-airflow-providers-standard
 apache-airflow-providers-common-io==1.8.0 \
@@ -78,7 +80,13 @@ apache-airflow-providers-common-io==1.8.0 \
 apache-airflow-providers-common-sql==2.1.0 \
     --hash=sha256:1febfbb46b0c4d071f42e5305cf37e73075642e27cccfa0ecfeec87237589ddc \
     --hash=sha256:2c6053a2753596df2fce834da39d6095063dfae28f417291997b203b60692b9f
-    # via apache-airflow-core
+    # via
+    #   apache-airflow-core
+    #   apache-airflow-providers-openlineage
+apache-airflow-providers-openlineage==2.20.0 \
+    --hash=sha256:e0430a8fb054978814d4b5185889f92c3103b9a8313d438f30dda0f58af93b77 \
+    --hash=sha256:eac75c8bed3a6ee317b68faf29447b8e4940736026bedd786d7f74aa6170187f
+    # via -r airflow.requirements.in
 apache-airflow-providers-smtp==3.0.3 \
     --hash=sha256:3f72dfbe41d5e0a04da2bc9d94c92a52d3625c58108345dbb9d281e55cd27d9d \
     --hash=sha256:f0da0e9f89c309fd05d66c15ae8dba7e6445faa08a7f7213aff4737d284fb7ed
@@ -117,6 +125,7 @@ attrs==26.1.0 \
     --hash=sha256:d03ceb89cb322a8fd706d4fb91940737b6642aa36998fe130a9bc96c985eff32
     # via
     #   apache-airflow-core
+    #   apache-airflow-providers-openlineage
     #   apache-airflow-task-sdk
     #   astronomer-cosmos
     #   jsonschema
@@ -1256,10 +1265,14 @@ networkx==3.6.1 \
     # via dbt-core
 openlineage-integration-common==1.52.0 \
     --hash=sha256:b003b812535b9f2b9570a7dbedc8c8913713b3e971abda77edfdb9234542d548
-    # via astronomer-cosmos
+    # via
+    #   apache-airflow-providers-openlineage
+    #   astronomer-cosmos
 openlineage-python==1.52.0 \
     --hash=sha256:e1bd73b3066021eecf69cc5c3571f6fd7e253768ea941f2c76f18969ea0ecb20
-    # via openlineage-integration-common
+    # via
+    #   apache-airflow-providers-openlineage
+    #   openlineage-integration-common
 openlineage-sql==1.52.0 \
     --hash=sha256:11e415655612e696a44b3c122104cd6757ba3c2e29682aa160eb62cdfe73bda7 \
     --hash=sha256:e71b989905cd27f9955981adc84e38af0ab7e3d203ae0f608cc07b91c7a56da6 \

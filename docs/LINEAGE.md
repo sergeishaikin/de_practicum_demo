@@ -1,6 +1,8 @@
 # Lineage and provenance
 
-Status: descriptive record of the implemented state at `d77b39a` (2026-08-18).
+Status: descriptive record of the implemented state. Axes 1-3 and the caveats
+below describe the state at `d77b39a` (2026-08-18); the OpenLineage emission
+section describes NG-0.2, added 2026-08-20.
 
 This document describes what the repository records today, what each record
 proves, and what it does **not** prove. It is deliberately not a design
@@ -266,22 +268,93 @@ dataset emission is ever enabled the two may or may not resolve to identical
 strings. That comparison has never been run here. Run it before enabling the
 warehouse dbt Asset surface; do not assume either outcome.
 
-## OpenLineage status
+## OpenLineage emission (NG-0.2)
 
-`openlineage-python`, `openlineage-integration-common` and `openlineage-sql`
-(1.52.0) are present in the Airflow runtime **transitively, via
-astronomer-cosmos**. Cosmos uses OpenLineage-compatible dataset naming, but
-these client and integration libraries do not by themselves constitute an
-Airflow OpenLineage integration: that is a separate provider, which extracts
-task and DAG metadata and hands it to the OpenLineage client.
-`apache-airflow-providers-openlineage` appears in neither
-`airflow.requirements.in`, `airflow.requirements.txt`, nor
-`airflow.constraints.txt`, and no OpenLineage backend is configured or
-deployed. Whether the pinned `apache/airflow:3.3.1-python3.12` base image ships
-the provider in its own set has not been verified.
+Runtime lineage is emitted as OpenLineage events by the boundaries that perform
+the work. The executable contract is
+[`iceberg/common/lineage.py`](../iceberg/common/lineage.py), exercised by
+[`tests/test_lineage_contract.py`](../tests/test_lineage_contract.py) and
+[`tests/integration/test_lineage_receipt.py`](../tests/integration/test_lineage_receipt.py).
+Where this document and that module disagree, the module is the contract and
+this file is the defect.
 
-Accurate statement: the libraries exist as a dependency of Cosmos; OpenLineage
-emission is not implemented.
+### What emits, and what it claims
+
+| Job name | Input | Output | Run identity |
+|---|---|---|---|
+| `iceberg-writer.landing-to-bronze` | `s3://<bucket>/<landing prefix>` | `iceberg://<catalog>/bronze.orders` | `load_id`, plus the snapshot the append produced |
+| `iceberg-medallion.bronze-to-silver` | `bronze.orders` | `silver.orders_clean` | `cycle_id`, source and produced snapshots |
+| `iceberg-medallion.silver-to-gold` | `silver.orders_clean` | `gold.orders_daily_metrics` | `cycle_id`, source and produced snapshots |
+
+Airflow tasks emit through `apache-airflow-providers-openlineage`, the
+maintained provider for Airflow 3.x. The legacy `openlineage-airflow` package is
+not used.
+
+Each event carries a `provenance` run facet built from an NG-0.1
+`ProvenanceEnvelope`, so the never-fabricate rule applies to lineage too: an
+identifier a boundary does not have is absent **with a reason**, never derived.
+Both long-running services declare `airflow.dag_run_id` absent — no Airflow run
+launched them — and `trace_id` absent until NG-0.4 exists.
+
+### Three rules
+
+**An edge belongs to the boundary that performed it.** The writer holds Bronze
+rows carrying `kafka_offset`, so a Kafka-to-Bronze edge is *derivable* there.
+The writer never read Kafka; it read Parquet from the landing prefix. Emitting
+that edge would make the graph lie about which job did what, and a false edge
+propagates into every consumer, where a labelled hole can simply be closed.
+
+**One output dataset has one owner.** `register_edge_owner()` is called at
+service startup and raises if a second boundary claims an output another already
+claims. Duplicate emitters produce contradictory edges that no consumer can
+arbitrate, so this fails the service at startup rather than silently doubling
+the graph. It is also the guard that will matter when NG-0.3 adds dbt lineage
+over the same warehouse edges.
+
+**Emission never touches the data path.** Every emit is wrapped, every failure
+is counted, and processing continues. This inverts the repository's usual
+fail-closed stance deliberately: a lineage backend outage must not become a data
+outage. The counter is what keeps the fail-open behaviour honest — an emitter
+that has been failing silently for a week is otherwise indistinguishable from
+one that works.
+
+### Dataset identity is configuration, never the host
+
+Namespaces come from configured endpoints, normalised so one dataset has one
+identity: scheme, credentials, port and trailing separators are dropped, so
+`s3a://` and `s3://` spellings of one bucket agree and six spellings of the REST
+catalog resolve to `iceberg://iceberg-rest`. A hostname or container id in a
+namespace would rename every dataset on every restart, which is the alias defect
+this contract exists to prevent.
+
+### The transport is a file, not a backend
+
+`OPENLINEAGE__TRANSPORT__*` selects the transport; this change writes
+newline-delimited JSON to a shared volume. That is a receipt, not an operational
+surface: it has no retention, query or deduplication. NG-0.3 repoints the same
+emitters at OpenMetadata by changing configuration, which is the reason the
+official client is used rather than hand-built event JSON.
+
+### The one edge this does not close
+
+**`Kafka orders topic → streaming job → landing` is not emitted.** Verified
+against primary sources on 2026-08-20: OpenLineage's Spark integration builds
+variants `spark3` through `spark40`, and its `gradle.properties` pins
+`spark40.spark.version=4.0.0`. There is no `spark41` or `spark42` module, and
+this repository runs Spark **4.2.0**.
+
+Injecting a listener built for a different Spark major-minor into the B2
+exactly-once streaming job is an unproven binary-compatibility bet on the most
+safety-critical service here, so the integration stays disabled and the gap is
+recorded rather than the engine being changed to suit the tool. NG-1.1's
+capability gate is the same pattern applied to Flink.
+
+This gap is about the lineage *event*, not about traceability: NG-0.1's receipt
+already proves Kafka position → `load_id` → Iceberg snapshot from stored state,
+because Bronze rows carry `kafka_partition` and `kafka_offset` and the
+`load-id` snapshot stamp joins them. What is missing is the emitted edge, and
+closing it needs either an OpenLineage build for Spark 4.2 or a first-party
+emitter inside the streaming job.
 
 ## Intentionally deferred
 
@@ -294,11 +367,13 @@ discipline applies to a lineage workstream.
 | `source-silver-snapshot-id` on the Gold commit, giving the first explicit Silver-to-Gold provenance edge | Phase 4 plan `04-05` (planned, not executed) |
 | Durable shadow certificate recording which snapshot pair was compared | Phase 4 plan `04-06` (planned, not executed) |
 | Winner-event provenance (`event_id`, `canonical_payload_hash`) in Silver | own ADR after M5. Adding the columns does not by itself break shadow equality, because the comparator uses a whitelist — but the ADR must state explicitly that provenance metadata is excluded from business-state equality, and register the columns in `SHADOW_EXCLUDED_COLUMNS` |
-| Canonical dataset identity across Airflow, dbt and Iceberg | after M5; prerequisite for anything that merges graphs |
+| Canonical dataset identity across Airflow, dbt and Iceberg | **partly closed by NG-0.2** for the emitted surface (writer, medallion, Airflow); dbt and Trino relations still have no canonical form, and joining the dbt manifests to the emitted graph waits on NG-0.3 |
 | Generated unified lineage artefact from the two manifests plus the Asset graph | after M5; replaces the hand-drawn diagram with a derived one |
 | CI lineage contract (fail on an unclaimed critical dataset, a serving dataset with no declared consumer, or two ids for one relation) | after M5 |
 | `emit_datasets=True` for the warehouse project | the current no-Cosmos-Assets baseline is pinned, so enabling it is now a visible, testable change: compare the URIs Cosmos then generates against the hand-written ones before keeping it |
-| Column-level lineage; OpenLineage backend; a catalogue (Marquez, DataHub) | not scheduled. An Airflow-only OpenLineage integration would still not cover Kafka, Spark, the writer or the medallion, which is where this pipeline's real work happens |
+| OpenLineage backend and catalogue UI | NG-0.3. NG-0.2 emits to a file transport; repointing is a configuration change |
+| Column-level lineage | not scheduled |
+| Kafka-to-landing lineage event | blocked: no OpenLineage Spark build for 4.2.0, see above |
 
 Both gaps that were cheap enough to close without waiting for M5 are closed, and
 neither changed runtime behaviour. Warehouse mart consumers are declared as dbt

@@ -9,6 +9,7 @@ dependencies = []
 dev = [
     "black==25.9.0",
     "mypy==1.18.2",
+    "openlineage-python==1.52.0",
     "prometheus-client==0.22.1",
     "psycopg2-binary==2.9.12",
     "pyarrow==21.0.0",

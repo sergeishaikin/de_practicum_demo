@@ -30,6 +30,10 @@ from pyiceberg.types import (
     TimestampType,
 )
 
+from openlineage.client.event_v2 import RunState
+
+from common import lineage
+from common import provenance as prov
 from common.ops import Metrics
 
 CATALOG_URI = os.getenv("ICEBERG_CATALOG_URI", "http://iceberg-rest:8181")
@@ -54,6 +58,13 @@ SIMULATE_CRASH_AFTER_COMMIT = os.getenv("SIMULATE_CRASH_AFTER_COMMIT", "0") == "
 SIMULATE_CRASH_BEFORE_COMMIT = os.getenv("SIMULATE_CRASH_BEFORE_COMMIT", "0") == "1"
 
 LOAD_ID_KEY = "load-id"
+
+# The one edge this service performs: it reads Parquet the streaming job left in
+# the landing prefix and appends it to Bronze. It never reads Kafka, so it never
+# claims that edge - see `docs/LINEAGE.md`.
+LINEAGE_JOB = "iceberg-writer.landing-to-bronze"
+LANDING_DATASET = lineage.object_store_dataset(BUCKET, LANDING_PREFIX)
+BRONZE_DATASET = lineage.iceberg_dataset(CATALOG_URI, TABLE_IDENTIFIER)
 
 TABLE_SCHEMA = Schema(
     NestedField(1, "order_id", StringType(), required=False),
@@ -383,6 +394,20 @@ def committed_load_records(catalog: RestCatalog) -> dict[str, dict[str, Any]]:
     return committed
 
 
+def snapshot_for_load(table, load_id: str) -> int | None:
+    """The snapshot this load's append produced.
+
+    Scans metadata already in memory rather than re-inspecting the table, so
+    naming the snapshot on the lineage event costs no extra catalog I/O. The
+    `load-id` summary stamp is the join, exactly as in the provenance receipt.
+    """
+    for snapshot in getattr(table.metadata, "snapshots", []) or []:
+        summary = getattr(snapshot, "summary", None)
+        if summary and summary.additional_properties.get(LOAD_ID_KEY) == load_id:
+            return getattr(snapshot, "snapshot_id", None)
+    return None
+
+
 def committed_load_ids(catalog: RestCatalog) -> set[str]:
     """Compatibility view used by existing writer callers and tests."""
 
@@ -425,6 +450,47 @@ def recover_pending(
     save_state(done, pending)
 
 
+def emit_ingest_lineage(emitter: lineage.LineageEmitter, load_id: str, table) -> bool:
+    """Record the landing-to-Bronze edge this append performed.
+
+    Declares the two identifiers this boundary genuinely lacks rather than
+    filling them: the writer is a long-running service, so no Airflow run
+    launched this work, and no tracing backend exists until NG-0.4.
+    """
+    values: dict[str, object] = {
+        prov.LOAD_ID: load_id,
+        prov.ICEBERG_TABLE: TABLE_IDENTIFIER,
+    }
+    unknown = {
+        prov.DAG_RUN_ID: "the writer is a continuous service, not an Airflow task",
+        prov.TRACE_ID: "no tracing backend exists yet; NG-0.4 introduces one",
+    }
+    try:
+        snapshot_id = snapshot_for_load(table, load_id)
+    except Exception as exc:
+        print(
+            f"Lineage snapshot read failed ({TABLE_IDENTIFIER}): "
+            f"{type(exc).__name__}: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
+        snapshot_id = None
+    if snapshot_id is not None:
+        values[prov.ICEBERG_SNAPSHOT_ID] = snapshot_id
+    else:
+        unknown[prov.ICEBERG_SNAPSHOT_ID] = (
+            "the snapshot carrying this load-id could not be read back"
+        )
+    envelope = prov.ProvenanceEnvelope(values=values, unknown=unknown)
+    return emitter.emit(
+        run_id=lineage.run_id_for(load_id),
+        event_type=RunState.COMPLETE,
+        inputs=[LANDING_DATASET],
+        outputs=[BRONZE_DATASET],
+        envelope=envelope,
+    )
+
+
 def main() -> None:
     print(f"Iceberg writer started: {TABLE_IDENTIFIER}", flush=True)
     print(f"Watching s3://{BUCKET}/{LANDING_PREFIX}", flush=True)
@@ -433,6 +499,8 @@ def main() -> None:
     fs = get_fs()
     catalog = get_catalog()
     metrics = Metrics()
+    lineage.register_edge_owner(BRONZE_DATASET, LINEAGE_JOB)
+    emitter = lineage.LineageEmitter(LINEAGE_JOB)
 
     recover_pending(done, pending, catalog, fs)
 
@@ -510,6 +578,7 @@ def main() -> None:
                     files_processed=len(new_files),
                     duration_ms=duration_ms,
                 )
+                emit_ingest_lineage(emitter, load_id, table)
         except SystemExit:
             raise
         except Exception as exc:

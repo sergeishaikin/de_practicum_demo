@@ -4,3 +4,4 @@ astronomer-cosmos==1.15.0
 dbt-core==1.12.2
 dbt-trino==1.10.3
 dbt-postgres==1.11.0
+apache-airflow-providers-openlineage==2.20.0

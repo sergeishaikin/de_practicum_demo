@@ -51,7 +51,13 @@ KAFKA_TOPIC = "kafka.topic"
 KAFKA_PARTITION = "kafka.partition"
 KAFKA_OFFSET = "kafka.offset"
 ICEBERG_TABLE = "iceberg.table"
+# The snapshot an event is *about*: the one the emitting boundary committed.
 ICEBERG_SNAPSHOT_ID = "iceberg.snapshot_id"
+# The snapshot a result was *computed from*. Distinct from the one above because
+# a transformation has both, and NG-0.2 surfaced that one name cannot carry two
+# concerns: a Bronze-to-Silver event names the Bronze state it read and the
+# Silver state it wrote, and conflating them makes the lineage unreadable.
+ICEBERG_SOURCE_SNAPSHOT_ID = "iceberg.source_snapshot_id"
 DBT_INVOCATION_ID = "dbt.invocation_id"
 DBT_MODEL = "dbt.model"
 
@@ -76,6 +82,7 @@ CANONICAL_FIELDS: frozenset[str] = frozenset(
         KAFKA_OFFSET,
         ICEBERG_TABLE,
         ICEBERG_SNAPSHOT_ID,
+        ICEBERG_SOURCE_SNAPSHOT_ID,
         DBT_INVOCATION_ID,
         DBT_MODEL,
     }
@@ -95,6 +102,7 @@ HIGH_CARDINALITY_FIELDS: frozenset[str] = frozenset(
         LINEAGE_RUN_ID,
         KAFKA_OFFSET,
         ICEBERG_SNAPSHOT_ID,
+        ICEBERG_SOURCE_SNAPSHOT_ID,
         DBT_INVOCATION_ID,
     }
 )
@@ -115,6 +123,7 @@ FORBIDDEN_LABEL_NAMES: frozenset[str] = frozenset(
         "order_id",
         "run_id",
         "snapshot_id",
+        "source_snapshot_id",
         "span_id",
         "trace_id",
     }

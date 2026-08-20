@@ -127,6 +127,24 @@ does not have — absence is recorded with a reason. And high-cardinality identi
 business keys) never becomes a Prometheus label; a test parses every metric
 declaration and fails on one.
 
+## Runtime lineage
+
+`docs/LINEAGE.md` records what this repository can answer about where a row came
+from, and its OpenLineage section is the contract for emitted lineage. The
+executable half is `iceberg/common/lineage.py`.
+
+Three rules bind new code that emits lineage. An edge belongs only to the
+boundary that actually performed it — a relationship that is merely derivable is
+a documented gap, never an emitted edge. One output dataset has one owning job,
+enforced by `register_edge_owner()` at service startup. And emission is
+fail-open: it is wrapped, counted and never allowed to fail the data path, which
+is the one place this repository deliberately does not fail closed.
+
+Dataset names come from configured endpoints, never from a hostname or container
+id. Adding an identifier to a lineage facet means adding it to
+`provenance.CANONICAL_FIELDS` and `docs/PROVENANCE.md` together; the envelope
+refuses names outside the vocabulary, and that friction is deliberate.
+
 ## Planning methodology
 
 Work is planned as OpenSpec changes under `openspec/`. `openspec/specs/` holds

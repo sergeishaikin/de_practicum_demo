@@ -304,9 +304,15 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       METRICS_ENABLED: "1"
       PROMETHEUS_METRICS_PORT: "9101"
+      OPENLINEAGE_NAMESPACE: ${OPENLINEAGE_NAMESPACE:-de-practicum}
+      OPENLINEAGE_DISABLED: ${OPENLINEAGE_DISABLED:-}
+      OPENLINEAGE__TRANSPORT__TYPE: ${OPENLINEAGE_TRANSPORT_TYPE:-file}
+      OPENLINEAGE__TRANSPORT__LOG_FILE_PATH: /lineage/events.jsonl
+      OPENLINEAGE__TRANSPORT__APPEND: "true"
     volumes:
       - ./iceberg:/app:ro
       - de_demo_iceberg_writer_state:/state
+      - de_demo_lineage_events:/lineage
     depends_on:
       iceberg-rest:
         condition: service_healthy
@@ -359,8 +365,14 @@ services:
       PROMETHEUS_METRICS_PORT: "9102"
       QUALITY_VALID_STATUSES: "created,paid,shipped,delivered"
       QUALITY_FAIL_ON_VIOLATIONS: "0"
+      OPENLINEAGE_NAMESPACE: ${OPENLINEAGE_NAMESPACE:-de-practicum}
+      OPENLINEAGE_DISABLED: ${OPENLINEAGE_DISABLED:-}
+      OPENLINEAGE__TRANSPORT__TYPE: ${OPENLINEAGE_TRANSPORT_TYPE:-file}
+      OPENLINEAGE__TRANSPORT__LOG_FILE_PATH: /lineage/events.jsonl
+      OPENLINEAGE__TRANSPORT__APPEND: "true"
     volumes:
       - ./iceberg:/app:ro
+      - de_demo_lineage_events:/lineage
     depends_on:
       iceberg-rest:
         condition: service_healthy
@@ -658,6 +670,11 @@ volumes:
   de_demo_metabase_data:
   de_demo_superset_home:
   de_demo_iceberg_catalog:
+  # Explicit name: Airflow declares this volume from docker-compose.yml,
+  # which CI starts without this file. Both must resolve to one volume or
+  # the lineage receipt sees only half the emitted events.
+  de_demo_lineage_events:
+    name: de_demo_lineage_events
   de_demo_iceberg_writer_state:
   # Explicit name: the E2E test mounts this by name from a plain `docker run`,
   # so it must not carry the Compose project-name prefix.

@@ -3,3 +3,4 @@ pyiceberg-core==0.7.0
 pyarrow==21.0.0
 psycopg2-binary==2.9.10
 prometheus-client==0.22.1
+openlineage-python==1.52.0

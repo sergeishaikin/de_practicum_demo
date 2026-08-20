@@ -43,7 +43,8 @@ outside it, so two systems cannot describe one concern differently.
 | `lineage.job_namespace` / `lineage.job_name` / `lineage.run_id` | lineage event identity | OpenLineage (NG-0.2) |
 | `dataset.namespace` / `dataset.name` | a dataset's stable name across systems | this contract |
 | `kafka.topic` / `kafka.partition` / `kafka.offset` | input transport position | Kafka |
-| `iceberg.table` / `iceberg.snapshot_id` | **the state a result was computed from** | Iceberg |
+| `iceberg.table` / `iceberg.snapshot_id` | **the state an event is about**: the snapshot the emitting boundary committed | Iceberg |
+| `iceberg.source_snapshot_id` | **the state a result was computed from** | Iceberg |
 | `dbt.invocation_id` / `dbt.model` | warehouse transform identity | dbt |
 
 ### Cross-references are explicit
@@ -86,6 +87,13 @@ is not Iceberg-resident, and that argument needs its own evidence.
 The writer stamps `load-id` into each append's snapshot summary. That stamp is
 what joins transport position to stored state — without it, `kafka.offset` and
 `iceberg.snapshot_id` are two unrelated facts about the same append.
+
+A transformation has **two** snapshots, and one name cannot carry both. NG-0.2
+surfaced this: a Bronze-to-Silver lineage event names the Bronze state it read
+and the Silver state it wrote. `iceberg.snapshot_id` is the state the event is
+about — what the boundary committed — and `iceberg.source_snapshot_id` is the
+state it read. A boundary that merely appends, like the writer, has only the
+former.
 
 ## Cardinality-safe telemetry
 

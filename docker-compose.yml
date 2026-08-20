@@ -10,6 +10,10 @@ volumes:
     name: de_demo_pg_data
   de_demo_airflow_logs:
     name: de_demo_airflow_logs
+  # Shared with iceberg-writer and iceberg-medallion in
+  # docker-compose.extended.yml; one lineage event stream, three producers.
+  de_demo_lineage_events:
+    name: de_demo_lineage_events
 
 services:
   de-demo-postgres:
@@ -120,6 +124,9 @@ services:
       MAINTENANCE_RETENTION: ${MAINTENANCE_RETENTION:-2h}
       MAINTENANCE_RECOVERY_HORIZON: ${MAINTENANCE_RECOVERY_HORIZON:-1h}
       MAINTENANCE_RECOVERY_SAFETY_MARGIN: ${MAINTENANCE_RECOVERY_SAFETY_MARGIN:-15m}
+      AIRFLOW__OPENLINEAGE__NAMESPACE: ${OPENLINEAGE_NAMESPACE:-de-practicum}
+      AIRFLOW__OPENLINEAGE__TRANSPORT: '{"type":"file","log_file_path":"/opt/airflow/lineage/events.jsonl","append":true}'
+      AIRFLOW__OPENLINEAGE__DISABLED: ${OPENLINEAGE_DISABLED:-False}
     ports:
       - "127.0.0.1:${AIRFLOW_HOST_PORT:-18085}:8080"
     volumes:
@@ -136,6 +143,7 @@ services:
       - ./dbt/warehouse/profiles.yml.example:/opt/airflow/dbt-profiles/warehouse/profiles.yml:ro
       - ./data/raw:/opt/airflow/project/data/raw:ro
       - de_demo_airflow_logs:/opt/airflow/logs
+      - de_demo_lineage_events:/opt/airflow/lineage
     command:
       - airflow
       - standalone
