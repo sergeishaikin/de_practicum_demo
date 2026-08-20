@@ -7,10 +7,10 @@ succeeded. No workflow was skipped, cancelled or superseded.
 
 | Run | Workflow | Conclusion |
 |---|---|---|
-| [32347175301](https://github.com/dim4eg91/de_practicum_demo/actions/runs/32347175301) | CI | success |
-| [32347175292](https://github.com/dim4eg91/de_practicum_demo/actions/runs/32347175292) | M5 architecture gates | success |
-| [32347175348](https://github.com/dim4eg91/de_practicum_demo/actions/runs/32347175348) | S1 dbt semantic lineage | success |
-| [32347175323](https://github.com/dim4eg91/de_practicum_demo/actions/runs/32347175323) | H1 clean reproducible stack | success |
+| [32347175301](https://github.com/sergeishaikin/de_practicum_demo/actions/runs/32347175301) | CI | success |
+| [32347175292](https://github.com/sergeishaikin/de_practicum_demo/actions/runs/32347175292) | M5 architecture gates | success |
+| [32347175348](https://github.com/sergeishaikin/de_practicum_demo/actions/runs/32347175348) | S1 dbt semantic lineage | success |
+| [32347175323](https://github.com/sergeishaikin/de_practicum_demo/actions/runs/32347175323) | H1 clean reproducible stack | success |
 
 ### The repository verification contract, per step
 
