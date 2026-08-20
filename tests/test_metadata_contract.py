@@ -90,6 +90,18 @@ def test_openlineage_transport_and_consumer_are_reproducible() -> None:
     assert "kafka://" not in adapter
 
 
+def test_metadata_profile_has_live_ci_coverage() -> None:
+    workflow = (ROOT / ".github/workflows/ci-metadata.yml").read_text()
+    assert "workflow_dispatch:" in workflow
+    assert "pull_request:" in workflow
+    assert "docker-compose.metadata.yml" in workflow
+    assert "--profile metadata" in workflow
+    assert "metadata-bootstrap" in workflow
+    assert "run_ingestion.py runtime" in workflow
+    assert "/v1/lineage/table/name/" in workflow
+    assert "Metadata-only cleanup" in workflow
+
+
 def test_ownership_mapping_is_repository_controlled_and_aliases_are_stable() -> None:
     mapping = json.loads((ROOT / "metadata/config/ownership.json").read_text())
     assert set(mapping["teams"]) == {"data-platform", "streaming-platform"}
