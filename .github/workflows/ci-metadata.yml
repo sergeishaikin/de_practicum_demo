@@ -149,13 +149,13 @@ jobs:
             }
           done
           for i in $(seq 1 60); do
-            if docker exec de-metadata-ingestion python -c \
+            if docker exec de-metadata-ingestion env PYTHONPATH=/opt/metadata/scripts python -c \
               "import bootstrap_catalog; bootstrap_catalog.login()" >/dev/null 2>&1; then
               break
             fi
             sleep 5
           done
-          docker exec de-metadata-ingestion python -c \
+          docker exec de-metadata-ingestion env PYTHONPATH=/opt/metadata/scripts python -c \
             "import bootstrap_catalog; bootstrap_catalog.login()" >/dev/null
           docker compose --env-file .env \
             -f docker-compose.yml \
