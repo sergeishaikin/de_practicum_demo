@@ -26,8 +26,6 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = pytest.mark.integration
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RECEIPT_DIR = REPO_ROOT / "artifacts" / "lineage"
 
@@ -43,6 +41,50 @@ GOLD_JOB = "iceberg-medallion.silver-to-gold"
 # hung job, not evidence.
 TIMEOUT_SECONDS = 300
 POLL_SECONDS = 10
+
+
+def _emitters_are_running() -> bool:
+    """Whether the services that emit lineage are actually up.
+
+    Not every integration stack is the full one: `ci-integration.yml` starts
+    only MinIO, the REST catalog and Trino, so the emitting services are absent
+    there and this receipt has nothing to read. Skipping with a reason is the
+    honest outcome; polling for five minutes and failing would report a missing
+    stack as a broken emitter.
+
+    `test_the_receipt_targets_the_container_compose_actually_defines` keeps this
+    from degrading into a permanent silent skip if the container is renamed.
+    """
+    try:
+        result = subprocess.run(
+            [
+                "docker",
+                "ps",
+                "--filter",
+                f"name=^{CONTAINER}$",
+                "--format",
+                "{{.Names}}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0 and CONTAINER in result.stdout
+
+
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(
+        not _emitters_are_running(),
+        reason=(
+            f"{CONTAINER} is not running: this stack does not include the "
+            "lineage-emitting services, so there is no emitted event stream to "
+            "read. The receipt runs in the H1 clean-stack workflow."
+        ),
+    ),
+]
 
 
 def _read_events() -> list[dict]:

@@ -448,6 +448,34 @@ def test_the_new_vocabulary_field_is_registered_everywhere_it_must_be():
 # --------------------------------------------------------------------------
 
 
+def test_the_receipt_targets_the_container_compose_actually_defines():
+    """The receipt skips itself when the emitting services are absent.
+
+    That skip is correct on a partial stack and catastrophic if it becomes
+    permanent: a renamed container or a moved mount would turn the live receipt
+    into a test that silently never runs. This runs in the fast suite, where a
+    rename fails immediately rather than in a workflow nobody reads on green.
+    """
+    from tests.integration import test_lineage_receipt as receipt
+
+    compose = (
+        Path(__file__).resolve().parents[1] / "docker-compose.extended.yml"
+    ).read_text(encoding="utf-8")
+
+    assert f"container_name: {receipt.CONTAINER}" in compose, (
+        f"the receipt reads events from {receipt.CONTAINER!r}, which no compose "
+        "service declares; it would skip forever"
+    )
+    mount_target = receipt.EVENT_LOG.rsplit("/", 1)[0]
+    assert f"de_demo_lineage_events:{mount_target}" in compose, (
+        f"the receipt reads {receipt.EVENT_LOG}, but the lineage volume is not "
+        f"mounted at {mount_target}"
+    )
+    assert (
+        f"OPENLINEAGE__TRANSPORT__LOG_FILE_PATH: {receipt.EVENT_LOG}" in compose
+    ), "the emitters do not write to the path the receipt reads"
+
+
 def test_the_documented_lineage_record_still_describes_the_emitted_surface():
     """`docs/LINEAGE.md` is the pre-existing descriptive record of lineage in
     this repository, and NG-0.2 changed what it describes.
