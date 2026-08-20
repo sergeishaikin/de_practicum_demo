@@ -137,12 +137,33 @@ jobs:
             --profile metadata up -d --build \
             metadata-postgres metadata-opensearch metadata-migrate metadata-server \
             metadata-ingestion metadata-source-reader metadata-dbt-warehouse \
-            metadata-dbt-semantic metadata-lineage-topic metadata-bootstrap \
-            metadata-static-ingestion metadata-ownership
+            metadata-dbt-semantic metadata-lineage-topic
           for container in \
             de-metadata-source-reader \
             de-metadata-dbt-warehouse \
-            de-metadata-dbt-semantic \
+            de-metadata-dbt-semantic; do
+            status=$(docker wait "$container")
+            test "$status" = "0" || {
+              docker logs "$container" || true
+              exit 1
+            }
+          done
+          for i in $(seq 1 60); do
+            if docker exec de-metadata-ingestion python -c \
+              "import bootstrap_catalog; bootstrap_catalog.login()" >/dev/null 2>&1; then
+              break
+            fi
+            sleep 5
+          done
+          docker exec de-metadata-ingestion python -c \
+            "import bootstrap_catalog; bootstrap_catalog.login()" >/dev/null
+          docker compose --env-file .env \
+            -f docker-compose.yml \
+            -f docker-compose.extended.yml \
+            -f docker-compose.metadata.yml \
+            --profile metadata up -d \
+            metadata-bootstrap metadata-static-ingestion metadata-ownership
+          for container in \
             de-metadata-bootstrap \
             de-metadata-static-ingestion \
             de-metadata-ownership; do
