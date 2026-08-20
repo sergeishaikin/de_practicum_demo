@@ -1,0 +1,406 @@
+name: de-practicum-metadata
+
+# This file is deliberately separate from the core Compose graph. It is only
+# included with `--profile metadata`; the normal H1 command never sees these
+# services or their resource cost.
+x-metadata-profile: &metadata-profile
+  profiles: ["metadata"]
+
+x-openmetadata-env: &openmetadata-env
+  OPENMETADATA_CLUSTER_NAME: ${METADATA_CLUSTER_NAME:-de-practicum-metadata}
+  SERVER_PORT: "8585"
+  SERVER_ADMIN_PORT: "8586"
+  LOG_LEVEL: ${METADATA_LOG_LEVEL:-INFO}
+  AUTHENTICATION_PROVIDER: basic
+  AUTHORIZER_CLASS_NAME: org.openmetadata.service.security.DefaultAuthorizer
+  AUTHORIZER_REQUEST_FILTER: org.openmetadata.service.security.JwtFilter
+  AUTHORIZER_ADMIN_PRINCIPALS: "[admin]"
+  AUTHORIZER_INGESTION_PRINCIPALS: "[ingestion-bot]"
+  AUTHORIZER_PRINCIPAL_DOMAIN: open-metadata.org
+  AUTHENTICATION_PUBLIC_KEYS: "[http://metadata-server:8585/api/v1/system/config/jwks]"
+  PIPELINE_SERVICE_CLIENT_ENDPOINT: http://metadata-ingestion:8080
+  SERVER_HOST_API_URL: http://metadata-server:8585/api
+  PIPELINE_SERVICE_CLIENT_VERIFY_SSL: no-ssl
+  DB_DRIVER_CLASS: org.postgresql.Driver
+  DB_SCHEME: postgresql
+  DB_PARAMS: allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=UTC
+  DB_USER: ${METADATA_DB_USER:?METADATA_DB_USER is required}
+  DB_USER_PASSWORD: ${METADATA_DB_PASSWORD:?METADATA_DB_PASSWORD is required}
+  DB_HOST: metadata-postgres
+  DB_PORT: "5432"
+  OM_DATABASE: ${METADATA_DB_NAME:?METADATA_DB_NAME is required}
+  SEARCH_TYPE: opensearch
+  ELASTICSEARCH_HOST: metadata-opensearch
+  ELASTICSEARCH_PORT: "9200"
+  ELASTICSEARCH_SCHEME: http
+  ELASTICSEARCH_USER: ""
+  ELASTICSEARCH_PASSWORD: ""
+  OPENMETADATA_HEAP_OPTS: ${METADATA_SERVER_HEAP_OPTS:--Xmx512m -Xms256m}
+  EVENT_MONITOR: prometheus
+  SECRET_MANAGER: db
+  MASK_PASSWORDS_API: "true"
+
+networks:
+  de_demo_net:
+    external: true
+    name: de_demo_net
+  metadata_net:
+    name: de_practicum_metadata_net
+
+volumes:
+  metadata_db_data:
+    name: de_practicum_metadata_db_data
+  metadata_search_data:
+    name: de_practicum_metadata_search_data
+  metadata_dbt_artifacts:
+    name: de_practicum_metadata_dbt_artifacts
+
+services:
+  metadata-postgres:
+    <<: *metadata-profile
+    image: ${METADATA_POSTGRES_IMAGE:?METADATA_POSTGRES_IMAGE is required}
+    container_name: de-metadata-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${METADATA_POSTGRES_SUPERUSER_PASSWORD:?METADATA_POSTGRES_SUPERUSER_PASSWORD is required}
+      POSTGRES_DB: postgres
+      METADATA_DB_NAME: ${METADATA_DB_NAME:?METADATA_DB_NAME is required}
+      METADATA_DB_USER: ${METADATA_DB_USER:?METADATA_DB_USER is required}
+      METADATA_DB_PASSWORD: ${METADATA_DB_PASSWORD:?METADATA_DB_PASSWORD is required}
+    volumes:
+      - metadata_db_data:/var/lib/postgresql/data
+      - ./metadata/postgres-init/001-openmetadata.sh:/docker-entrypoint-initdb.d/001-openmetadata.sh:ro
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -h 127.0.0.1 -p 5432 -U postgres -d ${METADATA_DB_NAME:?METADATA_DB_NAME is required}"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    networks: [metadata_net]
+
+  metadata-opensearch:
+    <<: *metadata-profile
+    image: ${METADATA_OPENSEARCH_IMAGE:?METADATA_OPENSEARCH_IMAGE is required}
+    container_name: de-metadata-opensearch
+    environment:
+      discovery.type: single-node
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      DISABLE_SECURITY_PLUGIN: "true"
+      OPENSEARCH_JAVA_OPTS: ${METADATA_OPENSEARCH_JAVA_OPTS:--Xms512m -Xmx512m}
+      "compatibility.override_main_response_version": null
+      "xpack.security.enabled": null
+    volumes:
+      - metadata_search_data:/usr/share/opensearch/data
+    ports:
+      - "127.0.0.1:${METADATA_OPENSEARCH_HOST_PORT:-19200}:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    networks: [metadata_net]
+
+  metadata-migrate:
+    <<: *metadata-profile
+    image: ${METADATA_SERVER_IMAGE:?METADATA_SERVER_IMAGE is required}
+    container_name: de-metadata-migrate
+    command: ["./bootstrap/openmetadata-ops.sh", "migrate"]
+    environment:
+      <<: *openmetadata-env
+      MIGRATION_LIMIT_PARAM: "1200"
+    depends_on:
+      metadata-postgres:
+        condition: service_healthy
+      metadata-opensearch:
+        condition: service_healthy
+    networks: [metadata_net]
+
+  metadata-server:
+    <<: *metadata-profile
+    image: ${METADATA_SERVER_IMAGE:?METADATA_SERVER_IMAGE is required}
+    container_name: de-metadata-server
+    environment:
+      <<: *openmetadata-env
+    ports:
+      - "127.0.0.1:${METADATA_SERVER_HOST_PORT:-18585}:8585"
+      - "127.0.0.1:${METADATA_ADMIN_HOST_PORT:-18586}:8586"
+    depends_on:
+      metadata-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:8586/healthcheck >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    networks: [metadata_net, de_demo_net]
+
+  # This is a CLI worker, not an Airflow scheduler. Connector workflows are
+  # generated from repository config and executed as bounded one-shot jobs.
+  metadata-ingestion:
+    <<: *metadata-profile
+    image: ${METADATA_INGESTION_IMAGE:?METADATA_INGESTION_IMAGE is required}
+    container_name: de-metadata-ingestion
+    entrypoint: ["/bin/sh", "-lc"]
+    command: ["exec tail -f /dev/null"]
+    environment:
+      <<: *openmetadata-env
+      PYTHONUNBUFFERED: "1"
+      METADATA_API: http://metadata-server:8585/api
+      METADATA_ADMIN_EMAIL: ${METADATA_ADMIN_EMAIL:?METADATA_ADMIN_EMAIL is required}
+      METADATA_ADMIN_PASSWORD: ${METADATA_ADMIN_PASSWORD:?METADATA_ADMIN_PASSWORD is required}
+      METADATA_SOURCE_READER_USER: ${METADATA_SOURCE_READER_USER:?METADATA_SOURCE_READER_USER is required}
+      METADATA_SOURCE_READER_PASSWORD: ${METADATA_SOURCE_READER_PASSWORD:?METADATA_SOURCE_READER_PASSWORD is required}
+      METADATA_AIRFLOW_USER: ${METADATA_AIRFLOW_USER:?METADATA_AIRFLOW_USER is required}
+      METADATA_AIRFLOW_PASSWORD: ${METADATA_AIRFLOW_PASSWORD:?METADATA_AIRFLOW_PASSWORD is required}
+      METADATA_LINEAGE_TOPIC: ${METADATA_LINEAGE_TOPIC:?METADATA_LINEAGE_TOPIC is required}
+      METADATA_LINEAGE_CONSUMER_GROUP: ${METADATA_LINEAGE_CONSUMER_GROUP:-openmetadata-runtime-lineage}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+    volumes:
+      - ./metadata:/opt/metadata:ro
+      - metadata_dbt_artifacts:/opt/metadata-artifacts:ro
+    depends_on:
+      metadata-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "test -x /home/airflow/.local/bin/metadata"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks: [metadata_net, de_demo_net]
+
+  # Bounded CLI stages make the catalog reproducible without introducing a
+  # second Airflow scheduler or a long-running ingestion service.
+  metadata-bootstrap:
+    <<: *metadata-profile
+    image: ${METADATA_INGESTION_IMAGE:?METADATA_INGESTION_IMAGE is required}
+    container_name: de-metadata-bootstrap
+    entrypoint: ["/bin/sh", "-lc"]
+    command: ["exec python /opt/metadata/scripts/bootstrap_catalog.py"]
+    environment:
+      <<: *openmetadata-env
+      PYTHONUNBUFFERED: "1"
+      METADATA_API: http://metadata-server:8585/api
+      METADATA_ADMIN_EMAIL: ${METADATA_ADMIN_EMAIL:?METADATA_ADMIN_EMAIL is required}
+      METADATA_ADMIN_PASSWORD: ${METADATA_ADMIN_PASSWORD:?METADATA_ADMIN_PASSWORD is required}
+      METADATA_SOURCE_READER_USER: ${METADATA_SOURCE_READER_USER:?METADATA_SOURCE_READER_USER is required}
+      METADATA_SOURCE_READER_PASSWORD: ${METADATA_SOURCE_READER_PASSWORD:?METADATA_SOURCE_READER_PASSWORD is required}
+      METADATA_AIRFLOW_USER: ${METADATA_AIRFLOW_USER:?METADATA_AIRFLOW_USER is required}
+      METADATA_AIRFLOW_PASSWORD: ${METADATA_AIRFLOW_PASSWORD:?METADATA_AIRFLOW_PASSWORD is required}
+      METADATA_LINEAGE_TOPIC: ${METADATA_LINEAGE_TOPIC:?METADATA_LINEAGE_TOPIC is required}
+      METADATA_LINEAGE_CONSUMER_GROUP: ${METADATA_LINEAGE_CONSUMER_GROUP:-openmetadata-runtime-lineage}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+    volumes:
+      - ./metadata:/opt/metadata:ro
+      - metadata_dbt_artifacts:/opt/metadata-artifacts:ro
+    depends_on:
+      metadata-ingestion:
+        condition: service_healthy
+      metadata-source-reader:
+        condition: service_completed_successfully
+      metadata-dbt-warehouse:
+        condition: service_completed_successfully
+      metadata-dbt-semantic:
+        condition: service_completed_successfully
+    networks: [metadata_net, de_demo_net]
+
+  metadata-static-ingestion:
+    <<: *metadata-profile
+    image: ${METADATA_INGESTION_IMAGE:?METADATA_INGESTION_IMAGE is required}
+    container_name: de-metadata-static-ingestion
+    entrypoint: ["/bin/sh", "-lc"]
+    command: ["exec python /opt/metadata/scripts/run_ingestion.py static"]
+    environment:
+      <<: *openmetadata-env
+      PYTHONUNBUFFERED: "1"
+      METADATA_API: http://metadata-server:8585/api
+      METADATA_ADMIN_EMAIL: ${METADATA_ADMIN_EMAIL:?METADATA_ADMIN_EMAIL is required}
+      METADATA_ADMIN_PASSWORD: ${METADATA_ADMIN_PASSWORD:?METADATA_ADMIN_PASSWORD is required}
+      METADATA_SOURCE_READER_USER: ${METADATA_SOURCE_READER_USER:?METADATA_SOURCE_READER_USER is required}
+      METADATA_SOURCE_READER_PASSWORD: ${METADATA_SOURCE_READER_PASSWORD:?METADATA_SOURCE_READER_PASSWORD is required}
+      METADATA_AIRFLOW_USER: ${METADATA_AIRFLOW_USER:?METADATA_AIRFLOW_USER is required}
+      METADATA_AIRFLOW_PASSWORD: ${METADATA_AIRFLOW_PASSWORD:?METADATA_AIRFLOW_PASSWORD is required}
+      METADATA_LINEAGE_TOPIC: ${METADATA_LINEAGE_TOPIC:?METADATA_LINEAGE_TOPIC is required}
+      METADATA_LINEAGE_CONSUMER_GROUP: ${METADATA_LINEAGE_CONSUMER_GROUP:-openmetadata-runtime-lineage}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+    volumes:
+      - ./metadata:/opt/metadata:ro
+      - metadata_dbt_artifacts:/opt/metadata-artifacts:ro
+    depends_on:
+      metadata-bootstrap:
+        condition: service_completed_successfully
+    networks: [metadata_net, de_demo_net]
+
+  metadata-ownership:
+    <<: *metadata-profile
+    image: ${METADATA_INGESTION_IMAGE:?METADATA_INGESTION_IMAGE is required}
+    container_name: de-metadata-ownership
+    entrypoint: ["/bin/sh", "-lc"]
+    command: ["exec python /opt/metadata/scripts/apply_ownership.py"]
+    environment:
+      <<: *openmetadata-env
+      PYTHONUNBUFFERED: "1"
+      METADATA_API: http://metadata-server:8585/api
+      METADATA_ADMIN_EMAIL: ${METADATA_ADMIN_EMAIL:?METADATA_ADMIN_EMAIL is required}
+      METADATA_ADMIN_PASSWORD: ${METADATA_ADMIN_PASSWORD:?METADATA_ADMIN_PASSWORD is required}
+      METADATA_LINEAGE_TOPIC: ${METADATA_LINEAGE_TOPIC:?METADATA_LINEAGE_TOPIC is required}
+      METADATA_LINEAGE_CONSUMER_GROUP: ${METADATA_LINEAGE_CONSUMER_GROUP:-openmetadata-runtime-lineage}
+    volumes:
+      - ./metadata:/opt/metadata:ro
+    depends_on:
+      metadata-static-ingestion:
+        condition: service_completed_successfully
+    networks: [metadata_net, de_demo_net]
+
+  metadata-dbt-warehouse:
+    <<: *metadata-profile
+    user: "0:0"
+    build:
+      context: .
+      dockerfile: airflow.Dockerfile
+    image: de-practicum-demo-airflow:0.1.0
+    container_name: de-metadata-dbt-warehouse
+    entrypoint: ["/bin/bash", "-lc"]
+    command:
+      - >-
+        mkdir -p /tmp/dbt-logs && /home/airflow/.local/bin/dbt --log-path /tmp/dbt-logs compile --project-dir /opt/metadata-dbt/warehouse
+        --profiles-dir /opt/metadata-profile --target-path /opt/metadata-artifacts/warehouse
+        && /home/airflow/.local/bin/dbt --log-path /tmp/dbt-logs docs generate --project-dir /opt/metadata-dbt/warehouse
+        --profiles-dir /opt/metadata-profile --target-path /opt/metadata-artifacts/warehouse
+        --no-compile
+        && python /opt/metadata/scripts/assert_dbt_artifacts.py
+        --target-dir /opt/metadata-artifacts/warehouse --expected-model v_sales_daily
+        --expected-source orders
+    environment:
+      DBT_POSTGRES_HOST: de-demo-postgres
+      DBT_POSTGRES_PORT: "5432"
+      DBT_POSTGRES_USER: ${METADATA_SOURCE_READER_USER:?METADATA_SOURCE_READER_USER is required}
+      DBT_POSTGRES_PASSWORD: ${METADATA_SOURCE_READER_PASSWORD:?METADATA_SOURCE_READER_PASSWORD is required}
+      DBT_POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+    volumes:
+      - ./metadata:/opt/metadata:ro
+      - ./dbt/warehouse:/opt/metadata-dbt/warehouse:ro
+      - ./dbt/warehouse/profiles.yml.example:/opt/metadata-profile/profiles.yml:ro
+      - metadata_dbt_artifacts:/opt/metadata-artifacts
+    depends_on:
+      metadata-source-reader:
+        condition: service_completed_successfully
+      de-demo-postgres:
+        condition: service_healthy
+    networks: [de_demo_net]
+
+  metadata-dbt-semantic:
+    <<: *metadata-profile
+    user: "0:0"
+    build:
+      context: .
+      dockerfile: airflow.Dockerfile
+    image: de-practicum-demo-airflow:0.1.0
+    container_name: de-metadata-dbt-semantic
+    entrypoint: ["/bin/bash", "-lc"]
+    command:
+      - >-
+        mkdir -p /tmp/dbt-logs && /home/airflow/.local/bin/dbt --log-path /tmp/dbt-logs compile --project-dir /opt/metadata-dbt
+        --profiles-dir /opt/metadata-profile --target-path /opt/metadata-artifacts/semantic
+        && /home/airflow/.local/bin/dbt --log-path /tmp/dbt-logs docs generate --project-dir /opt/metadata-dbt
+        --profiles-dir /opt/metadata-profile --target-path /opt/metadata-artifacts/semantic
+        --no-compile
+        && python /opt/metadata/scripts/assert_dbt_artifacts.py
+        --target-dir /opt/metadata-artifacts/semantic --expected-model current_orders
+        --expected-source orders
+    environment:
+      DBT_TRINO_HOST: de-demo-trino
+      DBT_TRINO_PORT: "8080"
+      DBT_TRINO_USER: ${METADATA_SOURCE_READER_USER:?METADATA_SOURCE_READER_USER is required}
+    volumes:
+      - ./metadata:/opt/metadata:ro
+      - ./dbt:/opt/metadata-dbt:ro
+      - ./dbt/profiles.yml.example:/opt/metadata-profile/profiles.yml:ro
+      - metadata_dbt_artifacts:/opt/metadata-artifacts
+    depends_on:
+      metadata-source-reader:
+        condition: service_completed_successfully
+      trino:
+        condition: service_started
+    networks: [de_demo_net]
+
+  metadata-lineage-topic:
+    <<: *metadata-profile
+    image: ${KAFKA_IMAGE:?KAFKA_IMAGE is required}
+    container_name: de-metadata-lineage-topic
+    entrypoint: ["/bin/sh", "-lc"]
+    command:
+      - >-
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092
+        --create --if-not-exists
+        --topic ${METADATA_LINEAGE_TOPIC:?METADATA_LINEAGE_TOPIC is required}
+        --partitions ${METADATA_LINEAGE_PARTITIONS:-1}
+        --replication-factor 1
+        --config retention.ms=${METADATA_LINEAGE_RETENTION_MS:-604800000}
+        --config cleanup.policy=delete
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks: [de_demo_net]
+
+  # The role is created only when the optional profile is explicitly started.
+  # It is used by metadata connectors; the app owner remains the provisioning
+  # identity and is never passed to OpenMetadata ingestion.
+  metadata-source-reader:
+    <<: *metadata-profile
+    image: ${POSTGRES_IMAGE:?POSTGRES_IMAGE is required}
+    container_name: de-metadata-source-reader
+    entrypoint: ["/bin/sh", "-lc"]
+    command:
+      - >-
+        until pg_isready -h de-demo-postgres -p 5432 -U ${POSTGRES_USER:?POSTGRES_USER is required}; do sleep 2; done;
+        PGPASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+        psql -v ON_ERROR_STOP=1 -h de-demo-postgres -p 5432 -U ${POSTGRES_USER:?POSTGRES_USER is required}
+        -d ${POSTGRES_DB:?POSTGRES_DB is required} -f /metadata/create-reader.sql
+    environment:
+      METADATA_SOURCE_READER_USER: ${METADATA_SOURCE_READER_USER:?METADATA_SOURCE_READER_USER is required}
+      METADATA_SOURCE_READER_PASSWORD: ${METADATA_SOURCE_READER_PASSWORD:?METADATA_SOURCE_READER_PASSWORD is required}
+      METADATA_SOURCE_READER_DATABASE: ${POSTGRES_DB:?POSTGRES_DB is required}
+    volumes:
+      - ./metadata/create-reader.sql:/metadata/create-reader.sql:ro
+    depends_on:
+      de-demo-postgres:
+        condition: service_healthy
+    networks: [de_demo_net]
+
+  # Metadata overrides are profile-scoped: the normal stack still uses the
+  # existing file transport, while an explicit metadata start sends only
+  # first-party NG-0.2 events to the dedicated topic.
+  de-demo-airflow:
+    profiles: ["metadata"]
+    environment:
+      AIRFLOW__OPENLINEAGE__TRANSPORT: >-
+        {"type":"kafka","topic":"${METADATA_LINEAGE_TOPIC:?METADATA_LINEAGE_TOPIC is required}","flush":true,"config":{"bootstrap.servers":"kafka:9092"}}
+    depends_on:
+      metadata-lineage-topic:
+        condition: service_completed_successfully
+
+  iceberg-writer:
+    profiles: ["metadata"]
+    environment:
+      OPENLINEAGE__TRANSPORT__TYPE: kafka
+      OPENLINEAGE__TRANSPORT__TOPIC: ${METADATA_LINEAGE_TOPIC:?METADATA_LINEAGE_TOPIC is required}
+      OPENLINEAGE__TRANSPORT__FLUSH: "true"
+      "OPENLINEAGE__TRANSPORT__CONFIG__BOOTSTRAP.SERVERS": kafka:9092
+    depends_on:
+      metadata-lineage-topic:
+        condition: service_completed_successfully
+
+  iceberg-medallion:
+    profiles: ["metadata"]
+    environment:
+      OPENLINEAGE__TRANSPORT__TYPE: kafka
+      OPENLINEAGE__TRANSPORT__TOPIC: ${METADATA_LINEAGE_TOPIC:?METADATA_LINEAGE_TOPIC is required}
+      OPENLINEAGE__TRANSPORT__FLUSH: "true"
+      "OPENLINEAGE__TRANSPORT__CONFIG__BOOTSTRAP.SERVERS": kafka:9092
+    depends_on:
+      metadata-lineage-topic:
+        condition: service_completed_successfully

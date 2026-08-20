@@ -46,6 +46,10 @@ The locally-built images are: `de-practicum-demo-airflow:0.1.0` (from `airflow.D
 
 Interactive work happens inside Jupyter (`http://localhost:18888`, token via `docker exec de-demo-jupyter jupyter server list`) or by executing jobs inside the containers. Python sources for the writer, medallion, producer, and Spark jobs are mounted into their containers as read-only volumes, so editing a file on the host takes effect after restarting the service.
 
+The optional OpenMetadata catalog/data UI is documented in
+[`CATALOG.md`](CATALOG.md). It is a separate `metadata` Compose profile and is
+never required by the default H1 stack.
+
 ## Build commands
 
 | Command | Description |
