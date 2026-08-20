@@ -114,6 +114,19 @@ that were skipped. Do not claim a check passed unless it was executed.
 Do not add a test framework, task runner, wrapper script, or verification layer
 unless the requested change explicitly requires it.
 
+## Provenance and identity
+
+`docs/PROVENANCE.md` is the platform's identity contract: which identifier is
+authoritative for which concern, how cross-references are recorded, and why
+identifiers are linked rather than merged. Its executable half is
+`iceberg/common/provenance.py`.
+
+Two rules bind new code. A provenance envelope never fabricates an identifier it
+does not have — absence is recorded with a reason. And high-cardinality identity
+(`trace_id`, `run_id`, `cycle_id`, `load_id`, Kafka offsets, snapshot ids,
+business keys) never becomes a Prometheus label; a test parses every metric
+declaration and fails on one.
+
 ## Planning methodology
 
 Work is planned as OpenSpec changes under `openspec/`. `openspec/specs/` holds
