@@ -43,7 +43,11 @@ docker compose ... run --rm metadata-ingestion python /opt/metadata/scripts/run_
 
 `bootstrap_catalog.py` creates the service graph, domains, and teams.
 `run_ingestion.py` ingests PostgreSQL, Trino/Iceberg, Airflow, Kafka, dbt
-artifacts, and OpenLineage. `apply_ownership.py` applies the checked-in
+artifacts, and OpenLineage. After the official OpenLineage workflow,
+`openlineage_container_adapter.py` supplements only the pinned connector's
+object-store LOCATION gap by materializing a deterministic StorageService /
+Container hierarchy and a `source=OpenLineage` Container -> Table edge from the
+actual event. `apply_ownership.py` applies the checked-in
 `metadata/config/ownership.json`; ownership and domains are not UI-only.
 
 dbt remains the execution authority. The dbt jobs generate fresh
@@ -89,6 +93,18 @@ resolves `iceberg://iceberg-rest` to the Trino service.
 dbt topology is retained as `DbtLineage`; runtime edges remain
 `OpenLineage` edges with their emitting pipeline and run facet. No
 Kafka-to-Spark-to-landing edge is inferred; that NG-0.2 gap remains explicit.
+
+For an object-store input that the pinned OpenMetadata connector cannot resolve
+as a table, the adapter uses Option A (declarative Container materialization):
+`landing_object_store.<bucket>.<encoded-prefix>` represents the exact
+S3-compatible DatasetRef (slashes and underscores are collision-safe encoded in
+the Container name; the original prefix remains in `displayName`, `prefix`,
+and `fullPath`). It normalizes `s3://`, `s3a://`, and `s3n://` spellings,
+excludes credentials/hosts/run IDs from identity, checks for a native edge
+before adding anything, and is idempotent on replay. The edge stores the
+OpenLineage source plus job/run/input correlation in `lineageDetails`. It
+never maps Kafka inputs, invents a landing Table, or replaces the official
+OpenLineage ingestion workflow.
 
 ## Acceptance evidence (2026-08-20)
 

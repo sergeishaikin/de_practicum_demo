@@ -265,6 +265,14 @@ def run(kind: str) -> None:
             )
             subprocess.run(["metadata", "ingest", "-c", str(path)], check=True)
 
+    # The official OpenLineage workflow remains primary.  This bounded,
+    # idempotent supplement only materializes the proven object-store input
+    # representation that OpenMetadata 1.13.3 cannot resolve natively.
+    if kind in ("runtime", "all"):
+        from openlineage_container_adapter import run as run_object_store_adapter
+
+        run_object_store_adapter(jwt)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

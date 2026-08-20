@@ -335,6 +335,29 @@ surface: it has no retention, query or deduplication. NG-0.3 repoints the same
 emitters at OpenMetadata by changing configuration, which is the reason the
 official client is used rather than hand-built event JSON.
 
+### Object-store catalog compatibility (NG-0.3)
+
+The pinned OpenMetadata 1.13.3 OpenLineage connector accepts the writer event
+but does not materialize an S3 LOCATION-only input as a catalog node. The
+metadata-side `openlineage_container_adapter.py` is a narrow, reversible
+supplement for this proven representation gap:
+
+1. It consumes the actual COMPLETE event from the dedicated lineage topic.
+2. It accepts only normalized `s3://`/`s3a://`/`s3n://` inputs paired with an
+   existing `iceberg://iceberg-rest` output table.
+3. It deterministically maps `bucket + prefix` to
+   `landing_object_store.<bucket>.<encoded-prefix>`, using a StorageService and
+   nested Container entities. The original prefix remains in the Container's
+   `prefix`/`fullPath`; credentials, hosts, run IDs, and container IDs are not
+   part of identity.
+4. It checks for a native edge before adding anything, then creates a
+   `Container -> Table` edge with `lineageDetails.source=OpenLineage` and the
+   job/run/input correlation from the actual event.
+
+The adapter never rewrites the event, maps Kafka to storage, creates a landing
+Table, or maintains a manual edge. Replaying the same event is a no-op, and a
+future native OpenMetadata mapping automatically disables the supplement.
+
 ### The one edge this does not close
 
 **`Kafka orders topic → streaming job → landing` is not emitted.** Verified

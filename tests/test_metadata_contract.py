@@ -80,6 +80,14 @@ def test_openlineage_transport_and_consumer_are_reproducible() -> None:
     script = (ROOT / "metadata/scripts/run_ingestion.py").read_text()
     assert '"consumerGroupName": os.getenv(' in script
     assert '"lineageInformation": {"dbServiceNames": ["lakehouse_trino"]}' in script
+    assert "openlineage_container_adapter" in script
+
+    adapter = (ROOT / "metadata/scripts/openlineage_container_adapter.py").read_text()
+    assert '"lineageDetails": {' in adapter
+    assert '"source": "OpenLineage"' in adapter
+    assert "native_edge_exists" in adapter
+    assert 'type": "container"' in adapter
+    assert "kafka://" not in adapter
 
 
 def test_ownership_mapping_is_repository_controlled_and_aliases_are_stable() -> None:
