@@ -1,7 +1,14 @@
 # NG-0.3 — OpenMetadata Catalog, Lineage and Data UI
 
-> **Lifecycle:** ACTIVE
-> **Disposition:** pending
+> **Lifecycle:** DONE
+> **Disposition:** ADOPTED
+> **Implemented by:** `add-openmetadata-catalog`
+> **Archived change:** `openspec/changes/archive/2026-08-20-add-openmetadata-catalog/`
+> **Original role:** pre-implementation specification
+>
+> **This document is historical intent, not current behaviour.** It records
+> what was proposed before implementation. Current truth lives in
+> `openspec/specs/`, repository documentation, code, and tests.
 > **Execution authorization:** Covered by the bounded `programme:bounded-autonomous-next-generation` authorisation recorded in the repository on 2026-08-19. This file still specifies the change; it does not authorise work beyond that programme.
 > **Opens as:** `add-openmetadata-catalog`
 > **Repository:** `sergeishaikin/de_practicum_demo`

@@ -124,10 +124,10 @@ These tasks record the completed governed closure step.
 - [x] Observe required live CI workflows.
 - [x] Diagnose failures causally; no retry-until-green.
 - [x] Consolidate final `evidence.md`.
-- [ ] Merge/apply spec deltas to standing truth through normal OpenSpec archive.
-- [ ] Update NG-0.3 lifecycle/disposition to `DONE` / `ADOPTED`.
-- [ ] Archive `add-openmetadata-catalog`.
-- [ ] Validate archived lifecycle state.
-- [ ] Verify zero active change for NG-0.3.
-- [ ] Verify a clean tree.
-- [ ] Stop for operator Milestone 4 review before starting NG-0.4.
+- [x] Merge/apply spec deltas to standing truth through normal OpenSpec archive.
+- [x] Update NG-0.3 lifecycle/disposition to `DONE` / `ADOPTED`.
+- [x] Archive `add-openmetadata-catalog`.
+- [x] Validate archived lifecycle state.
+- [x] Verify zero active change for NG-0.3.
+- [x] Verify a clean tree.
+- [x] Stop for operator Milestone 4 review before starting NG-0.4.
