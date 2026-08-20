@@ -129,7 +129,9 @@ Canonical PostgreSQL/Kafka/Iceberg state was not deleted or reset.
 
 ## Git state
 
-The implementation was reviewed as explicit scoped changes. Generated
-`__pycache__` and runtime artifacts are ignored; no token/JWT/password was added
-to the staged scope. Commit/push details are recorded in the handoff response
-after the scoped commit is created.
+- Commit: `b9e802c feat(metadata): add optional OpenMetadata catalog profile`
+- Pushed to `fork/test/dbt-extensive-testing`
+- Tree: clean after the commit; no staged or untracked implementation files
+- Generated `__pycache__` and runtime artifacts are ignored
+- No token/JWT/password was added to the committed scope
+- Automatically triggered CI IDs: none observed in this local run
