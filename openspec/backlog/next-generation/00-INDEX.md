@@ -66,7 +66,7 @@ PLANNED ──▶ ACTIVE ──▶ DONE
 | Item | File | Gate | Depends on | Change | State | Disposition | Authorised by | At |
 |---|---|---|---|---|---|---|---|---|
 | NG-0.1 | `NG-0.1-platform-provenance-contract.md` | ADOPT | - | `add-platform-provenance-contract` | DONE | ADOPTED | `programme:bounded-autonomous-next-generation` | 2026-08-20 |
-| NG-0.2 | `NG-0.2-openlineage.md` | ADOPT | NG-0.1 | `add-openlineage-runtime-lineage` | ACTIVE | pending | `programme:bounded-autonomous-next-generation` | 2026-08-20 |
+| NG-0.2 | `NG-0.2-openlineage.md` | ADOPT | NG-0.1 | `add-openlineage-runtime-lineage` | DONE | ADOPTED | `programme:bounded-autonomous-next-generation` | 2026-08-20 |
 | NG-0.3 | `NG-0.3-openmetadata.md` | ADOPT | NG-0.1, NG-0.2 | `add-openmetadata-catalog` | PLANNED | pending | `none` | - |
 | NG-0.4 | `NG-0.4-opentelemetry-collector.md` | ADOPT | NG-0.1 | `add-opentelemetry-collector` | PLANNED | pending | `none` | - |
 | NG-0.5 | `NG-0.5-grafana-tempo.md` | ADOPT | NG-0.4 | `add-tempo-trace-backend` | PLANNED | pending | `none` | - |

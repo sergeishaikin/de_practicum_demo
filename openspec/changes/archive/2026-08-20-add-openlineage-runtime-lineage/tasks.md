@@ -52,6 +52,6 @@
 - [x] 7.2 Confirm coverage did not fall
 - [x] 7.3 Scope fence
 - [x] 7.4 Flip NG-0.2's register row
-- [ ] 7.5 Commit, push, confirm live CI
-- [ ] 7.6 Evidence, archive, push
-- [ ] 7.7 Re-read canonical sources and select the next programme item
+- [x] 7.5 Commit, push, confirm live CI
+- [x] 7.6 Evidence, archive, push
+- [x] 7.7 Re-read canonical sources and select the next programme item

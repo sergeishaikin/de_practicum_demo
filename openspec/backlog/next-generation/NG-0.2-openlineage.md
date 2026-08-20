@@ -1,14 +1,21 @@
 # NG-0.2 — OpenLineage Runtime Lineage Protocol
 
-> **Lifecycle:** ACTIVE
-> **Disposition:** pending
-> **Authorised by:** bounded autonomous next-generation programme, 2026-08-20
-> **Change in flight:** `openspec/changes/add-openlineage-runtime-lineage/`
+> **Lifecycle:** DONE
+> **Disposition:** ADOPTED
+> **Implemented by:** `add-openlineage-runtime-lineage`
+> **Archived change:** `openspec/changes/archive/2026-08-20-add-openlineage-runtime-lineage/`
 > **Original role:** pre-implementation specification
 >
-> Implementation is under way. The requirements below are the intent this change
-> is being held to; what has actually been built is recorded in the change's own
-> proposal, design, tasks and evidence.
+> **This document is historical intent, not current behaviour.** It records what
+> was proposed before implementation, and its present-tense statements describe
+> the repository as it was *before* this item landed. Current truth lives in
+> `openspec/specs/`, the repository documentation, the code and the tests.
+> Reading this file as a description of today is how solved work gets re-solved.
+>
+> One requirement was **not** met and is recorded rather than quietly dropped:
+> the Spark listener is not installed, because OpenLineage publishes no build for
+> Spark 4.2, so the `Kafka -> landing` edge is not emitted. See the change's
+> evidence and `docs/LINEAGE.md`.
 > **Repository:** `sergeishaikin/de_practicum_demo`
 > **Baseline branch used for analysis:** `test/dbt-extensive-testing`
 > **SDD convention:** implementation SHALL be opened as its own OpenSpec change with `proposal.md`, `design.md`, `tasks.md`, evidence, and the required spec delta before code is applied.
