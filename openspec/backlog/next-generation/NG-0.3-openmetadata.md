@@ -1,8 +1,8 @@
 # NG-0.3 — OpenMetadata Catalog, Lineage and Data UI
 
-> **Lifecycle:** PLANNED
+> **Lifecycle:** ACTIVE
 > **Disposition:** pending
-> **Execution authorization:** NONE. This file specifies a future bounded change; it does not authorize implementation by itself.
+> **Execution authorization:** Covered by the bounded `programme:bounded-autonomous-next-generation` authorisation recorded in the repository on 2026-08-19. This file still specifies the change; it does not authorise work beyond that programme.
 > **Opens as:** `add-openmetadata-catalog`
 > **Repository:** `sergeishaikin/de_practicum_demo`
 > **Baseline branch used for analysis:** `test/dbt-extensive-testing`
