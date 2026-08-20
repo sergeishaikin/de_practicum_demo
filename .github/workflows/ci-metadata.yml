@@ -104,10 +104,28 @@ jobs:
           docker exec de-demo-minio mc mb --ignore-existing local/de-practicum
           docker exec de-demo-trino trino --execute "
             CREATE SCHEMA IF NOT EXISTS iceberg.bronze;
+            CREATE SCHEMA IF NOT EXISTS iceberg.silver;
+            CREATE SCHEMA IF NOT EXISTS iceberg.gold;
             CREATE TABLE IF NOT EXISTS iceberg.bronze.orders (
               order_id varchar,
               business_version bigint
-            )
+            );
+            CREATE TABLE IF NOT EXISTS iceberg.silver.orders_clean (
+              order_id varchar, customer varchar, amount double, country varchar,
+              status varchar, event_time timestamp(6), kafka_timestamp timestamp(6),
+              kafka_partition integer, kafka_offset bigint, event_date date,
+              business_version bigint
+            );
+            INSERT INTO iceberg.silver.orders_clean VALUES
+              ('ci-a', 'alice', 10.0, 'DE', 'paid', TIMESTAMP '2026-01-01 10:00:00', TIMESTAMP '2026-01-01 10:00:00', 0, 1, DATE '2026-01-01', 1),
+              ('ci-b', 'bob', 20.0, 'FR', 'shipped', TIMESTAMP '2026-01-01 11:00:00', TIMESTAMP '2026-01-01 11:00:00', 0, 2, DATE '2026-01-01', 2);
+            CREATE TABLE IF NOT EXISTS iceberg.gold.orders_daily_metrics (
+              event_date date, country varchar, status varchar, orders_count bigint,
+              total_amount double, avg_amount double, distinct_customers bigint
+            );
+            INSERT INTO iceberg.gold.orders_daily_metrics VALUES
+              (DATE '2026-01-01', 'DE', 'paid', 1, 10.0, 10.0, 1),
+              (DATE '2026-01-01', 'FR', 'shipped', 1, 20.0, 20.0, 1)
           "
 
       - name: Start metadata profile and deterministic artifact stages

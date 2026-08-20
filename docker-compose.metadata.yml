@@ -303,7 +303,7 @@ services:
     entrypoint: ["/bin/bash", "-lc"]
     command:
       - >-
-        mkdir -p /tmp/dbt-logs && /home/airflow/.local/bin/dbt --log-path /tmp/dbt-logs compile --project-dir /opt/metadata-dbt
+        mkdir -p /tmp/dbt-logs && /home/airflow/.local/bin/dbt --log-path /tmp/dbt-logs build --project-dir /opt/metadata-dbt
         --profiles-dir /opt/metadata-profile --target-path /opt/metadata-artifacts/semantic
         && /home/airflow/.local/bin/dbt --log-path /tmp/dbt-logs docs generate --project-dir /opt/metadata-dbt
         --profiles-dir /opt/metadata-profile --target-path /opt/metadata-artifacts/semantic
