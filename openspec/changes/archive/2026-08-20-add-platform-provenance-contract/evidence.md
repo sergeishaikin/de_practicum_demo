@@ -34,9 +34,18 @@ than asserted about itself.
 ### The receipt ran against a live stack
 
 The end-to-end receipt is the acceptance evidence NG-0.1 actually asks for, and
-it is only meaningful against real state. It could not run locally — no live
-catalog or object store here, and starting one is outside this change's scope —
-so locally it was confirmed to collect, and it executed for real in CI.
+it is only meaningful against real state. It was confirmed to collect locally
+and executed for real in CI.
+
+> **Correction, 2026-08-20 (`record-local-runtime-capabilities`).** This section
+> originally claimed the receipt "could not run locally — no live catalog or
+> object store here". That claim was **false**. Docker Desktop was installed and
+> running on the development host the whole time; the receipt was never
+> attempted locally. It has since been run against a local MinIO + REST-catalog
+> profile and passes in **2.07 seconds**. The original wording is corrected
+> above rather than deleted, because the error was a reasoning failure worth
+> keeping visible: a stopped or unexamined runtime was treated as an absent one.
+> `docs/LOCAL-ENVIRONMENT.md` and `AGENTS.md` now forbid that inference.
 
 From run `32347175323`, the H1 integration suite:
 

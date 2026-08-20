@@ -37,6 +37,34 @@ of a layer without updating the relevant documentation and tests.
 - For recovery or cutover work, identify the owner of each state transition
   and verify the checkpoint/offset/snapshot evidence before proceeding.
 
+## Local runtime availability
+
+Docker Desktop is installed on the local Windows development host. It may be
+stopped between sessions.
+
+**A stopped Docker daemon does NOT mean that Docker-dependent verification is
+unavailable.** When an authorised change requires a live stack, start Docker
+Desktop, wait for the engine to become ready, start the minimum required
+services, collect the evidence, and stop any temporary capability profile when
+finished.
+
+Do not skip an applicable local integration, E2E or runtime test merely because
+Docker was initially stopped. If a report says a live check could not run, it
+must name what actually prevented it — not that the daemon was idle.
+
+`docker --version` reports only the CLI. The engine is a separate question:
+
+```bash
+docker info --format '{{.ServerVersion}}'      # engine readiness
+uv run python scripts/local_runtime_inventory.py
+```
+
+GitHub Actions clean-stack runs are independent reproducibility evidence and do
+not substitute for an available local runtime. Local first, then CI.
+
+`docs/LOCAL-ENVIRONMENT.md` holds the full execution contract, the startup
+procedure and the last measured snapshot of this machine.
+
 ## Development and tests
 
 - Use the documented Compose files and commands in `README.md` and `docs/`.
@@ -45,7 +73,9 @@ of a layer without updating the relevant documentation and tests.
 - Run Python tools through the locked project environment with
   `uv run --locked`. `pytest.ini` excludes tests requiring the live stack; use
   the explicit `integration`, `iceberg`, `trino`, `e2e`, `airflow`, or `bdd`
-  markers only when their dependencies are available.
+  markers when their dependencies are available — and see **Local runtime
+  availability** below for what "available" means, because a stopped Docker
+  Desktop is available.
 - When changing a pipeline or schema, update focused tests and the applicable
   documentation. Prefer deterministic, idempotent tests over live-state tests
   unless a live integration is the requirement being verified.
@@ -101,9 +131,10 @@ Run additional checks according to the changed surface:
   and perform a short scheduler, triggerer, and DAG-processor health smoke.
 - Dependency input changes: regenerate the existing committed lock files with
   the repository lock script and verify the resulting diff.
-- Streaming, schema, recovery, or other stateful changes: run only the
-  relevant integration or E2E gate when its live dependencies are available
-  and the task authorizes state mutation.
+- Streaming, schema, recovery, or other stateful changes: run the relevant
+  integration or E2E gate when its live dependencies are available and the task
+  authorizes state mutation. Docker Desktop being stopped does not make them
+  unavailable; start it.
 
 Documentation-only changes do not require the Python completion gate unless
 they change executable commands or configuration examples.

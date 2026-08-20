@@ -18,9 +18,94 @@ Alongside the pytest suites, the stack itself carries these checkable surfaces:
 
 No setup beyond a running stack is required. Start it with `.\stack.ps1 up` (see [GETTING-STARTED.md](GETTING-STARTED.md)).
 
+## Local-first live verification policy
+
+Live tests run **locally first**, and clean-stack CI runs afterwards as
+independent reproduction. CI is not the place a live check happens for the first
+time, and "CI will run it" is not a reason to skip something this machine can
+run in seconds.
+
+| Stage | Where | What |
+|---|---|---|
+| Fast / static | host, via `uv` | unit, `architecture`, `domain`, lint, typing |
+| Integration | local Docker, minimum services | marker-scoped live suites |
+| E2E / runtime / failure injection | local Docker | only when the change authorises the state mutation |
+| Clean-stack reproducibility | GitHub Actions | independent proof on fresh volumes |
+
+**Docker Desktop being stopped is not a reason to skip a live suite.** Start it.
+See `docs/LOCAL-ENVIRONMENT.md` for the decision rule and the startup procedure,
+and `AGENTS.md` for the normative statement.
+
+### Runtime surface per marker
+
+Derived from the tests and Compose. Start the minimum, not the whole graph:
+
+| Marker | Tests | Required services |
+|---|---|---|
+| `integration` | 46 | varies by file — see the rows below |
+| `iceberg` | 16 | `minio`, `iceberg-rest` (+ `de-demo-postgres` as their dependency) |
+| `trino` | 12 | `trino`, plus `minio` and `iceberg-rest` |
+| `airflow` | 32 | `de-demo-postgres`, `de-demo-airflow` |
+| `e2e` | 6 | full deterministic stack: Kafka, Spark, MinIO, Iceberg, Postgres |
+| `architecture` | 18 | none — these run on the host |
+
+Within `tests/integration/`, the runtime surface differs per file:
+
+| File | Needs |
+|---|---|
+| `test_m3_b2_recovery.py`, `test_m4_gold_cutover.py`, `test_progress_read_under_shrink.py`, `test_provenance_receipt.py`, `test_b2_pyiceberg_layout.py` | `minio` + `iceberg-rest` |
+| `test_iceberg_trino.py`, `test_trino_merge_interop.py` | the above + `trino` |
+| `test_airflow_lineage_provider.py`, `test_warehouse_asset_provenance.py` | `de-demo-airflow` + `de-demo-postgres` |
+| `test_lineage_receipt.py` | the emitting services: `iceberg-writer`, `iceberg-medallion` (plus their upstream) |
+
+The last two groups **skip themselves with a stated reason** when their
+containers are absent, so a partial stack reports honestly instead of failing.
+
+### The minimum Iceberg profile
+
+The most common live surface. Measured at roughly **0.7 GB** of Docker memory
+and under five seconds to readiness:
+
+```bash
+docker network create de_demo_net || true
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml     up -d minio iceberg-rest
+
+# Wait for the catalog, then create the bucket the suites expect:
+curl -fsS "http://localhost:${ICEBERG_REST_PORT}/v1/config"
+docker exec de-demo-minio mc alias set local http://localhost:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
+docker exec de-demo-minio mc mb --ignore-existing local/de-practicum
+```
+
+The suites reach the stack through host ports, so export the host-side view
+before running them:
+
+```bash
+export ICEBERG_CATALOG_URI="http://localhost:${ICEBERG_REST_PORT}"
+export S3_ENDPOINT="http://localhost:${MINIO_API_PORT}"
+export AWS_ACCESS_KEY_ID="$MINIO_ROOT_USER"
+export AWS_SECRET_ACCESS_KEY="$MINIO_ROOT_PASSWORD"
+export ICEBERG_WAREHOUSE="s3://de-practicum/warehouse"
+
+uv run --locked pytest -q -m integration tests/integration/test_m3_b2_recovery.py
+```
+
+### Local results are not automatically CI results
+
+A developer's `.env` may pin images by tag where the committed `.env.example`
+pins by digest. `scripts/local_runtime_inventory.py` reports that drift. A local
+pass against a floating tag does not prove the digest CI uses behaves the same,
+so name the image when a result depends on it.
+
 ## Running tests
 
 Environment diagnostics (run before starting the stack):
+
+```bash
+uv run python scripts/local_runtime_inventory.py   # host + Docker + Compose inventory
+```
+
+Stack health and prerequisites (`doctor` checks whether the stack is usable;
+the inventory above reports what the machine and Compose graph actually are):
 
 ```bash
 scripts/doctor.cmd      # Windows

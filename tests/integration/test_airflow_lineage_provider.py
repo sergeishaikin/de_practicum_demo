@@ -92,12 +92,16 @@ def provider_registered():
     return any("openlineage" in name for name in ProvidersManager().providers)
 
 
-def listener_registered():
+def listener_names():
+    # Airflow 3.x registers listeners as pluggy plugins on the manager's `pm`.
+    # They are modules, not instances, so the name is `__name__` rather than
+    # anything derived from a type.
     from airflow.listeners.listener import get_listener_manager
-    return any(
-        "openlineage" in type(listener).__module__.lower()
-        or "openlineage" in getattr(listener, "__name__", "").lower()
-        for listener in get_listener_manager().listeners
+
+    manager = get_listener_manager()
+    return sorted(
+        getattr(plugin, "__name__", None) or type(plugin).__module__
+        for plugin in manager.pm.get_plugins()
     )
 
 
@@ -117,7 +121,7 @@ def disabled():
 
 
 record("provider_registered", provider_registered)
-record("listener_registered", listener_registered)
+record("listener_names", listener_names)
 record("transport", transport)
 record("namespace", namespace)
 record("disabled", disabled)
@@ -148,12 +152,15 @@ def test_the_provider_registers_its_lineage_listener(provider_state):
 
     Airflow emits OpenLineage through a listener hooked into task and DAG state
     changes, so a registered provider with no registered listener would leave
-    every other assertion here true and nothing emitted.
+    every other assertion here true and nothing emitted. The provider registers
+    it only when the OpenLineage config is present, which makes this a check on
+    the deployed configuration and not merely on the installed package.
     """
-    assert provider_state["listener_registered"] is True, (
-        "no OpenLineage listener is registered with the running Airflow: "
-        f"{provider_state['listener_registered']!r}"
-    )
+    names = provider_state["listener_names"]
+    assert isinstance(names, list), f"could not enumerate listeners: {names!r}"
+    assert any(
+        "openlineage" in name.lower() for name in names
+    ), f"no OpenLineage listener among the registered listeners: {names}"
 
 
 def test_the_provider_is_not_disabled(provider_state):

@@ -69,6 +69,69 @@ Equivalent direct Compose form used by the scripts:
 docker compose --env-file .\.env -f .\docker-compose.yml -f .\docker-compose.extended.yml <command>
 ```
 
+Always pass **both** Compose files. The extended file declares `de_demo_net` as
+`external: true`; the base file alone declares it normally, so starting only
+`docker-compose.yml` against a network that already exists fails with a label
+mismatch.
+
+## Container runtime
+
+`docs/LOCAL-ENVIRONMENT.md` is the contract: what this host guarantees, when the
+agent must start Docker, and the last measured snapshot. This section is only
+how to drive it.
+
+**Host-side tools and the container runtime are separate things.** `uv`, `ruff`,
+`black`, `mypy` and the fast test suite run on the host and need no Docker at
+all. Everything with an `integration`, `iceberg`, `trino`, `e2e` or `airflow`
+marker needs the container runtime. `docker --version` answers the first
+question and not the second.
+
+### Is the engine actually running?
+
+```bash
+docker info --format '{{.ServerVersion}}'
+```
+
+A non-zero exit means the daemon is not responding — usually Docker Desktop is
+stopped, which is a startable state:
+
+```powershell
+Start-Process "C:\Program Files\Docker\Docker\Docker Desktop.exe"
+for ($i = 0; $i -lt 60; $i++) {
+    docker info --format '{{.ServerVersion}}' 2>$null
+    if ($?) { break }
+    Start-Sleep -Seconds 5
+}
+```
+
+### Inspecting what is available
+
+```bash
+# Everything at once, read-only, plus a machine-readable copy:
+uv run python scripts/local_runtime_inventory.py     --json artifacts/local-environment/runtime-inventory.json
+
+# Or piecemeal:
+docker info --format '{{.NCPU}} CPUs / {{.MemTotal}} bytes'
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml config --services
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml config --images
+docker system df
+```
+
+Never maintain a service or image list by hand — Compose can produce both, and a
+hand-written copy drifts from the file it claims to describe.
+
+### Locally built images
+
+Six images are built from this repository rather than pulled. Enumerate them
+mechanically rather than trusting this list to stay current:
+
+```bash
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml config --images   | grep '^de-practicum-demo-'
+```
+
+As last measured: `airflow`, `iceberg`, `jupyter`, `observability`,
+`orders-producer` and `spark`.
+
 ## Code style
 
 - Python formatting and linting are pinned in the `dev` dependency group. Run `uv run --locked ruff check .` and `uv run --locked black --check .`.
