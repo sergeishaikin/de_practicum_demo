@@ -1,7 +1,9 @@
 # NG-1.2 — ClickHouse Hot Operational Analytics
 
-> **Status:** PROPOSED — future-state specification
+> **Lifecycle:** PLANNED
+> **Disposition:** pending
 > **Execution authorization:** NONE. This file specifies a future bounded change; it does not authorize implementation by itself.
+> **Opens as:** `evaluate-clickhouse-hot-analytics`
 > **Repository:** `sergeishaikin/de_practicum_demo`
 > **Baseline branch used for analysis:** `test/dbt-extensive-testing`
 > **SDD convention:** implementation SHALL be opened as its own OpenSpec change with `proposal.md`, `design.md`, `tasks.md`, evidence, and the required spec delta before code is applied.

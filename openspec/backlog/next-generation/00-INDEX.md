@@ -17,46 +17,77 @@ The existing platform remains the baseline: Kafka, Spark Structured Streaming, M
 ## Backlog register
 
 This table is the canonical, machine-checked register for the package. It is the
-single source of truth for order, dependencies, change ids and authorisation
-state; `validate_backlog.py` in the parent directory parses it and fails if any
-of those invariants break.
+single source of truth for order, dependencies, change ids, lifecycle state,
+authorisation provenance and outcome; `validate_backlog.py` in the parent
+directory parses it and fails if any of those invariants break — including
+against the actual contents of `openspec/changes/` and `openspec/changes/archive/`.
 
-Every item below is a **recorded backlog item**, not authorised work. Each opens
-as its own OpenSpec change under `openspec/changes/` when — and only when — the
-operator authorises it. Row order is the execution order and SHALL remain
-topologically valid: an item's dependencies always appear in earlier rows.
+This package is a **programme registry**, not a pure backlog. It began as one:
+every item was unauthorised future work. It no longer is — some items are
+complete, one is in flight, most are still planned — and the register records
+which is which rather than pretending the whole package is still ahead of us.
+
+**A completed item's specification is historical intent, not current truth.**
+NG-0.1's body says the platform has identifiers but no contract binding them;
+that was true before NG-0.1 and is false now. Current behaviour lives in
+`openspec/specs/`, the repository documentation, the code and the tests. Reading
+a `DONE` item as a description of the present is how an agent re-solves a solved
+problem, which is why the lifecycle header on each file says so explicitly.
+
+Row order is the execution order and SHALL remain topologically valid: an item's
+dependencies always appear in earlier rows.
 
 Column contracts, so the register stays parseable:
 
 - **Item** — `NG-<major>.<minor>`, unique.
-- **Gate** — exactly `ADOPT` or `EXPERIMENT`. Conditional wording belongs in the
-  item, not here.
+- **File** — the item specification, in this directory.
+- **Gate** — exactly `ADOPT` or `EXPERIMENT`. What kind of decision the item is,
+  fixed when the item was written. Never a lifecycle value.
 - **Depends on** — comma-separated item ids, or `-` for none. **Hard**
   dependencies only; soft preferences are recorded in the notes below.
-- **Opens as** — the pre-assigned OpenSpec change id, unique.
-- **Authorised** — `no`, or the ISO date the operator authorised it.
+- **Change** — the pre-assigned OpenSpec change id, unique across the backlog.
+- **State** — `PLANNED`, `ACTIVE`, `DONE` or `STOPPED`. Where the work is.
+- **Disposition** — the product outcome. `pending` until the work concludes,
+  then `ADOPTED` or `DO_NOT_ADOPT`.
+- **Authorised by** — `none`, or the grant the authorisation traces to. A date
+  alone records *when* but not *why*, which cannot distinguish a per-item
+  operator grant from programme membership.
+- **At** — `-`, or the ISO date of that grant.
 
-| Item | File | Gate | Depends on | Opens as | Authorised |
-|---|---|---|---|---|---|
-| NG-0.1 | `NG-0.1-platform-provenance-contract.md` | ADOPT | - | `add-platform-provenance-contract` | 2026-08-20 |
-| NG-0.2 | `NG-0.2-openlineage.md` | ADOPT | NG-0.1 | `add-openlineage-runtime-lineage` | 2026-08-20 |
-| NG-0.3 | `NG-0.3-openmetadata.md` | ADOPT | NG-0.1, NG-0.2 | `add-openmetadata-catalog` | no |
-| NG-0.4 | `NG-0.4-opentelemetry-collector.md` | ADOPT | NG-0.1 | `add-opentelemetry-collector` | no |
-| NG-0.5 | `NG-0.5-grafana-tempo.md` | ADOPT | NG-0.4 | `add-tempo-trace-backend` | no |
-| NG-0.6 | `NG-0.6-grafana-loki.md` | ADOPT | NG-0.4 | `add-loki-log-backend` | no |
-| NG-0.7 | `NG-0.7-grafana-correlation.md` | ADOPT | NG-0.3, NG-0.4, NG-0.5, NG-0.6 | `add-grafana-correlation-slo` | no |
-| NG-0.8 | `NG-0.8-data-reliability.md` | ADOPT | NG-0.3, NG-0.7 | `unify-data-reliability` | no |
-| NG-0.9 | `NG-0.9-engineering-quality-gates.md` | ADOPT | - | `add-static-typing-gate` | 2026-08-19 |
-| NG-1.1 | `NG-1.1-apache-flink-shadow-streaming.md` | EXPERIMENT | NG-0.1, NG-0.2, NG-0.4 | `evaluate-flink-shadow-streaming` | no |
-| NG-1.2 | `NG-1.2-clickhouse-hot-analytics.md` | EXPERIMENT | NG-0.1 | `evaluate-clickhouse-hot-analytics` | no |
-| NG-1.3 | `NG-1.3-apache-pinot-realtime-serving.md` | EXPERIMENT | NG-1.1, NG-1.2 | `evaluate-pinot-realtime-serving` | no |
-| NG-2.1 | `NG-2.1-mlflow-ai-governance.md` | ADOPT | NG-0.1 | `add-mlflow-ai-governance` | no |
-| NG-2.2 | `NG-2.2-data-platform-incident-agent.md` | EXPERIMENT | NG-0.3, NG-0.5, NG-0.6, NG-0.7, NG-0.8, NG-2.1 | `evaluate-data-platform-incident-agent` | no |
+State and Disposition are separate because a completed experiment that concludes
+`DO_NOT_ADOPT` is a success, not a failure. Collapsing them would make the only
+honest outcome of NG-1.3's paper gate look like an incomplete item.
 
-A row changes only in two ways: `Authorised` flips to the date the operator
-authorised it, and the row records the change's disposition once the change is
-archived. A backlog row SHALL NOT be edited to look like progress that the change
-record does not carry.
+```text
+PLANNED ──▶ ACTIVE ──▶ DONE
+                └────▶ STOPPED
+```
+
+| Item | File | Gate | Depends on | Change | State | Disposition | Authorised by | At |
+|---|---|---|---|---|---|---|---|---|
+| NG-0.1 | `NG-0.1-platform-provenance-contract.md` | ADOPT | - | `add-platform-provenance-contract` | DONE | ADOPTED | `programme:bounded-autonomous-next-generation` | 2026-08-20 |
+| NG-0.2 | `NG-0.2-openlineage.md` | ADOPT | NG-0.1 | `add-openlineage-runtime-lineage` | ACTIVE | pending | `programme:bounded-autonomous-next-generation` | 2026-08-20 |
+| NG-0.3 | `NG-0.3-openmetadata.md` | ADOPT | NG-0.1, NG-0.2 | `add-openmetadata-catalog` | PLANNED | pending | `none` | - |
+| NG-0.4 | `NG-0.4-opentelemetry-collector.md` | ADOPT | NG-0.1 | `add-opentelemetry-collector` | PLANNED | pending | `none` | - |
+| NG-0.5 | `NG-0.5-grafana-tempo.md` | ADOPT | NG-0.4 | `add-tempo-trace-backend` | PLANNED | pending | `none` | - |
+| NG-0.6 | `NG-0.6-grafana-loki.md` | ADOPT | NG-0.4 | `add-loki-log-backend` | PLANNED | pending | `none` | - |
+| NG-0.7 | `NG-0.7-grafana-correlation.md` | ADOPT | NG-0.3, NG-0.4, NG-0.5, NG-0.6 | `add-grafana-correlation-slo` | PLANNED | pending | `none` | - |
+| NG-0.8 | `NG-0.8-data-reliability.md` | ADOPT | NG-0.3, NG-0.7 | `unify-data-reliability` | PLANNED | pending | `none` | - |
+| NG-0.9 | `NG-0.9-engineering-quality-gates.md` | ADOPT | - | `add-static-typing-gate` | DONE | ADOPTED | `programme:bounded-autonomous-next-generation` | 2026-08-19 |
+| NG-1.1 | `NG-1.1-apache-flink-shadow-streaming.md` | EXPERIMENT | NG-0.1, NG-0.2, NG-0.4 | `evaluate-flink-shadow-streaming` | PLANNED | pending | `none` | - |
+| NG-1.2 | `NG-1.2-clickhouse-hot-analytics.md` | EXPERIMENT | NG-0.1 | `evaluate-clickhouse-hot-analytics` | PLANNED | pending | `none` | - |
+| NG-1.3 | `NG-1.3-apache-pinot-realtime-serving.md` | EXPERIMENT | NG-1.1, NG-1.2 | `evaluate-pinot-realtime-serving` | PLANNED | pending | `none` | - |
+| NG-2.1 | `NG-2.1-mlflow-ai-governance.md` | ADOPT | NG-0.1 | `add-mlflow-ai-governance` | PLANNED | pending | `none` | - |
+| NG-2.2 | `NG-2.2-data-platform-incident-agent.md` | EXPERIMENT | NG-0.3, NG-0.5, NG-0.6, NG-0.7, NG-0.8, NG-2.1 | `evaluate-data-platform-incident-agent` | PLANNED | pending | `none` | - |
+
+A row is edited only to record something that has actually happened elsewhere.
+`State` moves only with the OpenSpec change it names: to `ACTIVE` when that
+change directory exists, to `DONE` when it is archived, to `STOPPED` when the
+work is abandoned with a recorded reason. `Disposition` is set when the work
+concludes. A row SHALL NOT be edited to look like progress that the change
+record does not carry — and the validator now checks exactly that against
+`openspec/changes/` and `openspec/changes/archive/` rather than trusting the
+table.
 
 ### What the `Depends on` column means
 

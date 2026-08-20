@@ -1,7 +1,14 @@
 # NG-0.2 — OpenLineage Runtime Lineage Protocol
 
-> **Status:** PROPOSED — future-state specification
-> **Execution authorization:** NONE. This file specifies a future bounded change; it does not authorize implementation by itself.
+> **Lifecycle:** ACTIVE
+> **Disposition:** pending
+> **Authorised by:** bounded autonomous next-generation programme, 2026-08-20
+> **Change in flight:** `openspec/changes/add-openlineage-runtime-lineage/`
+> **Original role:** pre-implementation specification
+>
+> Implementation is under way. The requirements below are the intent this change
+> is being held to; what has actually been built is recorded in the change's own
+> proposal, design, tasks and evidence.
 > **Repository:** `sergeishaikin/de_practicum_demo`
 > **Baseline branch used for analysis:** `test/dbt-extensive-testing`
 > **SDD convention:** implementation SHALL be opened as its own OpenSpec change with `proposal.md`, `design.md`, `tasks.md`, evidence, and the required spec delta before code is applied.

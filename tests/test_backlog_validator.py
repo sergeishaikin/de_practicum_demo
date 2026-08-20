@@ -9,6 +9,10 @@ so nothing caught it.
 
 Synthetic registers rather than the real one: a test that can only fail when
 someone edits the live backlog would not describe the rule.
+
+Lifecycle checks live in `tests/test_backlog_lifecycle.py`. The registers built
+here are all `PLANNED`, because ordering is a property of the dependency graph
+and not of how far execution has got.
 """
 
 from __future__ import annotations
@@ -36,7 +40,7 @@ validator = _load_validator()
 
 ITEM_TEMPLATE = """# {item}
 
-> **Status:** PROPOSED — future-state specification
+> **Lifecycle:** PLANNED
 > **Execution authorization:** NONE.
 
 ## Freshness of external assumptions
@@ -48,8 +52,8 @@ REGISTER_HEADER = """# Synthetic register
 
 Recommended ordering: `docs/ordering.md`
 
-| Item | File | Gate | Depends on | Opens as | Authorised |
-|---|---|---|---|---|---|
+| Item | File | Gate | Depends on | Change | State | Disposition | Authorised by | At |
+|---|---|---|---|---|---|---|---|---|
 """
 
 
@@ -70,7 +74,8 @@ def build_backlog(root: Path, rows: list[tuple[str, str, str]], ordering: str) -
             ITEM_TEMPLATE.format(item=item), encoding="utf-8"
         )
         lines.append(
-            f"| {item} | `{file_name}` | ADOPT | {deps} | `{change_id}` | no |\n"
+            f"| {item} | `{file_name}` | ADOPT | {deps} | `{change_id}` "
+            "| PLANNED | pending | `none` | - |\n"
         )
     (register_dir / "00-INDEX.md").write_text("".join(lines), encoding="utf-8")
 

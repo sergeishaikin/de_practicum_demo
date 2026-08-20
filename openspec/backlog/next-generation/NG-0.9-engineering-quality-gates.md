@@ -1,7 +1,16 @@
 # NG-0.9 — Uniform Engineering Quality and Static Analysis Gates
 
-> **Status:** PROPOSED — future-state specification
-> **Execution authorization:** NONE. This file specifies a future bounded change; it does not authorize implementation by itself.
+> **Lifecycle:** DONE
+> **Disposition:** ADOPTED
+> **Implemented by:** `add-static-typing-gate`
+> **Archived change:** `openspec/changes/archive/2026-08-20-add-static-typing-gate/`
+> **Original role:** pre-implementation specification
+>
+> **This document is historical intent, not current behaviour.** It records what
+> was proposed before implementation, and its present-tense statements describe
+> the repository as it was *before* this item landed. Current truth lives in
+> `openspec/specs/`, the repository documentation, the code and the tests.
+> Reading this file as a description of today is how solved work gets re-solved.
 > **Repository:** `sergeishaikin/de_practicum_demo`
 > **Baseline branch used for analysis:** `test/dbt-extensive-testing`
 > **SDD convention:** implementation SHALL be opened as its own OpenSpec change with `proposal.md`, `design.md`, `tasks.md`, evidence, and the required spec delta before code is applied.

@@ -14,11 +14,26 @@ It checks, for every ``<backlog>/*/00-INDEX.md``:
 * the dependency graph is acyclic;
 * row order is a valid execution order -- an item's dependencies all appear in
   earlier rows;
-* every item's ``Authorised`` cell reads ``no`` or an ISO date;
-* every referenced item file exists and carries the headers that mark it as
-  unauthorised future work;
+* **lifecycle state matches the repository**: an ``ACTIVE`` row has its change
+  directory under ``openspec/changes/``, a ``DONE`` row has exactly one archive
+  and no active directory, and a ``PLANNED`` row has neither;
+* **a DONE archive is complete** -- proposal, design, tasks and evidence;
+* **authorisation is traceable**: nothing is authorised without a named grant,
+  nothing that has started is unauthorised, and a grant carries a date;
+* **dependencies precede execution**: an item may not be ``ACTIVE`` or ``DONE``
+  while a hard dependency is still ``PLANNED``;
+* **the item file agrees with its row** -- the lifecycle header a file carries is
+  the state the register records for it;
 * any ordering document the register points at covers every item exactly once and
   never places an item before one of its hard dependencies.
+
+The lifecycle checks exist because the register drifted from reality once
+already: on 2026-08-20 three items had been authorised and two implemented while
+every item file still declared itself ``PROPOSED`` with ``authorization NONE``,
+and the old validator *required* that declaration -- enforcing an invariant that
+had become false. A register that cannot represent completion will be believed
+anyway, and a completed item read as a description of the present is how solved
+work gets re-solved.
 
 That last check exists because the register cannot catch it alone. A recommended
 ordering published in a separate document — an ADR, say — can contradict the
@@ -46,16 +61,35 @@ ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 VALID_GATES = frozenset({"ADOPT", "EXPERIMENT"})
 NO_DEPENDENCIES = "-"
 
+# Where the work is. Deliberately small: every extra state is one more thing
+# that can disagree with the repository.
+VALID_STATES = frozenset({"PLANNED", "ACTIVE", "DONE", "STOPPED"})
+STARTED_STATES = frozenset({"ACTIVE", "DONE", "STOPPED"})
+SETTLED_STATES = frozenset({"DONE", "STOPPED"})
+
+# What the work concluded. Separate from state, because a completed experiment
+# that concludes DO_NOT_ADOPT succeeded.
+VALID_DISPOSITIONS = frozenset({"pending", "ADOPTED", "DO_NOT_ADOPT"})
+
+NO_AUTHORISATION = "none"
+NO_DATE = "-"
+
+# An archived change is named `<date>-<change-id>`, and must carry the full
+# record rather than only the parts that were easy to write.
+REQUIRED_ARCHIVE_FILES = ("proposal.md", "design.md", "tasks.md", "evidence.md")
+
+# Each item file declares its own lifecycle, and it must match its row.
+ITEM_LIFECYCLE = re.compile(r"^>\s*\*\*Lifecycle:\*\*\s*([A-Z]+)\s*$", re.MULTILINE)
+
 # A register names its ordering document with this line; the ordering document
 # marks each execution slot as a bare item id on a line of its own.
 ORDERING_POINTER = re.compile(r"^Recommended ordering:\s*`([^`]+)`\s*$")
 ORDERING_SLOT = re.compile(r"^\s*(NG-\d+\.\d+)\s*$")
 
-REQUIRED_ITEM_MARKERS = (
-    "**Status:** PROPOSED",
-    "**Execution authorization:** NONE",
-    "## Freshness of external assumptions",
-)
+# What every item file carries regardless of lifecycle. The freshness section is
+# the one that must survive completion: a DONE item's premises are exactly the
+# ones a later reader is most likely to take on trust.
+REQUIRED_ITEM_MARKERS = ("## Freshness of external assumptions",)
 
 
 @dataclass(frozen=True)
@@ -67,7 +101,10 @@ class Row:
     gate: str
     depends_on: tuple[str, ...]
     change_id: str
-    authorised: str
+    state: str
+    disposition: str
+    authorised_by: str
+    authorised_at: str
     line_no: int
 
 
@@ -105,11 +142,21 @@ def parse_register(register: Path) -> tuple[list[Row], list[str]]:
         if not in_table or set("".join(cells)) <= {"-", ":"}:
             continue
 
-        if len(cells) != 6:
-            errors.append(f"line {line_no}: expected 6 columns, found {len(cells)}")
+        if len(cells) != 9:
+            errors.append(f"line {line_no}: expected 9 columns, found {len(cells)}")
             continue
 
-        item, file_name, gate, deps, change_id, authorised = cells
+        (
+            item,
+            file_name,
+            gate,
+            deps,
+            change_id,
+            state,
+            disposition,
+            authorised_by,
+            authorised_at,
+        ) = cells
         parsed_deps: tuple[str, ...] = ()
         if deps and deps != NO_DEPENDENCIES:
             parsed_deps = tuple(d.strip() for d in deps.split(",") if d.strip())
@@ -121,7 +168,10 @@ def parse_register(register: Path) -> tuple[list[Row], list[str]]:
                 gate=gate,
                 depends_on=parsed_deps,
                 change_id=change_id,
-                authorised=authorised,
+                state=state,
+                disposition=disposition,
+                authorised_by=authorised_by,
+                authorised_at=authorised_at,
                 line_no=line_no,
             )
         )
@@ -149,15 +199,173 @@ def check_identity(register: Path, rows: list[Row], report: Report) -> None:
 
 
 def check_authorisation(register: Path, rows: list[Row], report: Report) -> None:
-    """Every item is unauthorised, or carries the ISO date it was authorised on."""
+    """Authorisation is traceable to a named grant, and dated.
+
+    A bare date records *when* but not *why*, which cannot distinguish a
+    per-item operator grant from membership of a bounded programme. After the
+    programme authorisation existed, that ambiguity became real.
+    """
     for row in rows:
-        if row.authorised == "no":
-            continue
-        if not ISO_DATE.match(row.authorised):
+        authorised = row.authorised_by != NO_AUTHORISATION
+
+        if authorised and not row.authorised_by:
             report.fail(
                 register,
-                f"line {row.line_no}: {row.item} authorised cell is "
-                f"{row.authorised!r}; expected 'no' or an ISO date",
+                f"line {row.line_no}: {row.item} has an empty authorisation grant",
+            )
+        if authorised and not ISO_DATE.match(row.authorised_at):
+            report.fail(
+                register,
+                f"line {row.line_no}: {row.item} is authorised by "
+                f"{row.authorised_by!r} but its date is {row.authorised_at!r}; "
+                "expected an ISO date",
+            )
+        if not authorised and row.authorised_at != NO_DATE:
+            report.fail(
+                register,
+                f"line {row.line_no}: {row.item} is unauthorised but carries the "
+                f"date {row.authorised_at!r}",
+            )
+        if not authorised and row.state in STARTED_STATES:
+            report.fail(
+                register,
+                f"line {row.line_no}: {row.item} is {row.state} with no "
+                "authorisation grant; work may not start unauthorised",
+            )
+
+
+def check_lifecycle(register: Path, rows: list[Row], report: Report) -> None:
+    """State and disposition are drawn from the allowed sets and agree."""
+    for row in rows:
+        if row.state not in VALID_STATES:
+            report.fail(
+                register,
+                f"line {row.line_no}: {row.item} state {row.state!r} is not one of "
+                f"{sorted(VALID_STATES)}",
+            )
+            continue
+        if row.disposition not in VALID_DISPOSITIONS:
+            report.fail(
+                register,
+                f"line {row.line_no}: {row.item} disposition {row.disposition!r} is "
+                f"not one of {sorted(VALID_DISPOSITIONS)}",
+            )
+            continue
+
+        if row.state == "DONE" and row.disposition == "pending":
+            report.fail(
+                register,
+                f"line {row.line_no}: {row.item} is DONE with a pending "
+                "disposition; a concluded item records what it concluded",
+            )
+        if row.state in {"PLANNED", "ACTIVE"} and row.disposition != "pending":
+            report.fail(
+                register,
+                f"line {row.line_no}: {row.item} is {row.state} but already "
+                f"records disposition {row.disposition!r}",
+            )
+
+
+def check_lifecycle_against_repository(
+    register: Path, rows: list[Row], repo_root: Path, report: Report
+) -> None:
+    """The register's claims, checked against `changes/` and `changes/archive/`.
+
+    This is the check the old validator could not make. A row saying `DONE` is
+    a claim about the repository, and a claim nothing verifies is a drawing.
+    """
+    changes = repo_root / "openspec" / "changes"
+    archive = changes / "archive"
+
+    for row in rows:
+        active = changes / row.change_id
+        active_exists = active.is_dir()
+        archived = (
+            sorted(d for d in archive.glob(f"*-{row.change_id}") if d.is_dir())
+            if archive.is_dir()
+            else []
+        )
+
+        if row.state == "PLANNED":
+            if active_exists:
+                report.fail(
+                    register,
+                    f"{row.item} is PLANNED but {active.relative_to(repo_root)} "
+                    "exists; implementation is already under way",
+                )
+            if archived:
+                report.fail(
+                    register,
+                    f"{row.item} is PLANNED but an archive exists: "
+                    f"{[d.name for d in archived]}",
+                )
+
+        elif row.state == "ACTIVE":
+            if not active_exists:
+                report.fail(
+                    register,
+                    f"{row.item} is ACTIVE but there is no "
+                    f"{active.relative_to(repo_root)}",
+                )
+            if archived:
+                report.fail(
+                    register,
+                    f"{row.item} is ACTIVE but its change is already archived as "
+                    f"{[d.name for d in archived]}",
+                )
+
+        elif row.state == "DONE":
+            if active_exists:
+                report.fail(
+                    register,
+                    f"{row.item} is DONE but {active.relative_to(repo_root)} is "
+                    "still an active change",
+                )
+            if len(archived) != 1:
+                report.fail(
+                    register,
+                    f"{row.item} is DONE but has {len(archived)} archived changes "
+                    f"matching {row.change_id!r}: {[d.name for d in archived]}",
+                )
+            else:
+                missing = [
+                    name
+                    for name in REQUIRED_ARCHIVE_FILES
+                    if not (archived[0] / name).is_file()
+                ]
+                if missing:
+                    report.fail(
+                        register,
+                        f"{row.item}: archive {archived[0].name} is missing "
+                        f"{missing}",
+                    )
+
+        elif row.state == "STOPPED" and active_exists:
+            report.fail(
+                register,
+                f"{row.item} is STOPPED but {active.relative_to(repo_root)} is "
+                "still present; a stopped item has no implementation in flight",
+            )
+
+
+def check_dependency_lifecycle(register: Path, rows: list[Row], report: Report) -> None:
+    """Work does not start before its hard prerequisites conclude.
+
+    Row order already keeps the *table* topological. This is the stronger claim:
+    that execution respected the graph, not merely that the drawing did.
+    """
+    state = {row.item: row.state for row in rows}
+    for row in rows:
+        if row.state not in STARTED_STATES:
+            continue
+        for dep in row.depends_on:
+            if state.get(dep) in SETTLED_STATES or dep not in state:
+                continue
+            report.fail(
+                register,
+                f"line {row.line_no}: {row.item} is {row.state} while its hard "
+                f"dependency {dep} is {state[dep]}; a prerequisite must conclude "
+                "first",
             )
 
 
@@ -297,16 +505,51 @@ def check_ordering(
 
 
 def check_item_files(register: Path, rows: list[Row], report: Report) -> None:
-    """Referenced files exist and still declare themselves unauthorised."""
+    """Referenced files exist, carry a lifecycle header, and agree with the row.
+
+    This deliberately no longer requires every file to declare itself
+    ``PROPOSED`` with ``authorization NONE``. That invariant was true when the
+    package was written and false the moment the first item shipped, and the
+    check was enforcing it against completed work.
+
+    What replaces it is stricter, not looser: the file must say which lifecycle
+    state it is in, and it must be the same state the register records.
+    """
     for row in rows:
         path = register.parent / row.file
         if not path.is_file():
             report.fail(register, f"line {row.line_no}: missing item file {row.file}")
             continue
         text = path.read_text(encoding="utf-8")
+
         for marker in REQUIRED_ITEM_MARKERS:
             if marker not in text:
                 report.fail(register, f"{row.file}: missing required marker {marker!r}")
+
+        match = ITEM_LIFECYCLE.search(text)
+        if match is None:
+            report.fail(
+                register,
+                f"{row.file}: no '**Lifecycle:**' header; every item declares the "
+                "state it is in",
+            )
+            continue
+        declared = match.group(1)
+        if declared != row.state:
+            report.fail(
+                register,
+                f"{row.file}: declares lifecycle {declared!r} but the register "
+                f"records {row.state!r} for {row.item}",
+            )
+
+        # A completed item is read by people and agents looking for current
+        # behaviour, and its body describes the platform *before* it landed.
+        if row.state == "DONE" and "historical intent" not in text:
+            report.fail(
+                register,
+                f"{row.file}: is DONE but does not warn that it is historical "
+                "intent rather than current behaviour",
+            )
 
 
 def validate(backlog_root: Path, repo_root: Path | None = None) -> Report:
@@ -333,8 +576,11 @@ def validate(backlog_root: Path, repo_root: Path | None = None) -> Report:
             continue
 
         check_identity(register, rows, report)
+        check_lifecycle(register, rows, report)
         check_authorisation(register, rows, report)
         check_dependencies(register, rows, report)
+        check_dependency_lifecycle(register, rows, report)
+        check_lifecycle_against_repository(register, rows, repo_root, report)
         check_item_files(register, rows, report)
         check_ordering(register, rows, repo_root, report)
         compute_layers(rows, report)
