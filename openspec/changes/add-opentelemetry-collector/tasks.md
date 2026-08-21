@@ -17,7 +17,9 @@
       `telemetry-backend` slot; prohibit direct app backends and spanmetrics.
 - [x] 1.7C Freeze Prometheus/PostgreSQL metric authority and the span-derived
       metric lockout; record the decision in `design.md` and `evidence.md`.
-- [ ] 1.8 Obtain operator acceptance of the Milestone 1 report.
+- [x] 1.8 Obtain operator acceptance of the Milestone 1 report (operator
+      continuation on 2026-08-21 authorised the bounded M2B acceptance work;
+      this does not archive NG-0.4 or authorise any successor).
 
 ## Milestone 2 — implementation (authorised)
 
@@ -31,8 +33,12 @@
 - [x] 2.5 Implement redaction, bounded attributes and explicit sampling policy.
 - [ ] 2.6 Execute outage, retry, queue overflow, Collector restart/WAL and
       recovery-drain failure-injection tests; prove canonical output parity.
+      M2B harness evidence covers normal OTLP delivery, sink outage, bounded
+      queue/WAL restart and recovery drain; saturation/drop and canonical
+      output parity remain open for final CI/live acceptance.
 - [ ] 2.7 Measure CPU/RSS/disk/throughput overhead and update dashboards/alerts
       without changing existing Prometheus/Grafana ownership.
 - [x] 2.8 Run focused tests and Compose/config gates; clean-start profile and
       existing Prometheus/Grafana gates remain to be run in a dedicated CI/live
-      acceptance window before archive.
+      acceptance window before archive. M2B static/coverage gates are recorded
+      in `evidence.md`; the plain full-repository pytest gate is unresolved.

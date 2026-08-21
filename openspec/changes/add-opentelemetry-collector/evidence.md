@@ -119,3 +119,58 @@ profile, first-party instrumentation, W3C producer propagation, redaction,
 bounded queues/WAL and locked dependencies are implemented and statically
 validated. Failure-injection, resource-overhead and live clean-start gates are
 intentionally deferred to the acceptance window recorded in `tasks.md`.
+
+## Milestone 2B acceptance receipt
+
+Captured 2026-08-21 on `feature/ng-0.4-otel`, after operator continuation from
+`94ea6a222fd46aba7280377c10fafe4a9df260c3`. The acceptance sink is strictly
+test-only: `tests/otel_acceptance.py` generates temporary source/sink Collector
+configs, starts disposable Contrib containers on an isolated Docker network,
+and removes the containers, network and temporary WAL directories in `finally`.
+The committed production Collector remains debug-only; no product backend,
+application endpoint, schema, persistence or engine version changed.
+
+### Deterministic OTLP network receipt
+
+Command: `uv run --locked python tests/otel_acceptance.py`.
+
+| Scenario | Receipt |
+|---|---|
+| Config/image validation | Source and sink temporary configs validated by the pinned `otelcol-contrib` digest (`sha256:f2f011...a7d0f6`). |
+| Normal delivery | Disposable sink Prometheus self-metric `otelcol_receiver_accepted_spans{receiver="otlp",transport="grpc"} 8`; source exporter sent 8 spans. |
+| Sink outage/retry | Sink stopped; 64 spans emitted while source exporter retry/WAL remained active; source receiver accepted 72 total and no receiver refusals were reported. |
+| Collector restart/WAL | Source restarted with the same temporary bind-mounted WAL; source exporter later reported 66 sent spans after sink recovery. |
+| Recovery drain | Recreated sink accepted 66 spans (the 64 outage spans plus the 2 post-recovery spans), proving network delivery after restart. |
+| Queue/pressure metrics | Source reported queue capacity 4 for traces/logs and queue size 0 at the post-export snapshots; no drop/refusal counter was observed in this WAL-backed run. A finite-queue drop-mode run remains open. |
+| Resource receipt | Baseline had no acceptance Collector containers; source/sink at receipt were 35.57 MiB/33.86 MiB and 0.08%/0.45% CPU; source WAL footprint was 98,304 bytes. These are dated observations, not thresholds. |
+
+The first harness attempt failed before telemetry delivery because the
+temporary app used a `source` hostname without declaring a Docker network
+alias. This was a harness-only wiring defect; the explicit `source`/`sink`
+aliases were added and the bounded rerun above passed. No production behavior
+was changed to fix it.
+
+### Canonical and repository gates
+
+`uv run --locked pytest tests/test_new_baseline_contract.py tests/test_otel_contract.py tests/test_observability.py tests/test_ops.py tests/test_order_contract.py -q` passed (47 passed, 1 skipped). The coverage completion gate
+`uv run --locked pytest tests --cov=iceberg --cov-report=term-missing
+--cov-fail-under=90` passed (511 passed, 1 skipped, 81 deselected; 93.22%).
+The latest plain `uv run --locked pytest -q` invocation was intentionally
+aborted by the operator shortly after start, so the full repository test gate
+is **UNRESOLVED**, not a pass. The earlier M2 attempt had timed out while
+flushing captured stdout with `OSError: [Errno 22] Invalid argument`; the
+focused and coverage runs now complete normally, narrowing the prior issue to
+that uncompleted invocation rather than claiming a root cause.
+
+Ruff, Black, mypy, Compose base/profile config, Collector validation, backlog
+validation and `git diff --check` remain required static/config receipts. No
+spanmetrics, direct backend, Prometheus/PostgreSQL authority change or
+dashboard/alert ownership change was introduced.
+
+### M2B classification
+
+**PARTIAL.** Normal OTLP delivery, sink outage/retry, bounded WAL restart and
+recovery drain are evidenced. Finite-queue saturation/drop, retry-horizon loss,
+canonical output parity as an M2B live assertion, and the plain full-repository
+pytest gate remain unresolved for the dedicated final CI/live acceptance
+window. NG-0.4 is not ready for archive.
