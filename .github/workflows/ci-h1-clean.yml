@@ -310,18 +310,35 @@ jobs:
               DURATION_FILE="$duration_file" WAL_BEFORE="$(cat "otel-${phase}-wal-before.txt")" \
               WAL_AFTER="$(cat "otel-${phase}-wal-after.txt")" \
               python - <<'PY'
+          import ast
           import hashlib
-          import importlib.util
           import json
           import os
+          from collections import Counter
+          from datetime import datetime, timezone
           from pathlib import Path
 
-          spec = importlib.util.spec_from_file_location(
-              "lakehouse_e2e", Path("tests/e2e/test_lakehouse_e2e.py")
-          )
-          module = importlib.util.module_from_spec(spec)
-          spec.loader.exec_module(module)
-          expected = module.expected_pipeline(module.build_fixture())
+          # Reuse only the deterministic fixture/contract functions from the
+          # authoritative E2E test.  AST extraction deliberately avoids
+          # importing the test module: that module's Docker/DB adapters are
+          # not part of receipt generation and may be absent on the host.
+          tree = ast.parse(Path("tests/e2e/test_lakehouse_e2e.py").read_text())
+          wanted = {"FIXTURE_DATE", "FIXTURE_TS", "VALID_STATUSES", "build_fixture", "expected_pipeline"}
+          namespace = {"Counter": Counter, "datetime": datetime, "timezone": timezone}
+          selected = []
+          for node in tree.body:
+              names = set()
+              if isinstance(node, ast.FunctionDef):
+                  names.add(node.name)
+              elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+                  targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                  for target in targets:
+                      if isinstance(target, ast.Name):
+                          names.add(target.id)
+              if names & wanted:
+                  selected.append(node)
+          exec(compile(ast.Module(body=selected, type_ignores=[]), "otel-contract", "exec"), namespace)
+          expected = namespace["expected_pipeline"](namespace["build_fixture"]())
           contract = {
               "total_events": expected["total_events"],
               "landing_rows": expected["landing_rows"],
