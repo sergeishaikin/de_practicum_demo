@@ -72,6 +72,14 @@ def source_config() -> str:
     return config
 
 
+def pressure_config() -> str:
+    config = source_config()
+    config = config.replace("queue_size: 4", "queue_size: 1")
+    config = config.replace("max_elapsed_time: 30s", "max_elapsed_time: 2s")
+    config = config.replace("      storage: file_storage\n", "")
+    return config
+
+
 def sink_config() -> str:
     return """extensions:
   health_check:
@@ -212,6 +220,50 @@ p.shutdown()
     )
 
 
+def canonical_probe(otel_enabled: bool) -> str:
+    code = (
+        "import hashlib, json, os, sys, types\n"
+        "sys.path.insert(0, '/acceptance')\n"
+        "kafka = types.ModuleType('confluent_kafka')\n"
+        "kafka.Producer = type('Producer', (), {})\n"
+        "sys.modules['confluent_kafka'] = kafka\n"
+        "import orders_producer as producer\n"
+        "domain = {'order_id':'m2c-order','customer':'Alice','amount':12.5,'country':'UK','status':'paid','business_version':1,'event_time':'2026-08-10T12:00:00+00:00'}\n"
+        "if os.environ.get('OTEL_ENABLED') == '1':\n"
+        "    from opentelemetry import trace\n"
+        "    from opentelemetry.sdk.trace import TracerProvider\n"
+        "    from opentelemetry.sdk.trace.export import BatchSpanProcessor\n"
+        "    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter\n"
+        "    provider = TracerProvider()\n"
+        "    provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint='http://source:4317', insecure=True, timeout=1), schedule_delay_millis=50))\n"
+        "    trace.set_tracer_provider(provider)\n"
+        "    with trace.get_tracer('m2c').start_as_current_span('canonical-probe'): pass\n"
+        "    provider.force_flush(1500)\n"
+        "    provider.shutdown()\n"
+        "canonical = producer.canonical_payload_bytes(domain)\n"
+        "print('CANONICAL_HASH=' + hashlib.sha256(canonical).hexdigest())\n"
+    )
+    output = docker(
+        "run",
+        "--rm",
+        "--network",
+        NETWORK,
+        "-e",
+        f"OTEL_ENABLED={'1' if otel_enabled else '0'}",
+        "-v",
+        f"{ROOT / 'kafka' / 'producer'}:/acceptance:ro",
+        APP_IMAGE,
+        "python",
+        "-c",
+        code,
+        timeout=20,
+    )
+    for line in output.splitlines():
+        if line.startswith("CANONICAL_HASH="):
+            return line.split("=", 1)[1]
+    raise RuntimeError(f"canonical probe did not emit a hash: {output}")
+
+
 def collector_metrics() -> str:
     with urllib.request.urlopen(
         "http://127.0.0.1:28888/metrics", timeout=3
@@ -263,6 +315,18 @@ def metric_excerpt(text: str) -> str:
         for line in text.splitlines()
         if line.startswith("otelcol_") and any(needle in line for needle in needles)
     )
+
+
+def positive_drop_metrics(text: str) -> str:
+    lines = []
+    for line in text.splitlines():
+        if any(token in line for token in ("enqueue_failed", "dropped", "send_failed")):
+            try:
+                if float(line.rsplit(" ", 1)[1]) > 0:
+                    lines.append(line)
+            except (IndexError, ValueError):
+                continue
+    return "\n".join(lines)
 
 
 def container_stats() -> str:
@@ -349,6 +413,37 @@ def main() -> int:
                 2,
             )
 
+            canonical_off = canonical_probe(False)
+            canonical_on = canonical_probe(True)
+            docker("stop", SINK, timeout=20)
+            canonical_outage = canonical_probe(True)
+
+            # Finite queue/drop mode: use a separate temporary config with no
+            # WAL storage, queue_size=1 and a 2-second retry horizon. The sink
+            # remains absent so enqueue/send failure metrics must surface.
+            docker("rm", "-f", SINK, timeout=20, check=False)
+            docker("rm", "-f", SOURCE, timeout=20, check=False)
+            pressure_path = path / "pressure.yaml"
+            pressure_wal = path / "pressure-wal"
+            pressure_wal.mkdir()
+            pressure_path.write_text(pressure_config(), encoding="utf-8")
+            docker(
+                "run",
+                "--rm",
+                "-v",
+                f"{pressure_path}:/etc/otelcol-contrib/config.yaml:ro",
+                image,
+                "validate",
+                "--config=/etc/otelcol-contrib/config.yaml",
+                timeout=30,
+            )
+            start_collector(SOURCE, pressure_path, image, str(pressure_wal))
+            wait_ready(SOURCE)
+            emit_spans(128)
+            time.sleep(4)
+            pressure_metrics = metric_excerpt(collector_metrics())
+            pressure_drops = positive_drop_metrics(collector_metrics())
+
             print(f"normal_received_spans={normal_received}")
             print(f"recovered_received_spans={recovered_received}")
             print(f"metrics_before=\n{before or '<none>'}")
@@ -356,6 +451,11 @@ def main() -> int:
             print(f"metrics_recovered=\n{recovered or '<none>'}")
             print(f"sink_metrics_normal=\n{normal_sink_metrics}")
             print(f"sink_metrics_recovered=\n{recovered_sink_metrics}")
+            print(f"pressure_metrics=\n{pressure_metrics or '<none>'}")
+            print(f"pressure_drop_metrics=\n{pressure_drops or '<none>'}")
+            print(f"canonical_off={canonical_off}")
+            print(f"canonical_on={canonical_on}")
+            print(f"canonical_outage={canonical_outage}")
             print(f"container_stats=\n{container_stats()}")
             print(
                 f"baseline_container_stats=\n{baseline_stats or '<no Collector containers>'}"
@@ -365,6 +465,12 @@ def main() -> int:
                 raise AssertionError("normal OTLP delivery did not reach sink")
             if recovered_received <= 0:
                 raise AssertionError("recovery drain did not reach sink")
+            if not pressure_drops:
+                raise AssertionError(
+                    "finite queue did not expose a positive drop metric"
+                )
+            if not (canonical_off == canonical_on == canonical_outage):
+                raise AssertionError("canonical output changed across telemetry modes")
             return 0
         finally:
             for name in (SINK, SOURCE):

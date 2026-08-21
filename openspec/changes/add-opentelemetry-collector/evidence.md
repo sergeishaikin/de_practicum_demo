@@ -174,3 +174,66 @@ recovery drain are evidenced. Finite-queue saturation/drop, retry-horizon loss,
 canonical output parity as an M2B live assertion, and the plain full-repository
 pytest gate remain unresolved for the dedicated final CI/live acceptance
 window. NG-0.4 is not ready for archive.
+
+## Milestone 2C final local acceptance receipt
+
+Captured 2026-08-21 after the M2B checkpoint. The same disposable harness was
+extended only with temporary acceptance configurations; the committed runtime
+config remains unchanged.
+
+### Tiny-queue and retry-horizon probe
+
+The temporary source config set `queue_size: 1`, removed `file_storage` from
+the exporter queue, and set `max_elapsed_time: 2s`. With the sink absent, 128
+spans were emitted. Pinned Collector self-metrics reported:
+
+```text
+otelcol_exporter_queue_capacity{data_type="traces",exporter="otlp/acceptance"} 1
+otelcol_exporter_send_failed_spans{exporter="otlp/acceptance",server_address="sink",server_port="4317"} 128
+otelcol_exporter_sent_spans{exporter="otlp/acceptance",server_address="sink",server_port="4317"} 0
+otelcol_receiver_accepted_spans{receiver="otlp",transport="grpc"} 128
+otelcol_receiver_refused_spans{receiver="otlp",transport="grpc"} 0
+```
+
+This proves the bounded retry horizon and exporter-send failure accounting;
+`send_failed_spans` is deliberately not relabelled as queue enqueue/drop
+failure. No positive `enqueue_failed`/drop/refusal metric appeared, so finite
+queue saturation/drop is not claimed complete.
+
+### Canonical parity and resource observations
+
+The same fixed canonical payload hash was produced by the disposable workload
+with telemetry OFF, telemetry ON with the sink up, and telemetry ON while the
+sink was stopped:
+
+```text
+65af0370d3687a0d5354fcacae3e612d63f77fd7810f050a42a9c9713e56d5c2
+```
+
+This is a bounded disposable workload probe only; it does not establish
+production canonical-output parity. It does not alter schemas, partitioning,
+persistence or engine versions. M2B's same-run Collector observations remain
+the only resource receipt: source/sink RSS 35.57/33.86 MiB, CPU 0.08%/0.45%,
+and source WAL 98,304 bytes versus no acceptance Collector containers at
+baseline. A controlled equal-throughput OFF/ON CPU/RSS/disk delta is not
+claimed, and no dashboard/alert ownership changed.
+
+### Prometheus visibility
+
+A temporary Prometheus instance using the worktree's committed
+`observability/prometheus/prometheus.yml` discovered the `otel-collector:8888`
+target on `de_demo_net`; the target remained `unknown` during the short probe
+because the disposable Collector was removed with the harness before a healthy
+scrape receipt. Direct Collector self-metrics were verified by the harness,
+but Prometheus/Grafana operational visibility for queue/capacity/failure/drop/
+receiver signals is therefore unresolved locally (no spanmetrics or new
+authority was added).
+
+### M2C classification
+
+**PARTIAL.** Retry-horizon loss accounting and a bounded OFF/ON/outage canonical
+hash probe are evidenced; production canonical-output parity is unresolved.
+Finite queue drop/refusal, equal-workload resource delta, healthy Prometheus
+scrape, and the plain full-repository pytest run remain open.
+Task 2.6 remains unchecked; Task 2.7 remains unchecked. NG-0.4 is not ready for
+final CI/archive.

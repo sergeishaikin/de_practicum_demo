@@ -35,7 +35,10 @@
       recovery-drain failure-injection tests; prove canonical output parity.
       M2B harness evidence covers normal OTLP delivery, sink outage, bounded
       queue/WAL restart and recovery drain; saturation/drop and canonical
-      output parity remain open for final CI/live acceptance.
+      output parity remain open for final CI/live acceptance. M2C adds a
+      finite queue/retry-horizon probe and OFF/ON/outage canonical hash parity,
+      but the observed `send_failed` counter is not an enqueue/drop counter,
+      so this task remains open.
 - [ ] 2.7 Measure CPU/RSS/disk/throughput overhead and update dashboards/alerts
       without changing existing Prometheus/Grafana ownership.
 - [x] 2.8 Run focused tests and Compose/config gates; clean-start profile and
