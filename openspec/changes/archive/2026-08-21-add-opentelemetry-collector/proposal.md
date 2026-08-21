@@ -6,6 +6,12 @@ Milestone 1 and the explicitly authorised Milestone 2 implementation. Milestone
 1B freezes the backend contract below; implementation remains limited to NG-0.4
 and does not adopt NG-0.5/0.6/0.7 backends.
 
+The later M3A acceptance and M3B final adoption/CI/archive continuations were
+also explicitly authorised by dated operator instructions. No separate
+authorisation identifiers were supplied; the original grant identifier above
+remains the lifecycle provenance and the continuation receipts are recorded in
+`evidence.md`.
+
 The implementation does not alter Kafka records/partitioning, canonical
 persistence, Prometheus/Grafana ownership, or Spark/Airflow versions.
 

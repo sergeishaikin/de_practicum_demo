@@ -424,3 +424,23 @@ passed before the PRE_ARCHIVE_SHA was pushed:
 The first scoped mypy probe against individual directories was not used as a
 gate because it bypassed the repository's declared `pyproject.toml` typed
 scope and reported missing optional imports; the exact CI command above passed.
+
+### M3B pre-archive CI receipt
+
+All required workflows completed successfully on the exact
+PRE_ARCHIVE_SHA `849fa7de7ca99f18c564720b167e93c45ba80e27`. The pull-request
+dispatch was used only to trigger the CI workflow, which has no
+`workflow_dispatch` trigger; the draft PR was not merged.
+
+| Required gate | Authoritative run | Result |
+|---|---:|---|
+| CI | `32475814368` | success |
+| M5 architecture gates | `32475814400` | success |
+| S1 dbt semantic lineage | `32475814431` | success |
+| H1 clean reproducible stack (baseline + NG-0.4 OTel acceptance) | `32475814324` | success |
+
+The independently dispatched M5/S1/H1 receipts also passed at this SHA:
+`32475744334`, `32475746600`, and `32475749031`, respectively. H1 job
+`96751799232` passed the clean-stack baseline and H1 OTel job `96751799630`
+passed the OFF/ON/outage parity phase, telemetry visibility checks and
+artifact upload/cleanup.
