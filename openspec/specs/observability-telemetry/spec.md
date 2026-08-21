@@ -4,6 +4,11 @@ The standing specification for the adopted NG-0.4 observability boundary.
 Prometheus application metrics and PostgreSQL durable metrics remain the
 authoritative operational and business metric paths.
 
+## Purpose
+
+Define the adopted NG-0.4 telemetry boundary and its bounded, fail-open
+operational guarantees without changing canonical data or metric authority.
+
 ## Requirements
 
 ### Requirement: OTLP telemetry is optional and fail-open
