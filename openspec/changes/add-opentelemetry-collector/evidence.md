@@ -393,3 +393,34 @@ resource receipts and the exact full repository gate are complete. The
 resource receipt carries the GitHub-runner limitation above and makes no
 unsupported overhead threshold claim. NG-0.4 remains unarchived and no NG-0.5
 work is started by this receipt.
+
+## Milestone 3B authorization history
+
+The original lifecycle grant remains `operator:explicit-ng-0.4-milestone-1`;
+it is not replaced or renamed. The operator subsequently gave explicit
+continuations for bounded Milestone 2 acceptance, Milestone 3A H1 acceptance,
+and, in the 2026-08-21 instruction authorizing this sequence, final NG-0.4
+adoption, CI and archive. No separate authorization identifier was supplied
+for those continuations, so this record deliberately uses their dated
+operator instructions rather than inventing IDs. The continuation remains
+scoped to NG-0.4 and does not authorize NG-0.5/0.6/0.7 or any backend,
+spanmetrics or metric-authority change.
+
+### M3B pre-archive local gate receipt
+
+On the docs-only descendant of the accepted runtime, the required local gates
+passed before the PRE_ARCHIVE_SHA was pushed:
+
+| Gate | Result |
+|---|---|
+| Exact repository pytest | `uv run --locked pytest` — 512 passed, 1 skipped, 81 deselected in 24.36s |
+| Ruff | `uv run --locked ruff check .` and DAG AIR3 preview — passed |
+| Black | `uv run --locked black --check .` — 100 files unchanged |
+| Mypy | `uv run --locked mypy` — no issues in 10 source files |
+| Compose | Base and `--profile otel` config quiet validation — passed |
+| Collector | Pinned Contrib config validation — passed |
+| Backlog | `uv run --locked python openspec/backlog/validate_backlog.py` — 14 items, passed |
+
+The first scoped mypy probe against individual directories was not used as a
+gate because it bypassed the repository's declared `pyproject.toml` typed
+scope and reported missing optional imports; the exact CI command above passed.
