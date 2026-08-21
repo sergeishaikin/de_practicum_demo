@@ -2,14 +2,12 @@
 
 NG-0.4 was explicitly authorised by the operator on 2026-08-20 under
 `operator:explicit-ng-0.4-milestone-1`. This change is currently limited to
-Milestone 1: repository recovery, design, compatibility/resource preflight and
-acceptance planning. Milestone 1B freezes the backend contract below; it does
-not provision or run the selected distribution.
+Milestone 1 and the explicitly authorised Milestone 2 implementation. Milestone
+1B freezes the backend contract below; implementation remains limited to NG-0.4
+and does not adopt NG-0.5/0.6/0.7 backends.
 
-Implementation is not authorised in this milestone. In particular, this change
-does not add a Collector service or image, install SDK dependencies, instrument
-Python services, alter Kafka records/partitioning, alter canonical persistence,
-replace Prometheus/Grafana, or change Spark/Airflow versions.
+The implementation does not alter Kafka records/partitioning, canonical
+persistence, Prometheus/Grafana ownership, or Spark/Airflow versions.
 
 ## Why
 

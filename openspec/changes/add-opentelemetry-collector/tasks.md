@@ -19,20 +19,20 @@
       metric lockout; record the decision in `design.md` and `evidence.md`.
 - [ ] 1.8 Obtain operator acceptance of the Milestone 1 report.
 
-## Milestone 2 — implementation (not authorised)
+## Milestone 2 — implementation (authorised)
 
-- [ ] 2.1 Pin Collector distribution/image, OTel SDK/exporter packages and
+- [x] 2.1 Pin Collector distribution/image, OTel SDK/exporter packages and
       messaging semantic-convention mode; regenerate locked dependency files.
-- [ ] 2.2 Add the opt-in Collector profile, health/readiness, Prometheus
+- [x] 2.2 Add the opt-in Collector profile, health/readiness, Prometheus
       self-metrics and bounded persistent storage with least privilege.
-- [ ] 2.3 Instrument writer, medallion and the work-performing observability
+- [x] 2.3 Instrument writer, medallion and the work-performing observability
       exporter with fail-open OTLP traces/logs and stable resources.
-- [ ] 2.4 Implement and test Kafka W3C propagation with `confluent-kafka`.
-- [ ] 2.5 Implement redaction, bounded attributes and explicit sampling policy.
+- [x] 2.4 Implement and test Kafka W3C propagation with `confluent-kafka`.
+- [x] 2.5 Implement redaction, bounded attributes and explicit sampling policy.
 - [ ] 2.6 Execute outage, retry, queue overflow, Collector restart/WAL and
       recovery-drain failure-injection tests; prove canonical output parity.
 - [ ] 2.7 Measure CPU/RSS/disk/throughput overhead and update dashboards/alerts
       without changing existing Prometheus/Grafana ownership.
-- [ ] 2.8 Run focused tests, Compose config, clean-start profile and existing
-      Prometheus/Grafana gates; archive only after all acceptance evidence is
-      complete.
+- [x] 2.8 Run focused tests and Compose/config gates; clean-start profile and
+      existing Prometheus/Grafana gates remain to be run in a dedicated CI/live
+      acceptance window before archive.

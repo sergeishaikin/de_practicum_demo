@@ -6,6 +6,8 @@ import time
 import psycopg2
 from prometheus_client import Gauge, start_http_server
 
+from telemetry import setup_telemetry
+
 PORT = int(os.getenv("PROMETHEUS_METRICS_PORT", "9104"))
 POLL_SECONDS = int(os.getenv("PROMETHEUS_EXPORTER_POLL_SECONDS", "15"))
 PG_PARAMS = {
@@ -76,9 +78,11 @@ def collect() -> None:
 
 def main() -> None:
     start_http_server(PORT, addr="0.0.0.0")
+    telemetry = setup_telemetry("observability-exporter")
     while True:
         try:
-            collect()
+            with telemetry.span("observability.collect"):
+                collect()
         except Exception:
             EXPORTER_UP.set(0)
         time.sleep(POLL_SECONDS)

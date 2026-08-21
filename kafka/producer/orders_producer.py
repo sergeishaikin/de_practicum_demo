@@ -12,6 +12,12 @@ from datetime import datetime, timezone
 
 from confluent_kafka import Producer
 
+try:
+    # Container entrypoints run with the producer directory on ``sys.path``.
+    from propagation import inject_headers
+except ModuleNotFoundError:  # pragma: no cover - source-file contract loaders
+    from kafka.producer.propagation import inject_headers
+
 
 BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
 TOPIC = os.getenv("KAFKA_TOPIC", "orders")
@@ -151,6 +157,7 @@ def main() -> None:
             topic=TOPIC,
             key=event["order_id"].encode("utf-8"),
             value=payload,
+            headers=inject_headers(),
             callback=delivery_report,
         )
 

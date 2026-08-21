@@ -68,3 +68,54 @@ unchanged. Implementation is still blocked until a subsequent operator grant
 authorises Milestone 2 and the implementer pins versions, obtains a compatible
 Collector image/distribution, measures resource overhead, and executes the
 failure-injection and clean-start gates listed in `tasks.md`.
+
+## Milestone 2 implementation receipt
+
+Captured 2026-08-20 on the authorised `feature/ng-0.4-otel` worktree from the
+M1B frozen baseline `33dd4b23af57b3a917f992800c99d501c9d697bf`.
+
+### Pinned runtime and contract checks
+
+| Check | Result |
+|---|---|
+| Collector image | `ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib@sha256:f2f01157055a9b2aab9df7118e1f1c9abf345e99b23bc7a2bc791db374a7d0f6`; `docker buildx imagetools inspect` matched the digest |
+| Collector config | `docker run --rm -v observability/otel:/etc/otelcol-contrib:ro <image> validate --config=/etc/otelcol-contrib/collector-config.yaml` — passed |
+| Standalone Collector | v0.157.0 started with health check, OTLP/gRPC receiver, file storage and debug pipelines; log reported `Everything is ready` |
+| Compose graph | Base and `--profile otel` graphs both passed `docker compose ... config --quiet`; profile is opt-in and has no host OTLP port |
+| Locked Python dependencies | `uv pip compile --universal --generate-hashes --python-version 3.12` regenerated Iceberg, observability and Kafka producer locks with OTel packages at `1.44.0` |
+| Focused tests | `uv run --locked pytest tests/test_otel_contract.py tests/test_observability.py -q` — passed (optional root-environment OTel round-trip skipped when OTel is not installed) |
+| Static gates | Ruff, Black and mypy passed for changed Python modules; Compose/config and Collector validation passed |
+| Application smoke | Writer and observability service images loaded the pinned OTel SDK; `OTEL_ENABLED=1` created providers and exporter shutdown remained fail-open when no Collector endpoint was available |
+
+### Instrumentation and safety boundaries
+
+Writer, medallion and the polling observability exporter now emit opt-in
+traces/logs with stable service resources. The Kafka producer injects W3C
+`traceparent` headers without changing payload, key or partition behavior; the
+propagation helper preserves unrelated headers and ignores duplicate context
+keys. Collector redaction blocks credential-like keys and bearer values,
+attributes are bounded, and file-storage WAL is confined to the Collector
+volume. Existing PostgreSQL/Prometheus metric authority is unchanged. No
+Kafka exporter, spanmetrics connector, direct application backend, canonical
+sink, Spark/Airflow version change or schema/partition change was introduced.
+
+### Explicitly unclaimed acceptance gates
+
+Tasks 2.6 and 2.7 remain open. No outage/queue-overflow/WAL recovery or
+canonical-output-parity test was claimed because the frozen M1B contract has no
+authorised backend and this implementation does not start the full live stack.
+No CPU/RSS/disk/throughput baseline or dashboard/alert change was claimed;
+those require a dedicated CI/live acceptance window. Task 2.8 records the
+focused/config gates completed here while clean-start and existing
+Prometheus/Grafana gates remain acceptance work. The repository-wide pytest
+attempt was not claimed as a pass: after the focused and baseline-contract
+tests passed, the run became environment-level unresponsive and timed out with
+an `OSError: [Errno 22] Invalid argument` while flushing captured stdout.
+
+## Current classification
+
+**IMPLEMENTED_WITH_EXPLICIT_LIMITATIONS (Milestone 2).** The opt-in Collector
+profile, first-party instrumentation, W3C producer propagation, redaction,
+bounded queues/WAL and locked dependencies are implemented and statically
+validated. Failure-injection, resource-overhead and live clean-start gates are
+intentionally deferred to the acceptance window recorded in `tasks.md`.
