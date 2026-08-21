@@ -76,6 +76,9 @@ def pressure_config() -> str:
     config = source_config()
     config = config.replace("queue_size: 4", "queue_size: 1")
     config = config.replace("max_elapsed_time: 30s", "max_elapsed_time: 2s")
+    config = config.replace(
+        "    send_batch_size: 128", "    send_batch_size: 1\n    send_batch_max_size: 1"
+    )
     config = config.replace("      storage: file_storage\n", "")
     return config
 
@@ -320,7 +323,7 @@ def metric_excerpt(text: str) -> str:
 def positive_drop_metrics(text: str) -> str:
     lines = []
     for line in text.splitlines():
-        if any(token in line for token in ("enqueue_failed", "dropped", "send_failed")):
+        if any(token in line for token in ("enqueue_failed", "dropped")):
             try:
                 if float(line.rsplit(" ", 1)[1]) > 0:
                     lines.append(line)

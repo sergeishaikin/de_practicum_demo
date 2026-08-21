@@ -9,6 +9,16 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def _acceptance_harness():
+    spec = importlib.util.spec_from_file_location(
+        "otel_acceptance", ROOT / "tests" / "otel_acceptance.py"
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def test_collector_contract_is_opt_in_and_bounded() -> None:
     compose = (ROOT / "docker-compose.extended.yml").read_text(encoding="utf-8")
     config = (ROOT / "observability" / "otel" / "collector-config.yaml").read_text(
@@ -36,6 +46,16 @@ def test_span_metrics_and_direct_backend_paths_are_locked_out() -> None:
     assert "spanmetrics" in design
     assert "telemetry-backend" in design
     assert "no per-service Tempo/Loki/vendor" in design
+
+
+def test_send_failure_is_not_reported_as_queue_drop() -> None:
+    harness = _acceptance_harness()
+    send_failed = 'otelcol_exporter_send_failed_spans{exporter="otlp/acceptance"} 128\n'
+    enqueue_failed = (
+        'otelcol_exporter_enqueue_failed_spans{exporter="otlp/acceptance"} 1\n'
+    )
+    assert harness.positive_drop_metrics(send_failed) == ""
+    assert harness.positive_drop_metrics(enqueue_failed) == enqueue_failed.strip()
 
 
 @pytest.mark.skipif(

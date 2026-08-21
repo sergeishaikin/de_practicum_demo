@@ -237,3 +237,46 @@ Finite queue drop/refusal, equal-workload resource delta, healthy Prometheus
 scrape, and the plain full-repository pytest run remain open.
 Task 2.6 remains unchecked; Task 2.7 remains unchecked. NG-0.4 is not ready for
 final CI/archive.
+
+## Milestone 2D closure-blocker receipt
+
+Captured 2026-08-21 after the M2C checkpoint. This receipt corrects the
+M2C queue false positive without changing production configuration.
+
+### Queue saturation/drop distinction
+
+The disposable pressure config now sets `queue_size: 1`, removes queue WAL,
+sets `send_batch_size: 1` and `send_batch_max_size: 1`, and keeps the 2-second
+retry horizon. Its pinned v0.157.0 self-metrics after 128 received spans were:
+
+```text
+otelcol_exporter_enqueue_failed_spans{exporter="otlp/acceptance"} 127
+otelcol_exporter_send_failed_spans{exporter="otlp/acceptance",server_address="sink",server_port="4317"} 1
+otelcol_exporter_sent_spans{exporter="otlp/acceptance",server_address="sink",server_port="4317"} 0
+otelcol_receiver_accepted_spans{receiver="otlp",transport="grpc"} 128
+otelcol_receiver_refused_spans{receiver="otlp",transport="grpc"} 0
+```
+
+This is a bounded saturation/drop PASS for the disposable acceptance config;
+the retry/send failure is recorded separately. `tests/test_otel_contract.py`
+contains a regression test proving a `send_failed_spans`-only sample is not
+classified as queue drop while an `enqueue_failed_spans` sample is. The
+production queue remains unchanged.
+
+### Remaining closure blockers
+
+The OFF/ON/outage canonical hash probe remains a disposable harness probe, not
+production repository data-path parity. Equal-workload OFF/ON CPU/RSS/disk/
+throughput deltas remain unmeasured. A temporary Prometheus instance discovered
+the committed `otel-collector:8888` target, but its health remained `unknown`
+before disposable cleanup; healthy scrape and Grafana datasource validity are
+not claimed. The one canonical full `uv run --locked pytest -q` attempt from a
+clean state was aborted by the operator, so the full repository pytest gate is
+UNRESOLVED. Tasks 2.6 and 2.7 remain open.
+
+### M2D classification
+
+**PARTIAL.** Queue saturation/drop and retry-horizon self-metrics are now
+correctly evidenced and the false-positive detector has regression coverage.
+Production canonical parity, resource delta, healthy Prometheus/Grafana
+visibility and the full repository pytest gate remain closure blockers.
