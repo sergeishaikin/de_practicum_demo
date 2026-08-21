@@ -40,12 +40,12 @@ def test_collector_contract_is_opt_in_and_bounded() -> None:
 
 
 def test_span_metrics_and_direct_backend_paths_are_locked_out() -> None:
-    design = (
-        ROOT / "openspec/changes/add-opentelemetry-collector/design.md"
-    ).read_text(encoding="utf-8")
+    design = (ROOT / "openspec/specs/observability-telemetry/spec.md").read_text(
+        encoding="utf-8"
+    )
     assert "spanmetrics" in design
     assert "telemetry-backend" in design
-    assert "no per-service Tempo/Loki/vendor" in design
+    assert "Tempo, Loki or vendor endpoint" in design
 
 
 def test_send_failure_is_not_reported_as_queue_drop() -> None:
