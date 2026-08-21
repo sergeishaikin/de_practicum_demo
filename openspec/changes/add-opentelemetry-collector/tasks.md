@@ -31,18 +31,21 @@
       exporter with fail-open OTLP traces/logs and stable resources.
 - [x] 2.4 Implement and test Kafka W3C propagation with `confluent-kafka`.
 - [x] 2.5 Implement redaction, bounded attributes and explicit sampling policy.
-- [ ] 2.6 Execute outage, retry, queue overflow, Collector restart/WAL and
+- [x] 2.6 Execute outage, retry, queue overflow, Collector restart/WAL and
       recovery-drain failure-injection tests; prove canonical output parity.
-      M2B harness evidence covers normal OTLP delivery, sink outage, bounded
-      queue/WAL restart and recovery drain; saturation/drop and canonical
-      output parity remain open for final CI/live acceptance. M2C adds a
-      finite queue/retry-horizon probe and OFF/ON/outage canonical hash parity,
-      but the observed `send_failed` counter is not an enqueue/drop counter,
-      so this task remains open.
-- [ ] 2.7 Measure CPU/RSS/disk/throughput overhead and update dashboards/alerts
-      without changing existing Prometheus/Grafana ownership.
+      M2B covers sink outage/retry, Collector restart/WAL and recovery drain;
+      M2D closes finite-queue saturation/drop; the authoritative H1 run
+      `32472427743` proves production OFF/ON/Collector-outage E2E parity with
+      one canonical contract hash across all phases.
+- [x] 2.7 Measure CPU/RSS/disk/throughput overhead and update dashboards/alerts
+      without changing existing Prometheus/Grafana ownership. H1 records
+      per-phase app/Collector CPU/RSS snapshots, Collector WAL bytes and
+      equal-workload durations; these are accepted bounded GitHub-runner
+      observations (no unsupported capacity threshold), and no dashboard,
+      alert or metric-authority ownership changed.
 - [x] 2.8 Run focused tests and Compose/config gates; clean-start profile and
-      existing Prometheus/Grafana gates remain to be run in a dedicated CI/live
-      acceptance window before archive. M2B static/coverage gates and the M2E
-      exact full-repository pytest/Prometheus/Grafana receipts are recorded in
-      `evidence.md`; H1 still owns clean-start.
+      existing Prometheus/Grafana gates are complete in the dedicated H1
+      acceptance window. M2B static/coverage gates, the M2E exact full-
+      repository pytest/Prometheus/Grafana receipts and H1 artifact
+      `ng04-otel-acceptance-evidence` are recorded in `evidence.md`; H1 owns
+      clean-start and volume cleanup.

@@ -337,3 +337,59 @@ gate pass. Production canonical parity and equal-workload resource delta fail
 because the safe local path is the separate root-worktree stack and H1-owned
 clean-start/cutover work is not authorised here. Tasks 2.6 and 2.7 remain open;
 NG-0.4 is not ready for archive.
+
+## Milestone 3A authoritative H1 acceptance receipt
+
+Captured 2026-08-21 from the latest successful H1 workflow run
+`32472427743` at exact feature SHA
+`3448287803b08283f543007413c20a725dd2e582`.
+The baseline clean-stack job was `96741823243`; the separate OTel acceptance
+job was `96741823461`. The uploaded artifact was
+`ng04-otel-acceptance-evidence` (artifact ID `9443466762`). This receipt
+supersedes the earlier run `32471367218`, whose OFF workload passed but whose
+receipt helper imported an unavailable DB adapter before the AST-only helper was
+deployed.
+
+### H1 clean-stack and production workload parity
+
+| Check | Result |
+|---|---|
+| Exact checkout | OTel job checked out and verified the feature SHA above |
+| Clean-stack baseline | PASS: build, bootstrap, integration, deterministic E2E, dbt semantic contract, Prometheus/Grafana smoke and volume cleanup |
+| Canonical contract | `total_events=101`, `landing_rows=99`, `bronze_rows=99`, `silver_rows=95`, `duplicates_removed=4`, `total_violations=7`, `gold_row_count=11`, `total_revenue=672.0` |
+| Canonical contract hash | `e3a84657087125c8e9a1559ee4a5620e704a98c61592954da9b78dd05dfcce20` in OFF, ON and Collector-outage receipts |
+| OFF workload | JUnit PASS; 119.22s |
+| ON workload | JUnit PASS; 113.76s |
+| Collector outage | Collector stopped; JUnit PASS and canonical parity retained; 117.59s |
+
+The OFF, ON and outage runs execute the authoritative repository E2E fixture
+through Kafka, Spark streaming, Iceberg writer/medallion and Trino/PostgreSQL
+assertions. The equal canonical contract hash is therefore production-path
+parity, not the earlier disposable-harness hash probe.
+
+### Telemetry visibility and resource receipt
+
+The healthy ON phase passed the Collector Prometheus target check
+(`otel-collector` UP), queried `otelcol_process_uptime`, and passed Grafana
+health and provisioned Prometheus datasource checks. The outage phase stopped
+the Collector and still passed the canonical E2E workload; cleanup removed
+the acceptance volumes.
+
+Each phase recorded Collector WAL bytes before/after (`4096`/`4096`) and
+point-in-time CPU/RSS snapshots for `orders-streaming`, `iceberg-writer`,
+`iceberg-medallion` and `otel-collector`, alongside the equal-workload
+durations above. Resource classification is **PASS_WITH_EXPLICIT_LIMITATIONS**:
+GitHub-hosted runner snapshots are noisy point samples rather than a
+repeatable capacity threshold or continuous profile, but the accepted NG-0.4
+contract (record CPU/RSS, queue/WAL disk use and workload throughput without
+changing existing Prometheus/Grafana ownership) is reconciled. No dashboard,
+alert or metric-authority change was introduced.
+
+### M3A classification
+
+**PASS_WITH_EXPLICIT_LIMITATIONS.** H1 clean-start, production canonical
+OFF/ON/outage parity, healthy telemetry visibility, outage fail-open behavior,
+resource receipts and the exact full repository gate are complete. The
+resource receipt carries the GitHub-runner limitation above and makes no
+unsupported overhead threshold claim. NG-0.4 remains unarchived and no NG-0.5
+work is started by this receipt.
