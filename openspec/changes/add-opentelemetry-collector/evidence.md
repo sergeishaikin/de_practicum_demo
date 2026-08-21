@@ -280,3 +280,60 @@ UNRESOLVED. Tasks 2.6 and 2.7 remain open.
 correctly evidenced and the false-positive detector has regression coverage.
 Production canonical parity, resource delta, healthy Prometheus/Grafana
 visibility and the full repository pytest gate remain closure blockers.
+
+## Milestone 2E final closure receipt
+
+Captured 2026-08-21 after the M2D checkpoint. Queue saturation/drop remains
+closed by M2D and is not reopened here.
+
+### Prometheus and Grafana
+
+A temporary Prometheus instance used the committed worktree
+`observability/prometheus/prometheus.yml` and a temporary Collector with a
+writable test WAL bind on the existing `de_demo_net`. The actual target was
+healthy:
+
+```text
+job=otel-collector instance=otel-collector:8888 health=up
+otelcol_process_uptime{instance="otel-collector:8888",job="otel-collector"} 11.722849719
+```
+
+A temporary Grafana instance using the committed datasource provisioning
+returned datasource health `status=OK` and its `/api/ds/query` response returned
+the same `otelcol_process_uptime` series from Prometheus. This is a PASS for
+committed Prometheus scrape and Grafana datasource/query validity; no
+spanmetrics or alternate metric authority was introduced.
+
+### Production-path and resource blockers
+
+The running repository stack binds application code from the separate root
+worktree (`C:\Code\de_practicum_demo\de_practicum_demo\iceberg`), while this
+feature worktree is `C:\Code\de_practicum_demo\ng04-otel`. The root stack's
+Collector profile is disabled and its application telemetry is OFF. Running
+the feature-worktree writer/medallion against the existing state would require
+a cutover/rebuild owned by H1; a destructive fresh-volume rebuild is explicitly
+out of scope here. Therefore a real production repository data-path
+OFF/ON/outage canonical-output comparison was not executed and is not claimed.
+The disposable equal-hash probe remains only diagnostic evidence.
+
+For the same reason, no equal-workload OFF/ON duration/throughput/app
+CPU/RSS/Collector CPU/RSS/WAL delta was measured. M2B's bounded Collector
+observation (RSS 35.57/33.86 MiB, CPU 0.08%/0.45%, WAL 98,304 bytes) remains a
+local-demo observation, not a production delta or threshold claim.
+
+### Canonical full repository gate
+
+From a clean state with no pytest processes or temporary M2E containers, the
+exact required command `uv run --locked pytest` passed:
+
+```text
+512 passed, 1 skipped, 81 deselected in 25.27s
+```
+
+### M2E classification
+
+**PARTIAL.** Prometheus/Grafana visibility and the exact full repository pytest
+gate pass. Production canonical parity and equal-workload resource delta fail
+because the safe local path is the separate root-worktree stack and H1-owned
+clean-start/cutover work is not authorised here. Tasks 2.6 and 2.7 remain open;
+NG-0.4 is not ready for archive.

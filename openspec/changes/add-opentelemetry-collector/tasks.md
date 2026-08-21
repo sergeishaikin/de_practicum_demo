@@ -43,5 +43,6 @@
       without changing existing Prometheus/Grafana ownership.
 - [x] 2.8 Run focused tests and Compose/config gates; clean-start profile and
       existing Prometheus/Grafana gates remain to be run in a dedicated CI/live
-      acceptance window before archive. M2B static/coverage gates are recorded
-      in `evidence.md`; the plain full-repository pytest gate is unresolved.
+      acceptance window before archive. M2B static/coverage gates and the M2E
+      exact full-repository pytest/Prometheus/Grafana receipts are recorded in
+      `evidence.md`; H1 still owns clean-start.
