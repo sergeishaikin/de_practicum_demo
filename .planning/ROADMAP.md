@@ -109,6 +109,7 @@ failures, and no in-flight work. 01-07 is the next plan and was not executed.
 |-------|-----------|----------------|--------|-----------|
 | 1. B2 Controlled Rollout | Current | 8/12 | In Progress|  |
 | 2. Warehouse Asset-Orchestrated Batch Split | Airflow Orchestration Boundaries | 1/1 | Complete   | 2026-08-16 |
+| 3. Staging Source Freshness Gate | Airflow Orchestration Boundaries | 4/4 | Complete   | 2026-08-17 |
 
 Historical milestones are intentionally summarized above rather than
 replayed as unfinished GSD phases.
@@ -142,3 +143,95 @@ Plans:
 
 - Marts remain views. Maintenance, medallion, streaming, recovery,
   checkpoints, and Bronze/Silver/Gold publication remain unchanged.
+
+### Phase 3: Staging Source Freshness Gate
+
+**Goal:** Make staging load-recency an explicit, fail-closed prerequisite to mart
+certification. Add `loaded_at timestamptz NOT NULL DEFAULT now()` to the four
+`stg.*` tables, declare dbt source freshness with `loaded_at_field: loaded_at`,
+and enforce it as a distinct task at the consumption boundary in
+`warehouse_marts_validation`, before the Cosmos dbt build.
+
+**Guarantee (deliberately narrow):** prevent downstream certification from
+consuming staging whose most recent successful load is outside the permitted
+age. This is **not** missing-batch detection — the timestamp is written by the
+staging load itself and the marts DAG is Asset-triggered by the same pipeline,
+so if ingestion never runs the gate never evaluates.
+
+**Approved design:** `docs/superpowers/specs/2026-08-17-warehouse-source-freshness-design.md`
+— implement as specified; do not redesign unless implementation proves it
+impossible.
+
+**Requirements**: [R1, R1c, R2, R2b, R2c, R2d, R3, R6, R7] — new work; and
+[R3b, R4, R5, R6b, R8, R9, R10, R11] — existing behaviour that must stay green.
+Fail-closed freshness gate; thresholds evidence-based rather than guessed, or
+recorded verbatim as provisional and unmeasured; W1's "deliberately not adopted"
+statement replaced in the same commit that activates freshness.
+**Depends on:** Phase 2
+**Plans:** 4 plans in 4 waves
+
+Plans:
+
+- [x] 03-01-PLAN.md — Arrival signal: `loaded_at` migration and bootstrap replay (wave 1) (completed 2026-08-17)
+- [x] 03-02-PLAN.md — Activate freshness: dbt source config, the Airflow gate, and the W1/W2 rewrite (wave 2) (completed 2026-08-17)
+- [x] 03-03-PLAN.md — Live proof in CI: fresh passes, stale fails closed, one batch one timestamp (wave 3) (written 2026-08-17; executes on next CI run)
+- [x] 03-04-PLAN.md — Live phase gate: DagBag mapping, BDD fail-closed scenario (wave 4) (completed read-only 2026-08-17; threshold measurement declined)
+
+**Wave order is sequential by design.** The operator requires small commits with
+verification after each meaningful step, and each wave depends on the previous
+one: the column must exist before freshness can be declared, freshness must be
+declared before CI can prove it, and the DAG task must exist before the live
+DagBag can be observed. There is no parallelism to recover here.
+
+### Phase 4: Medallion Telemetry and Redundant Work Elimination
+
+**Goal:** Make medallion execution telemetry trustworthy, then use that evidence to
+eliminate redundant full-state work on unchanged Iceberg state — while preserving
+every existing B2, shadow-comparison, recovery, FF-14, Gold and rollout guarantee.
+
+**Why now.** `marts.lakehouse_metrics` records nested `run_b2` and outer `_run_m4`
+executions under the same `source`/`status` identity, and the outer
+`silver_duration_ms` already contains the nested B2 duration. Historical rows can
+therefore be read as separate cycles and B2 time can be double-counted — a defect
+that already misled one investigation. Separately, the shadow path performs a full
+Bronze scan plus legacy Silver projection plus business-state comparison on every
+cycle while `SHADOW_COMPARE=1`, and Gold is overwritten even when persisted Silver
+has not moved.
+
+**Explicitly out of scope:** Rust, or any new language or toolchain. No Rust rewrite
+is justified by current evidence; the Bronze writer question is unmeasured, not
+rejected, and may be reopened on its own measurements later.
+
+**Sequence:** P0 telemetry semantics → P1 shadow fast path (receipt-based) and Gold
+provenance → P2 steady-state shadow policy → P3 Arrow/Python profiling, only if still
+measurable.
+
+**Requirements**: [MTL-01 cycle_id and phase separation, MTL-02 documented historical
+interpretation rule, SHD-01 receipt-based shadow fast path, GLD-01 Gold source
+provenance, POL-01 steady-state shadow policy, PRF-01 Arrow boundary profiling,
+BENCH-01 before/after measurement]. `TEL-01` renamed to `MTL-01`: TEL-01 is an
+already-Complete Phase-1 requirement.
+**Depends on:** Phase 3
+**Plans:** 10 plans in 8 waves
+
+Plans:
+
+- [x] 04-01-PLAN.md — Wave 0 test infrastructure: phase-named metric accessors, a scripted clock, name-keyed insert assertions, a snapshot-aware Gold double (wave 1)
+- [x] 04-02-PLAN.md — Metric identity in the sink: additive cycle/phase schema, cycle-only Prometheus observation, the executable historical rule (wave 2)
+- [x] 04-03-PLAN.md — Cycle identity in the medallion: cycle_id threading, phase records, non-overlapping durations, snapshot ids (wave 3)
+- [x] 04-04-PLAN.md — Cycle-complete stdout marker and marker-based harness liveness, replacing the Gold-snapshot assumption (wave 4)
+- [x] 04-05-PLAN.md — GLD-01 Gold source provenance and no-op rebuild skip, plus the narrow ADR-0001 D-4 amendment (wave 5)
+- [x] 04-06-PLAN.md — SHD-01 durable shadow certificate and the receipt-gated fast path (wave 6)
+- [x] 04-07-PLAN.md — Documentation contract correction and Phase 4 requirement registration (wave 7)
+- [ ] 04-08-PLAN.md — POL-01 steady-state shadow policy as ADR-0002; exact rollout-matrix assertion (wave 7)
+- [ ] 04-09-PLAN.md — BENCH-01 authorised before/after benchmark on a bounded workload (wave 7, blocking checkpoint)
+- [ ] 04-10-PLAN.md — PRF-01 Arrow/Python boundary profile and its optimise-or-not decision (wave 8)
+
+**Wave order is dominated by one file.** Plans 02 through 06 each modify
+`iceberg/common/ops.py` or `iceberg/medallion/iceberg_medallion.py` and each depends on
+the previous one's API, so there is no parallelism to recover before wave 7. The harness
+liveness replacement (04-04) is deliberately scheduled *before* the Gold skip (04-05)
+rather than with it: `tests/support/medallion_harness.py` documents "every cycle ends in
+a Gold overwrite" as its proof a deployment ran, and `gold_cutover.feature` is a PR
+blocker under `ci-m5-gates.yml`. Landing the replacement one wave early means CI
+exercises the new signal while it is still equivalent to the old one.

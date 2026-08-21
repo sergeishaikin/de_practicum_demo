@@ -64,6 +64,37 @@
 | Airflow-owned medallion processing | Evaluation is a seed after Phase 2 verification, not a current requirement. |
 | New core business-quality thresholds | Phase 2 adds queryability and row-count metadata only. |
 
+## Phase 4 requirements — medallion telemetry and redundant-work elimination
+
+- [x] **MTL-01**: One medallion cycle emits a `cycle_id` and separates its phases, so nested B2 work is never read as a second cycle and durations stop double-counting.
+- [x] **MTL-02**: The rule for interpreting rows written before phase separation exists in prose as well as in code, and states honestly which of its branches were derived from reading emission sites rather than observed in recorded data.
+- [x] **SHD-01**: A passing shadow comparison leaves a durable certificate, and that certificate elides redundant validation work only while the certified Bronze snapshot, Silver snapshot, runtime identity and projection contract all still hold.
+- [x] **GLD-01**: A Gold commit records the persisted Silver snapshot it was built from, and an unchanged persisted Silver with matching provenance skips the rebuild; absent, unparsable or stale provenance rebuilds.
+- [ ] **POL-01**: The steady-state shadow policy is ratified as an ADR rather than left implicit in the rollout matrix.
+- [ ] **BENCH-01**: An authorised before/after benchmark on a bounded workload measures what the fast paths actually removed.
+- [ ] **PRF-01**: The Arrow/Python boundary is profiled, and the resulting optimise-or-not decision is recorded.
+
+**`TEL-01` was deliberately not reused.** It is an already-Complete Phase-1
+requirement (`O1 captures representative B2 files planned, bytes planned, ...`),
+and overloading it would have corrupted this table by giving one identifier two
+meanings and two statuses. Phase 4's telemetry requirement is therefore
+`MTL-01`. That collision is exactly what this file exists to prevent, so the
+rename is recorded here and not only in the phase artifacts.
+
+For the same reason, note that Phase 4's `GLD-01` is **not** the historical
+`GOLD-01` above. They differ by one letter and both concern Gold: `GOLD-01`
+(Phase M4/M5, Validated) is about persisted Silver being allowed to feed Gold
+only through shadow/cutover evidence; `GLD-01` (Phase 4) is about a Gold commit
+recording its persisted-Silver provenance so an identical rebuild can be
+skipped.
+
+**Known gap, recorded rather than perpetuated:** Phase 3's requirement
+identifiers (`R1`, `R1c`, `R2`, `R2b`, `R2c`, `R2d`, `R3`, `R6`, `R7`) were
+never added to this file, so the "Unmapped: 0" claim below was already stale
+before Phase 4 existed. Phase 3 is complete and its requirement wording lives in
+`.planning/ROADMAP.md`; no entries are invented here. Closing that gap is its
+own task.
+
 ## Traceability
 
 | Requirement | Phase | Status |
@@ -83,13 +114,21 @@
 | ORCH-06 | Phase 2 | Complete |
 | ORCH-07 | Phase 2 | Complete |
 | ORCH-08 | Phase 2 | Complete |
+| MTL-01 | Phase 4 | Complete |
+| MTL-02 | Phase 4 | Complete |
+| SHD-01 | Phase 4 | Complete |
+| GLD-01 | Phase 4 | Complete |
+| POL-01 | Phase 4 | Pending |
+| BENCH-01 | Phase 4 | Pending |
+| PRF-01 | Phase 4 | Pending |
 
 **Coverage:**
 
 - Active rollout requirements: 7 total
 - Planned orchestration requirements: 8 total
-- Mapped to phases: 15
-- Unmapped: 0 ✓
+- Phase 4 telemetry and redundant-work requirements: 7 total
+- Mapped to phases: 22
+- Unmapped: 9 — Phase 3's `R*` identifiers, see the note above. Not 0.
 
 ---
 *Requirements defined: 2026-08-09*

@@ -62,6 +62,12 @@ A plain `pip install dbt-core` / `dbt-postgres` now resolves to the Fusion-era
 `dbt-core` 2.x line, which rejects the `postgres` adapter outright. The
 `--require-hashes` sync above avoids that by construction.
 
+Static typing is enforced by `uv run --locked mypy` over the scope declared in
+`pyproject.toml` (`[tool.mypy] files`), currently `iceberg/`. `iceberg/` is a
+`sys.path` root rather than a package, so the config sets `mypy_path`,
+`explicit_package_bases` and `namespace_packages`; without them mypy resolves
+`common/ops.py` under two module names and checks nothing.
+
 Follow the canonical **Verification contract** in `AGENTS.md`. It defines the
 completion gate, change-specific checks, stateful-test boundary, and required
 verification evidence; do not maintain a separate gate in this file.
@@ -148,7 +154,7 @@ Persisted Silver must never become the Gold source with shadow validation off. I
 
 ### Observability
 
-`iceberg/common/ops.py` `Metrics.record()` writes one best-effort row per writer batch / medallion cycle to `marts.lakehouse_metrics` (auto-DDL, `METRICS_ENABLED=0` disables). A Postgres failure is logged and must never break ingestion. `marts.maintenance_runs` holds before/after snapshot counts from the maintenance DAG.
+`iceberg/common/ops.py` `Metrics.record()` writes best-effort rows to `marts.lakehouse_metrics` (auto-DDL, `METRICS_ENABLED=0` disables): one per writer batch, and per medallion cycle one row for each executed phase (`b2`, `shadow`, `gold`) plus a `cycle` envelope row written last, all sharing a `cycle_id`. Totals must filter `phase = 'cycle' or phase is null` or they double-count; `classify_metric_row` classifies the pre-phase rows. A Postgres failure is logged and must never break ingestion. `marts.maintenance_runs` holds before/after snapshot counts from the maintenance DAG.
 
 ## Working rules
 
@@ -157,4 +163,5 @@ Persisted Silver must never become the Gold source with shadow validation off. I
 - Treat Docker, Kafka, Spark, MinIO, Postgres, and Iceberg as stateful. Read-only analysis must not start/stop services, roll checkpoints, publish Kafka records, or mutate Iceberg tables.
 - Credentials come from `.env` only. `trino/etc/catalog/iceberg.properties` is **generated at container startup** from `iceberg.properties.template` by `trino/etc/start-trino.sh`; edit the template, not the generated file.
 - Behavior changes must land with focused tests plus updates to `README.md` and the relevant `docs/` file — those are the project contract.
-- `.planning/` holds GSD workflow state (`STATE.md`, `ROADMAP.md`, phase plans). Generated audit reports under `.architecture-audit/` and `docs/architecture-audit/` are evidence, not contracts.
+- Planning lives in `openspec/` (see the Planning methodology section of `AGENTS.md`): `openspec/specs/` for standing capabilities, `openspec/changes/` for proposals in flight, `openspec/backlog/` for specified but **unauthorised** work. A backlog item authorises nothing and is not evidence of current behaviour — starting one means opening the change its index row names. The NG-0.1 … NG-2.2 next-generation package lives in `openspec/backlog/next-generation/`.
+- `.planning/` holds the frozen GSD execution record (`STATE.md`, `ROADMAP.md`, phase plans) for Phases 1-4. It is historical evidence, not a work queue; unexecuted obligations and their OpenSpec successors are mapped in `.planning/STATE.md`. Generated audit reports under `.architecture-audit/` and `docs/architecture-audit/` are evidence, not contracts.

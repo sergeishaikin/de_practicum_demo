@@ -1,24 +1,102 @@
 version: 2
 
+# Source tests deliberately do NOT re-assert the primary keys already declared in
+# db/init/002_stg_tables.sql and 003_core_marts_objects.sql - PostgreSQL enforces
+# those, and duplicating them here would add runtime with no new failure mode.
+# What is tested here is everything the DDL leaves nullable but the pipeline
+# depends on, plus the referential integrity the core rebuild is supposed to
+# guarantee.
+#
+# `order_status` intentionally has no accepted_values test: the values present in
+# the demo slice are a sample artifact, and the full Olist domain is wider, so
+# pinning the observed set would fail on a legitimate fuller load.
+
 sources:
   - name: staging
     description: Raw Olist relations loaded by the Airflow ingestion transaction.
     schema: stg
     database: "{{ env_var('DBT_POSTGRES_DB', 'dwh') }}"
     tables:
+      # Load recency is declared per table rather than hoisted to the source,
+      # matching how `tags:` is already repeated here.
+      #
+      # The two threshold values are PROVISIONAL starting points, not settled
+      # design. No measurement has been taken. W1 holds the basis and names what
+      # would have to be measured before they can be treated as evidence-based.
       - name: orders
         description: One CSV ingestion slice of order headers.
         tags: [domain:orders, layer:staging, owner:airflow]
+        config:
+          loaded_at_field: loaded_at
+          freshness:
+            warn_after: {count: 30, period: minute}
+            error_after: {count: 2, period: hour}
+        columns:
+          - name: order_id
+            data_tests: [not_null]
+          - name: customer_id
+            data_tests: [not_null]
+          # The reconciliation view derives sales_date from this column, so a NULL
+          # would silently create a NULL-dated bucket on the source side.
+          - name: order_purchase_timestamp
+            data_tests: [not_null]
+          - name: ingest_date
+            data_tests: [not_null]
       - name: order_items
         description: One CSV ingestion slice of order line items.
         tags: [domain:orders, layer:staging, owner:airflow]
+        config:
+          loaded_at_field: loaded_at
+          freshness:
+            warn_after: {count: 30, period: minute}
+            error_after: {count: 2, period: hour}
+        columns:
+          - name: order_id
+            data_tests: [not_null]
+          - name: price
+            data_tests: [not_null, non_negative]
+          - name: freight_value
+            data_tests: [not_null, non_negative]
+          - name: ingest_date
+            data_tests: [not_null]
       - name: order_payments
         description: One CSV ingestion slice of order payments.
         tags: [domain:orders, layer:staging, owner:airflow]
+        config:
+          loaded_at_field: loaded_at
+          freshness:
+            warn_after: {count: 30, period: minute}
+            error_after: {count: 2, period: hour}
+        columns:
+          - name: order_id
+            data_tests: [not_null]
+          - name: payment_value
+            data_tests: [not_null, non_negative]
+          - name: ingest_date
+            data_tests: [not_null]
       - name: customers
         description: One CSV ingestion slice of customers.
         tags: [domain:orders, layer:staging, owner:airflow]
+        config:
+          loaded_at_field: loaded_at
+          freshness:
+            warn_after: {count: 30, period: minute}
+            error_after: {count: 2, period: hour}
+        columns:
+          - name: customer_id
+            data_tests: [not_null]
+          # core.orders takes customer_state from here; the marts group by it.
+          - name: customer_state
+            data_tests: [not_null]
+          - name: ingest_date
+            data_tests: [not_null]
 
+  # No freshness on `core.*`, deliberately. It is a derived, transactionally
+  # rebuilt projection rather than an arrival point; its recency is a function of
+  # the staging slice it was rebuilt from, which the staging thresholds above
+  # already measure. dbt simply does not select a source that declares no
+  # thresholds, so an empty `freshness: {}` here would be both unnecessary and
+  # misleading about what is being checked.
   - name: core
     description: Transactionally rebuilt relations owned by the ingestion DAG.
     schema: core
@@ -29,22 +107,35 @@ sources:
         tags: [domain:orders, layer:core, owner:airflow]
         columns:
           - name: order_id
-            tests: [not_null, unique]
+            data_tests: [not_null, unique]
           - name: customer_id
-            tests: [not_null]
+            data_tests: [not_null]
+          - name: order_purchase_date
+            data_tests: [not_null]
+          - name: payment_value
+            data_tests: [non_negative]
       - name: order_items
         description: Current warehouse order item projection.
         tags: [domain:orders, layer:core, owner:airflow]
         columns:
           - name: order_id
-            tests: [not_null]
+            data_tests: [not_null]
+            # The core rebuild inner-joins items to headers, so an item without a
+            # parent order means the rebuild transaction is broken. This is also
+            # the precondition that makes v_order_items_wide's LEFT JOIN safe.
           - name: order_item_id
-            tests: [not_null]
+            data_tests: [not_null]
           - name: customer_id
-            tests: [not_null]
+            data_tests: [not_null]
           - name: product_id
-            tests: [not_null]
+            data_tests: [not_null]
           - name: seller_id
-            tests: [not_null]
-        tests:
+            data_tests: [not_null]
+          - name: order_purchase_date
+            data_tests: [not_null]
+          - name: price
+            data_tests: [not_null, non_negative]
+          - name: freight_value
+            data_tests: [not_null, non_negative]
+        data_tests:
           - core_order_items_grain_unique

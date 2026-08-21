@@ -1,0 +1,44 @@
+version: 2
+
+# These two models are deliberately thin aliases: B2 owns version resolution and
+# D-4 owns the aggregate, both in `iceberg/medallion/` Python. There is no join,
+# aggregation or conditional here to unit-test, so these tests are scoped to the
+# only two things the SQL can actually get wrong - the column rename, and staying
+# a pass-through.
+#
+# The guard that matters: nobody may add a WHERE, DISTINCT or GROUP BY here. Doing
+# so would silently drop rows from the semantic layer while every contract and
+# data test still passed, because the shape would be unchanged.
+
+unit_tests:
+  - name: current_orders_passes_silver_through_without_filtering
+    description: >
+      Two rows of the same business key at different versions must both survive.
+      B2 has already resolved which one is current; if this model ever deduped or
+      filtered, it would silently override that decision.
+    model: current_orders
+    given:
+      - input: source('silver', 'orders_clean')
+        rows:
+          - {order_id: o-1, customer: alice, amount: 10.0, country: DE, status: paid, event_time: '2026-01-01 10:00:00', event_date: '2026-01-01', business_version: 1}
+          - {order_id: o-2, customer: bob, amount: 20.0, country: FR, status: shipped, event_time: '2026-01-01 11:00:00', event_date: '2026-01-01', business_version: 2}
+    expect:
+      rows:
+        - {order_id: o-1, customer: alice, amount: 10.0, country: DE, status: paid, business_version: 1}
+        - {order_id: o-2, customer: bob, amount: 20.0, country: FR, status: shipped, business_version: 2}
+
+  - name: daily_order_metrics_renames_event_date_to_order_date
+    description: >
+      The one transformation this model performs. A silent swap of the rename, or
+      of country/status ordering, would surface as wrong labels on every dashboard
+      built on the semantic layer.
+    model: daily_order_metrics
+    given:
+      - input: source('gold', 'orders_daily_metrics')
+        rows:
+          - {event_date: '2026-01-01', country: DE, status: paid, orders_count: 3, total_amount: 60.0, avg_amount: 20.0, distinct_customers: 2}
+          - {event_date: '2026-01-02', country: FR, status: shipped, orders_count: 1, total_amount: 20.0, avg_amount: 20.0, distinct_customers: 1}
+    expect:
+      rows:
+        - {order_date: '2026-01-01', country: DE, status: paid, orders_count: 3, total_amount: 60.0, avg_amount: 20.0, distinct_customers: 2}
+        - {order_date: '2026-01-02', country: FR, status: shipped, orders_count: 1, total_amount: 20.0, avg_amount: 20.0, distinct_customers: 1}

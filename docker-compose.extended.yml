@@ -304,9 +304,20 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       METRICS_ENABLED: "1"
       PROMETHEUS_METRICS_PORT: "9101"
+      OTEL_ENABLED: ${OTEL_ENABLED:-0}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
+      OTEL_EXPORTER_OTLP_TIMEOUT: ${OTEL_EXPORTER_OTLP_TIMEOUT:-5}
+      OTEL_SERVICE_NAMESPACE: ${OTEL_SERVICE_NAMESPACE:-de-practicum}
+      OTEL_DEPLOYMENT_ENVIRONMENT: ${OTEL_DEPLOYMENT_ENVIRONMENT:-local}
+      OPENLINEAGE_NAMESPACE: ${OPENLINEAGE_NAMESPACE:-de-practicum}
+      OPENLINEAGE_DISABLED: ${OPENLINEAGE_DISABLED:-}
+      OPENLINEAGE__TRANSPORT__TYPE: ${OPENLINEAGE_TRANSPORT_TYPE:-file}
+      OPENLINEAGE__TRANSPORT__LOG_FILE_PATH: /lineage/events.jsonl
+      OPENLINEAGE__TRANSPORT__APPEND: "true"
     volumes:
       - ./iceberg:/app:ro
       - de_demo_iceberg_writer_state:/state
+      - de_demo_lineage_events:/lineage
     depends_on:
       iceberg-rest:
         condition: service_healthy
@@ -343,6 +354,8 @@ services:
       MINIO_BUCKET: de-practicum
       BRONZE_OUTBOX_PREFIX: ${BRONZE_OUTBOX_PREFIX:-streaming/bronze_outbox}
       MEDALLION_PROGRESS_PATH: ${MEDALLION_PROGRESS_PATH:-streaming/medallion/progress.json}
+      MEDALLION_COMPLETION_LEDGER_PREFIX: ${MEDALLION_COMPLETION_LEDGER_PREFIX:-streaming/medallion/completion-ledger}
+      MEDALLION_SHADOW_RECEIPT_PATH: ${MEDALLION_SHADOW_RECEIPT_PATH:-streaming/medallion/shadow-certification.json}
       MAX_COMPLETED_PROGRESS: ${MAX_COMPLETED_PROGRESS:-100}
       S3_ENDPOINT: http://minio:9000
       S3_REGION: us-east-1
@@ -355,10 +368,21 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       METRICS_ENABLED: "1"
       PROMETHEUS_METRICS_PORT: "9102"
+      OTEL_ENABLED: ${OTEL_ENABLED:-0}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
+      OTEL_EXPORTER_OTLP_TIMEOUT: ${OTEL_EXPORTER_OTLP_TIMEOUT:-5}
+      OTEL_SERVICE_NAMESPACE: ${OTEL_SERVICE_NAMESPACE:-de-practicum}
+      OTEL_DEPLOYMENT_ENVIRONMENT: ${OTEL_DEPLOYMENT_ENVIRONMENT:-local}
       QUALITY_VALID_STATUSES: "created,paid,shipped,delivered"
       QUALITY_FAIL_ON_VIOLATIONS: "0"
+      OPENLINEAGE_NAMESPACE: ${OPENLINEAGE_NAMESPACE:-de-practicum}
+      OPENLINEAGE_DISABLED: ${OPENLINEAGE_DISABLED:-}
+      OPENLINEAGE__TRANSPORT__TYPE: ${OPENLINEAGE_TRANSPORT_TYPE:-file}
+      OPENLINEAGE__TRANSPORT__LOG_FILE_PATH: /lineage/events.jsonl
+      OPENLINEAGE__TRANSPORT__APPEND: "true"
     volumes:
       - ./iceberg:/app:ro
+      - de_demo_lineage_events:/lineage
     depends_on:
       iceberg-rest:
         condition: service_healthy
@@ -382,6 +406,11 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       PROMETHEUS_METRICS_PORT: "9104"
       PROMETHEUS_EXPORTER_POLL_SECONDS: "15"
+      OTEL_ENABLED: ${OTEL_ENABLED:-0}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
+      OTEL_EXPORTER_OTLP_TIMEOUT: ${OTEL_EXPORTER_OTLP_TIMEOUT:-5}
+      OTEL_SERVICE_NAMESPACE: ${OTEL_SERVICE_NAMESPACE:-de-practicum}
+      OTEL_DEPLOYMENT_ENVIRONMENT: ${OTEL_DEPLOYMENT_ENVIRONMENT:-local}
     ports:
       - "${OBSERVABILITY_EXPORTER_HOST_PORT:-19104}:9104"
     depends_on:
@@ -428,6 +457,24 @@ services:
     networks:
       - de_demo_net
 
+  otel-collector:
+    profiles: ["otel"]
+    image: ${OTEL_COLLECTOR_IMAGE:?OTEL_COLLECTOR_IMAGE is required when the otel profile is enabled}
+    container_name: de-demo-otel-collector
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./observability/otel/collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+      - de_demo_otel_storage:/var/lib/otelcol
+    healthcheck:
+      test: ["CMD", "/otelcol-contrib", "validate", "--config=/etc/otelcol-contrib/config.yaml"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - de_demo_net
+
   grafana:
     image: ${GRAFANA_IMAGE:?GRAFANA_IMAGE is required}
     container_name: de-demo-grafana
@@ -469,6 +516,19 @@ services:
       - "${TRINO_HOST_PORT}:8080"
     volumes:
       - ./trino/etc:/etc/trino
+    # The image health-check parses config.properties textually and can retain
+    # a CR from a Windows checkout in the port value. Keep the readiness probe
+    # independent of repository line endings.
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -fsS http://127.0.0.1:8080/v1/info | grep -q '\"starting\":false'"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
     depends_on:
       iceberg-rest:
         condition: service_healthy
@@ -656,11 +716,17 @@ volumes:
   de_demo_metabase_data:
   de_demo_superset_home:
   de_demo_iceberg_catalog:
+  # Explicit name: Airflow declares this volume from docker-compose.yml,
+  # which CI starts without this file. Both must resolve to one volume or
+  # the lineage receipt sees only half the emitted events.
+  de_demo_lineage_events:
+    name: de_demo_lineage_events
   de_demo_iceberg_writer_state:
   # Explicit name: the E2E test mounts this by name from a plain `docker run`,
   # so it must not carry the Compose project-name prefix.
   de_demo_prometheus_data:
   de_demo_grafana_data:
+  de_demo_otel_storage:
 
 networks:
   de_demo_net:

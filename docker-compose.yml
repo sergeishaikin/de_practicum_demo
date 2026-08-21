@@ -10,6 +10,10 @@ volumes:
     name: de_demo_pg_data
   de_demo_airflow_logs:
     name: de_demo_airflow_logs
+  # Shared with iceberg-writer and iceberg-medallion in
+  # docker-compose.extended.yml; one lineage event stream, three producers.
+  de_demo_lineage_events:
+    name: de_demo_lineage_events
 
 services:
   de-demo-postgres:
@@ -33,7 +37,17 @@ services:
       - ./db/tasks:/tasks:ro
       - ./db/task_checks:/task_checks:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:?POSTGRES_USER is required} -d ${POSTGRES_DB:?POSTGRES_DB is required}"]
+      # TCP, not the local socket. During initdb on a fresh volume the image
+      # runs a temporary server for /docker-entrypoint-initdb.d, and a socket
+      # probe answers "ready" while nothing is listening on 5432 yet - so
+      # `airflow-db-init`, which connects over TCP, was started against a
+      # server that refused it. Health must mean ready by the path dependents
+      # actually use.
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -h 127.0.0.1 -p 5432 -U ${POSTGRES_USER:?POSTGRES_USER is required} -d ${POSTGRES_DB:?POSTGRES_DB is required}"
+        ]
       interval: 5s
       timeout: 3s
       retries: 30
@@ -103,21 +117,33 @@ services:
       DBT_POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
       DBT_POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       DBT_POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      DBT_PROFILE_PATH: /opt/airflow/dbt-profiles/lakehouse/profiles.yml
+      DBT_WAREHOUSE_PROFILE_PATH: /opt/airflow/dbt-profiles/warehouse/profiles.yml
       AIRFLOW__COSMOS__ENABLE_TELEMETRY: "False"
       AIRFLOW__COSMOS__DBT_DOCS_PROJECTS: '{"lakehouse":{"dir":"/opt/airflow/project/dbt/target","index":"index.html","name":"Lakehouse dbt docs"},"warehouse":{"dir":"/tmp/warehouse_dbt_artifacts","index":"index.html","name":"Warehouse dbt docs"}}'
       MAINTENANCE_RETENTION: ${MAINTENANCE_RETENTION:-2h}
       MAINTENANCE_RECOVERY_HORIZON: ${MAINTENANCE_RECOVERY_HORIZON:-1h}
       MAINTENANCE_RECOVERY_SAFETY_MARGIN: ${MAINTENANCE_RECOVERY_SAFETY_MARGIN:-15m}
+      AIRFLOW__OPENLINEAGE__NAMESPACE: ${OPENLINEAGE_NAMESPACE:-de-practicum}
+      AIRFLOW__OPENLINEAGE__TRANSPORT: '{"type":"file","log_file_path":"/opt/airflow/lineage/events.jsonl","append":true}'
+      AIRFLOW__OPENLINEAGE__DISABLED: ${OPENLINEAGE_DISABLED:-False}
     ports:
       - "127.0.0.1:${AIRFLOW_HOST_PORT:-18085}:8080"
     volumes:
       - ./dags:/opt/airflow/dags:ro
       - ./db:/opt/airflow/project/db:ro
       - ./dbt:/opt/airflow/project/dbt:rw
-      - ./dbt/profiles.yml.example:/opt/airflow/project/dbt/profiles.yml:ro
-      - ./dbt/warehouse/profiles.yml.example:/opt/airflow/project/dbt/warehouse/profiles.yml:ro
+      # Profiles are mounted OUTSIDE the read-write project mount. Mounting a
+      # file onto a path inside ./dbt made Docker create that target in the
+      # host checkout - root-owned and empty, because the daemon materialises
+      # a missing bind-mount target - which then blocked anything else from
+      # writing dbt/profiles.yml. Nothing here may target a path under
+      # /opt/airflow/project/dbt.
+      - ./dbt/profiles.yml.example:/opt/airflow/dbt-profiles/lakehouse/profiles.yml:ro
+      - ./dbt/warehouse/profiles.yml.example:/opt/airflow/dbt-profiles/warehouse/profiles.yml:ro
       - ./data/raw:/opt/airflow/project/data/raw:ro
       - de_demo_airflow_logs:/opt/airflow/logs
+      - de_demo_lineage_events:/opt/airflow/lineage
     command:
       - airflow
       - standalone

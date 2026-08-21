@@ -5,6 +5,7 @@ COPY requirements.txt /tmp/requirements.txt
 RUN /bin/uv pip install --system --no-cache --require-hashes -r /tmp/requirements.txt
 
 WORKDIR /app
+COPY telemetry.py /app/telemetry.py
 COPY postgres_exporter.py /app/postgres_exporter.py
 
 CMD ["python", "/app/postgres_exporter.py"]

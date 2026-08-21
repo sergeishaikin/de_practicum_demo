@@ -46,7 +46,14 @@ create table if not exists marts.lakehouse_metrics (
     files_added bigint not null default 0,
     bytes_removed bigint not null default 0,
     bytes_added bigint not null default 0,
-    snapshot_delta bigint not null default 0
+    snapshot_delta bigint not null default 0,
+    cycle_id text,
+    phase text,
+    bronze_snapshot_id bigint,
+    silver_snapshot_id bigint,
+    gold_snapshot_id bigint,
+    shadow_skipped boolean not null default false,
+    gold_skipped boolean not null default false
 );
 alter table marts.lakehouse_metrics add column if not exists work_available bigint not null default 0;
 alter table marts.lakehouse_metrics add column if not exists work_in_flight bigint not null default 0;
@@ -65,7 +72,74 @@ alter table marts.lakehouse_metrics add column if not exists files_added bigint 
 alter table marts.lakehouse_metrics add column if not exists bytes_removed bigint not null default 0;
 alter table marts.lakehouse_metrics add column if not exists bytes_added bigint not null default 0;
 alter table marts.lakehouse_metrics add column if not exists snapshot_delta bigint not null default 0;
+-- Phase 4 metric identity. cycle_id, phase and the three snapshot ids are
+-- nullable with no default, deliberately: `cycle_id is null` is the predicate
+-- that separates pre-Phase-4 rows from Phase-4 rows, and a `not null default ''`
+-- would destroy it. Historical rows are never backfilled for the same reason --
+-- an un-instrumented run must not be able to masquerade as an instrumented one.
+alter table marts.lakehouse_metrics add column if not exists cycle_id text;
+alter table marts.lakehouse_metrics add column if not exists phase text;
+alter table marts.lakehouse_metrics add column if not exists bronze_snapshot_id bigint;
+alter table marts.lakehouse_metrics add column if not exists silver_snapshot_id bigint;
+alter table marts.lakehouse_metrics add column if not exists gold_snapshot_id bigint;
+alter table marts.lakehouse_metrics add column if not exists shadow_skipped boolean not null default false;
+alter table marts.lakehouse_metrics add column if not exists gold_skipped boolean not null default false;
 """
+
+# The closed set of phase values a medallion cycle emits. `cycle` is the outer
+# record and is always written last.
+PHASES = ("b2", "shadow", "gold", "cycle")
+
+
+def classify_metric_row(
+    *,
+    status: str,
+    gold_duration_ms: int,
+    cycle_id: str | None = None,
+    phase: str | None = None,
+) -> str:
+    """Classify one `marts.lakehouse_metrics` row as an outer cycle or a nested phase.
+
+    Phase-4 rows carry `cycle_id` and `phase` and need no inference: the row says
+    what it is. Rows written before Phase 4 have `cycle_id IS NULL` and must be
+    inferred, because `run_b2` and `_run_m4` both wrote `source="medallion"` and
+    the outer `silver_duration_ms` already contained the nested B2 duration.
+
+    The pre-era rule is deliberately **status-qualified**. The naive form --
+    `gold_duration_ms = 0` means a nested B2 metric -- misclassifies
+    `shadow_failed`, the safety-critical row, because `_run_m4` raises before Gold
+    runs and therefore never sets that field. `shadow_failed` is an outer cycle
+    that aborted, not a nested phase.
+
+    Provenance of this rule, stated plainly: the `success` branches are grounded
+    in recorded data, but the `shadow_failed` and `failed` branches were
+    **derived by reading the emission sites in `iceberg_medallion.py`, not
+    observed in recorded data**. Every one of the ten rows in
+    `artifacts/b2-rollout/06-o1-window.json` has `status: success`.
+
+    One caveat the classification compresses: a `failed` row may come from
+    `run_b2` (a nested B2 phase) or from `_legacy_silver_cycle` under
+    `QUALITY_FAIL_ON_VIOLATIONS=1` (an aborted legacy cycle). This function
+    cannot tell which, and does not pretend to -- it returns `"nested"`, not
+    `"b2"`. What makes the classification safe is the property both origins
+    share: no outer record exists for that cycle.
+
+    Returns one of `"cycle"`, `"b2"`, `"nested"` or `"unknown"`. A consumer
+    wanting totals that do not double-count filters on `== "cycle"`, which is
+    unaffected by the b2/nested distinction. Unrecognised input returns
+    `"unknown"` rather than raising: this is a reporting helper over historical
+    data, and a legacy status must not explode a query.
+    """
+
+    if cycle_id is not None:
+        return phase if phase in PHASES else "unknown"
+    if status == "shadow_failed":
+        return "cycle"
+    if status == "failed":
+        return "nested"
+    if status == "success":
+        return "cycle" if gold_duration_ms else "b2"
+    return "unknown"
 
 
 def pg_conn_params() -> dict[str, Any]:
@@ -106,10 +180,10 @@ class Metrics:
         load_id: str | None = None,
         rows_processed: int = 0,
         files_processed: int = 0,
-        bronze_rows: int = 0,
+        bronze_rows: int | None = 0,
         silver_rows: int = 0,
         gold_rows: int = 0,
-        duplicates_removed: int = 0,
+        duplicates_removed: int | None = 0,
         quality_violations: int = 0,
         duration_ms: int = 0,
         work_available: int = 0,
@@ -129,29 +203,44 @@ class Metrics:
         bytes_removed: int = 0,
         bytes_added: int = 0,
         snapshot_delta: int = 0,
+        cycle_id: str | None = None,
+        phase: str | None = None,
+        bronze_snapshot_id: int | None = None,
+        silver_snapshot_id: int | None = None,
+        gold_snapshot_id: int | None = None,
+        shadow_skipped: bool = False,
+        gold_skipped: bool = False,
     ) -> None:
-        self.runtime.observe(
-            source=source,
-            status=status,
-            rows_processed=rows_processed,
-            files_processed=files_processed,
-            duration_ms=duration_ms,
-            work_available=work_available,
-            work_in_flight=work_in_flight,
-            work_completed=work_completed,
-            keys_processed=keys_processed,
-            lower_versions_ignored=lower_versions_ignored,
-            ff14_conflicts=ff14_conflicts,
-            shadow_mismatches=shadow_mismatches,
-            silver_duration_ms=silver_duration_ms,
-            gold_duration_ms=gold_duration_ms,
-            files_planned=files_planned,
-            bytes_planned=bytes_planned,
-            files_removed=files_removed,
-            files_added=files_added,
-            bytes_removed=bytes_removed,
-            bytes_added=bytes_added,
-        )
+        # Cycle-only observation. A nested phase record is durable in PostgreSQL
+        # but must never reach a collector: the gauges are labelled by `source`
+        # alone, so the outer record used to overwrite the nested record's values
+        # with zeros seconds after they were measured -- resetting
+        # lakehouse_files{kind="planned"}, lakehouse_bytes and
+        # lakehouse_work{state="in_flight"}, and weakening LakehouseUnresolvedWork.
+        # `phase is None` keeps the writer's call shape byte-for-byte unchanged.
+        if phase in (None, "cycle"):
+            self.runtime.observe(
+                source=source,
+                status=status,
+                rows_processed=rows_processed,
+                files_processed=files_processed,
+                duration_ms=duration_ms,
+                work_available=work_available,
+                work_in_flight=work_in_flight,
+                work_completed=work_completed,
+                keys_processed=keys_processed,
+                lower_versions_ignored=lower_versions_ignored,
+                ff14_conflicts=ff14_conflicts,
+                shadow_mismatches=shadow_mismatches,
+                silver_duration_ms=silver_duration_ms,
+                gold_duration_ms=gold_duration_ms,
+                files_planned=files_planned,
+                bytes_planned=bytes_planned,
+                files_removed=files_removed,
+                files_added=files_added,
+                bytes_removed=bytes_removed,
+                bytes_added=bytes_added,
+            )
         if not self.enabled:
             return
         try:
@@ -169,11 +258,15 @@ class Metrics:
                         shadow_comparisons, shadow_mismatches,
                         silver_duration_ms, gold_duration_ms,
                         files_planned, bytes_planned, files_removed, files_added,
-                        bytes_removed, bytes_added, snapshot_delta
+                        bytes_removed, bytes_added, snapshot_delta,
+                        cycle_id, phase,
+                        bronze_snapshot_id, silver_snapshot_id, gold_snapshot_id,
+                        shadow_skipped, gold_skipped
                     ) values (
                         now(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                         %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s, %s, %s
+                        %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s, %s
                     )
                     """,
                     (
@@ -205,6 +298,13 @@ class Metrics:
                         bytes_removed,
                         bytes_added,
                         snapshot_delta,
+                        cycle_id,
+                        phase,
+                        bronze_snapshot_id,
+                        silver_snapshot_id,
+                        gold_snapshot_id,
+                        shadow_skipped,
+                        gold_skipped,
                     ),
                 )
         except Exception as exc:
@@ -228,7 +328,9 @@ class _RuntimeMetrics:
 
     def __init__(self, port: str | None) -> None:
         self.enabled = bool(port)
-        if not self.enabled:
+        # Narrowed on `port` rather than on `self.enabled`: identical condition,
+        # but it lets a type checker see that `port` is a `str` below.
+        if not port:
             return
         try:
             from prometheus_client import Counter, Gauge, Histogram, start_http_server

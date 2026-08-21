@@ -35,6 +35,18 @@ def asset_uris(expression):
     ]
 
 
+def lineage_uris(entries):
+    """Sorted URIs of a task's inlets/outlets, so Asset identity is observable.
+
+    Counts alone cannot answer which Assets a rendered dbt task group produces,
+    which is the whole question when Cosmos emits datasets of its own.
+    """
+
+    return sorted(
+        getattr(entry, "uri", None) or str(entry) for entry in (entries or [])
+    )
+
+
 for dag_id, dag in db.dags.items():
     schedule = getattr(dag, "schedule", None)
     if schedule is None:
@@ -76,6 +88,8 @@ for dag_id, dag in db.dags.items():
             tid: {
                 "inlets": len(task_instance.inlets or []),
                 "outlets": len(task_instance.outlets or []),
+                "inlet_uris": lineage_uris(task_instance.inlets),
+                "outlet_uris": lineage_uris(task_instance.outlets),
             }
             for tid, task_instance in dag.task_dict.items()
         },

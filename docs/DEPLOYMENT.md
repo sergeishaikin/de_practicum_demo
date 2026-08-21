@@ -24,7 +24,7 @@ Images referenced by tag (`postgres:15`, `apache/kafka:4.0.0`, `trinodb/trino:48
 
 CI is provided by GitHub Actions (`.github/workflows/`):
 
-- `ci-pr.yml` runs on every pull request: compose validation, `ruff`, `black --check`, the fast unit suite, the existing 90% coverage check, and Airflow DagBag validation. The coverage command has a documented 79.80% baseline and is not currently a passing completion gate.
+- `ci-pr.yml` runs on every pull request: compose validation, `ruff`, `black --check`, the fast unit suite, the 90% coverage check, and Airflow DagBag validation. The coverage command passes at 93.66%, so a coverage failure is a real regression.
 - `ci-integration.yml` (manual or on push to `main`) brings up the live Iceberg/Trino stack and runs the integration layer.
 - `ci-nightly.yml` (02:15 UTC) builds the full stack, runs the integration layer, the deterministic Kafka/Spark E2E, and the maintenance DAG end-to-end check.
 

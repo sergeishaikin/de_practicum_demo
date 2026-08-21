@@ -22,10 +22,15 @@ from cosmos.constants import ExecutionMode
 DBT_PROJECT_PATH = Path(
     os.getenv("DBT_PROJECT_PATH", "/opt/airflow/project/dbt")
 ).resolve()
-# Cosmos invokes dbt with ``--profiles-dir``.  dbt only discovers the
+# Cosmos invokes dbt with ``--profiles-dir``, and dbt only discovers the
 # conventional ``profiles.yml`` filename, so Compose mounts the committed
-# environment-safe example at that runtime path.
-DBT_PROFILE_PATH = DBT_PROJECT_PATH / "profiles.yml"
+# environment-safe example under that name.  It is mounted *outside* the
+# project directory on purpose: a file mount targeting a path inside the
+# read-write ./dbt mount makes Docker create that file in the host checkout,
+# root-owned and empty.
+DBT_PROFILE_PATH = Path(
+    os.getenv("DBT_PROFILE_PATH", "/opt/airflow/dbt-profiles/lakehouse/profiles.yml")
+).resolve()
 LAKEHOUSE_SEMANTIC_ASSET = Asset(
     "trino://de-demo-trino:8080/iceberg/semantic",
     group="Lakehouse · dbt Semantic",

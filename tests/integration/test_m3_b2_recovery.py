@@ -109,11 +109,30 @@ def start_medallion(
 
 
 def wait_for_completed(storage: S3FileSystem, progress_path: str, load_id: str) -> dict:
+    """Poll the progress object until `load_id` completes.
+
+    Reads sequentially, for the reason `medallion._read_json` documents: this
+    object is overwritten in place and it shrinks when work completes, and a
+    random-access handle sizes its read from a HEAD taken at open. A poll that
+    lands across that overwrite is sized by the larger predecessor and served the
+    smaller successor, and PyArrow returns the whole over-sized buffer.
+
+    This helper carried that defect after both production readers were fixed on
+    2026-08-19, and it reached CI: run 32291032255 failed the M3 recovery test
+    with `JSONDecodeError: Extra data: line 1 column 515 (char 514)` - a valid
+    document followed by 285 bytes that were never written.
+
+    A missing or unreadable object is transient and is retried. A decode failure
+    is not: after a sequential read there is no stale-size mechanism left to
+    explain it, so it means the object really is malformed and the test must fail
+    on it rather than poll until the deadline and report a timeout instead.
+    """
+
     deadline = time.time() + 90
     object_path = f"{BUCKET}/{progress_path}"
     while time.time() < deadline:
         try:
-            with storage.open_input_file(object_path) as source:
+            with storage.open_input_stream(object_path) as source:
                 progress = json.loads(source.read().decode("utf-8"))
             if load_id in progress.get("completed", {}):
                 return progress
