@@ -220,3 +220,208 @@ jobs:
       - name: Destroy clean stack
         if: always()
         run: docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml down --volumes --remove-orphans
+
+  otel-acceptance:
+    name: NG-0.4 OTel acceptance (H1-owned clean phases)
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      # pull_request.sha is the feature commit; github.sha is the selected
+      # commit for workflow_dispatch.  The explicit check below prevents an
+      # accidental merge-ref or stale checkout from producing evidence.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify exact feature SHA
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: ".python-version"
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.5"
+          enable-cache: true
+          cache-dependency-glob: |
+            uv.lock
+            dbt/requirements.txt
+      - name: Install host verification dependencies
+        run: uv sync --locked
+      - name: Create clean OTel deployment configuration
+        run: |
+          cp .env.example .env
+          sed -i 's/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=h1-postgres-secret/' .env
+          sed -i 's/^MINIO_ROOT_PASSWORD=.*/MINIO_ROOT_PASSWORD=h1-minio-secret/' .env
+          sed -i 's/^SUPERSET_SECRET_KEY=.*/SUPERSET_SECRET_KEY=h1-superset-secret/' .env
+          sed -i 's/^AIRFLOW_API_SECRET_KEY=.*/AIRFLOW_API_SECRET_KEY=h1-airflow-api-secret/' .env
+          sed -i 's/^AIRFLOW_JWT_SECRET=.*/AIRFLOW_JWT_SECRET=h1-airflow-jwt-secret/' .env
+          sed -i 's/^GRAFANA_ADMIN_PASSWORD=.*/GRAFANA_ADMIN_PASSWORD=h1-grafana-secret/' .env
+          sed -i 's/^AIRFLOW_DB_PASSWORD=.*/AIRFLOW_DB_PASSWORD=h1-airflow-db-secret/' .env
+      - name: Validate OTel profile graph and export host configuration
+        run: |
+          uv run --locked python scripts/validate_runtime_config.py --env-file .env --profile clean
+          docker network create de_demo_net || true
+          docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml \
+            --profile otel config >/tmp/h1-otel-compose.yml
+          set -a
+          source .env
+          set +a
+          {
+            echo "ICEBERG_CATALOG_URI=http://localhost:${ICEBERG_REST_PORT}"
+            echo "ICEBERG_WAREHOUSE=s3://de-practicum/warehouse"
+            echo "S3_ENDPOINT=http://localhost:${MINIO_API_PORT}"
+            echo "AWS_ACCESS_KEY_ID=${MINIO_ROOT_USER}"
+            echo "AWS_SECRET_ACCESS_KEY=${MINIO_ROOT_PASSWORD}"
+            echo "DWH_HOST=localhost"
+            echo "DWH_PORT=${POSTGRES_HOST_PORT}"
+            echo "DWH_DB=${POSTGRES_DB}"
+            echo "DWH_USER=${POSTGRES_USER}"
+            echo "DWH_PASSWORD=${POSTGRES_PASSWORD}"
+          } >> "$GITHUB_ENV"
+      - name: Run bounded OFF, ON, and Collector-outage parity phases
+        shell: bash
+        run: |
+          set -euo pipefail
+          compose=(docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml --profile otel)
+
+          wal_bytes() {
+            local volume
+            volume="$(docker volume ls -q --filter label=com.docker.compose.volume=de_demo_otel_storage | head -n 1)"
+            if [ -z "$volume" ]; then echo 0; return; fi
+            docker run --rm -v "$volume:/var/lib/otelcol" busybox:1.36 du -sb /var/lib/otelcol 2>/dev/null \
+              | awk 'NR == 1 {print $1}' || echo 0
+          }
+
+          capture_stats() {
+            local output="$1"
+            : > "$output"
+            for container in de-demo-orders-streaming de-demo-iceberg-writer \
+              de-demo-iceberg-medallion de-demo-otel-collector; do
+              docker stats --no-stream --format '{{.Name}} {{.CPUPerc}} {{.MemUsage}}' \
+                "$container" >> "$output" 2>&1 || true
+            done
+          }
+
+          write_receipt() {
+            local phase="$1" enabled="$2" outage="$3" duration_file="$4"
+            PHASE="$phase" OTEL_ENABLED="$enabled" COLLECTOR_OUTAGE="$outage" \
+              DURATION_FILE="$duration_file" WAL_BEFORE="$(cat "otel-${phase}-wal-before.txt")" \
+              WAL_AFTER="$(cat "otel-${phase}-wal-after.txt")" \
+              python - <<'PY'
+          import hashlib
+          import importlib.util
+          import json
+          import os
+          from pathlib import Path
+
+          spec = importlib.util.spec_from_file_location(
+              "lakehouse_e2e", Path("tests/e2e/test_lakehouse_e2e.py")
+          )
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          expected = module.expected_pipeline(module.build_fixture())
+          contract = {
+              "total_events": expected["total_events"],
+              "landing_rows": expected["landing_rows"],
+              "bronze_rows": expected["bronze_rows"],
+              "silver_rows": expected["silver_rows"],
+              "duplicates_removed": expected["duplicates_removed"],
+              "total_violations": expected["total_violations"],
+              "gold_row_count": expected["gold_row_count"],
+              "total_revenue": expected["total_revenue"],
+          }
+          encoded = json.dumps(contract, sort_keys=True, separators=(",", ":")).encode()
+          receipt = {
+              "phase": os.environ["PHASE"],
+              "otel_enabled": os.environ["OTEL_ENABLED"] == "1",
+              "collector_outage": os.environ["COLLECTOR_OUTAGE"] == "1",
+              "pytest_e2e_passed": True,
+              "canonical_contract": contract,
+              "canonical_contract_sha256": hashlib.sha256(encoded).hexdigest(),
+              "duration_seconds": float(Path(os.environ["DURATION_FILE"]).read_text()),
+              "otel_wal_bytes_before": int(os.environ["WAL_BEFORE"]),
+              "otel_wal_bytes_after": int(os.environ["WAL_AFTER"]),
+              "resource_before": Path(f"otel-{os.environ['PHASE']}-stats-before.txt").read_text(),
+              "resource_after": Path(f"otel-{os.environ['PHASE']}-stats-after.txt").read_text(),
+          }
+          Path(f"otel-{os.environ['PHASE']}-receipt.json").write_text(
+              json.dumps(receipt, indent=2, sort_keys=True) + "\n"
+          )
+          PY
+          }
+
+          run_phase() {
+            local phase="$1" enabled="$2" outage="$3"
+            sed -i "s/^OTEL_ENABLED=.*/OTEL_ENABLED=${enabled}/" .env
+            "${compose[@]}" down --volumes --remove-orphans
+            "${compose[@]}" up -d --build --pull always
+            uv run --locked python scripts/bootstrap_stack.py --env-file .env --timeout 900
+            capture_stats "otel-${phase}-stats-before.txt"
+            printf '%s\n' "$(wal_bytes)" > "otel-${phase}-wal-before.txt"
+            "${compose[@]}" stop iceberg-writer iceberg-medallion
+            if [ "$outage" = 1 ]; then "${compose[@]}" stop otel-collector; fi
+            set +e
+            /usr/bin/time -f '%e' -o "otel-${phase}-duration.txt" \
+              uv run --locked pytest tests/e2e/test_lakehouse_e2e.py -m e2e -q \
+              --junitxml="otel-${phase}-junit.xml" | tee "otel-${phase}-pytest.log"
+            local rc=${PIPESTATUS[0]}
+            set -e
+            capture_stats "otel-${phase}-stats-after.txt"
+            printf '%s\n' "$(wal_bytes)" > "otel-${phase}-wal-after.txt"
+            if [ "$rc" -ne 0 ]; then return "$rc"; fi
+            write_receipt "$phase" "$enabled" "$outage" "otel-${phase}-duration.txt"
+          }
+
+          run_phase off 0 0
+          run_phase on 1 0
+          curl -fsS http://localhost:19090/-/ready
+          curl -fsS http://localhost:19090/api/v1/targets \
+            | jq -e '[.data.activeTargets[] | select(.labels.job == "otel-collector" and .health == "up")] | length > 0'
+          curl -fsS http://localhost:19090/api/v1/query --get \
+            --data-urlencode 'query=otelcol_process_uptime' \
+            | jq -e '.data.result | length > 0'
+          curl -fsS http://localhost:13001/api/health | jq -e '.database == "ok"'
+          curl -fsS -u admin:h1-grafana-secret \
+            http://localhost:13001/api/datasources/uid/prometheus/health \
+            | jq -e '.status == "OK"'
+          run_phase outage 1 1
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          receipts = [json.loads(Path(f"otel-{phase}-receipt.json").read_text()) for phase in ("off", "on", "outage")]
+          hashes = {item["canonical_contract_sha256"] for item in receipts}
+          if len(hashes) != 1:
+              raise SystemExit(f"canonical parity mismatch: {hashes}")
+          durations = {item["phase"]: item["duration_seconds"] for item in receipts}
+          if any(value <= 0 for value in durations.values()):
+              raise SystemExit(f"invalid workload durations: {durations}")
+          print(json.dumps({"canonical_parity": "PASS", "durations": durations, "resource_delta": "RECORDED"}, sort_keys=True))
+          PY
+      - name: Capture OTel acceptance diagnostics
+        if: failure()
+        run: |
+          docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml \
+            --profile otel ps > otel-compose-ps.txt 2>&1 || true
+          docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml \
+            --profile otel logs --no-color > otel-compose.log 2>&1 || true
+      - name: Upload OTel acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ng04-otel-acceptance-evidence
+          path: |
+            otel-*-receipt.json
+            otel-*-junit.xml
+            otel-*-pytest.log
+            otel-*-stats-*.txt
+            otel-*-wal-*.txt
+            otel-*-duration.txt
+            otel-compose-ps.txt
+            otel-compose.log
+      - name: Destroy OTel acceptance stack
+        if: always()
+        run: docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml --profile otel down --volumes --remove-orphans
