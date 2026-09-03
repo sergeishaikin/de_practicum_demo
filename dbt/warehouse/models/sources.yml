@@ -13,6 +13,7 @@ version: 2
 
 sources:
   - name: staging
+    loader: airflow
     description: Raw Olist relations loaded by the Airflow ingestion transaction.
     schema: stg
     database: "{{ env_var('DBT_POSTGRES_DB', 'dwh') }}"
@@ -98,6 +99,7 @@ sources:
   # thresholds, so an empty `freshness: {}` here would be both unnecessary and
   # misleading about what is being checked.
   - name: core
+    loader: airflow
     description: Transactionally rebuilt relations owned by the ingestion DAG.
     schema: core
     database: "{{ env_var('DBT_POSTGRES_DB', 'dwh') }}"
