@@ -212,3 +212,20 @@ runtime SHA was `4c6108f84d55f8c5e22cde9fa5eaf16a95fe420f`, covered by capabilit
 run `33807398167` and core H1 run `33807455038`. This change was then adopted
 into `openspec/specs/tempo-trace-backend/spec.md` and archived here. NG-0.5 is
 `DONE / ADOPTED`; NG-0.6 remains `PLANNED / pending` and unauthorised.
+
+### Post-archive CI
+
+All applicable final workflows were dispatched against closure SHA
+`eb869eed8fcbaae62a441cba28bf53276e3c0ae3`:
+
+| Workflow | Run | Result |
+|---|---|---|
+| M5 architecture gates | [33810350355](https://github.com/sergeishaikin/de_practicum_demo/actions/runs/33810350355) | success |
+| NG-0.5 Tempo capability | [33810355152](https://github.com/sergeishaikin/de_practicum_demo/actions/runs/33810355152) | success |
+| H1 clean reproducible stack (rerun) | [33810352974](https://github.com/sergeishaikin/de_practicum_demo/actions/runs/33810352974) | success; both jobs green |
+
+The repository `CI` workflow has no `workflow_dispatch` trigger and only runs
+for `main` pushes or pull requests; its exact local completion equivalent was
+run before archive (Ruff, Black, mypy, full pytest and coverage). No S1/dbt or
+metadata-specific workflow was applicable to this documentation-only archive
+transition.
