@@ -30,7 +30,7 @@ created, and no canonical data was touched.
 | Retention/compaction | Tempo configuration/storage docs expose block retention and compaction controls | Values must be finite, paired and measured; defaults are not adopted by assumption |
 | TraceQL/search | Tempo/Grafana docs support TraceQL and search by service/span/attributes plus known trace ID | M2 smoke will use stable resource attributes, not ephemeral container names |
 | Trace→metrics | Grafana docs state trace-to-metrics uses existing Prometheus-compatible metrics and does not require metrics-generator | One-way correlation can preserve metric authority |
-| Metrics→trace | Grafana docs state reverse navigation requires Prometheus exemplars | Current absence is a blocking acceptance contradiction |
+| Metrics→trace | Grafana docs state reverse navigation requires Prometheus exemplars | Original M1 absence was blocking; resolved by `2026-09-03-add-prometheus-trace-exemplars` / adopted receipt `4931e4c` |
 | Trace→logs | Grafana docs require both Tempo and Loki-side configuration for bidirectional links | NG-0.5 prepares mapping only; NG-0.6 owns Loki |
 | Metrics-generator | Tempo docs describe it as optional and capable of span-metrics/service-graphs; NG-0.4 explicitly locks out span-derived authority | Cannot enable it as an exemplar workaround |
 
