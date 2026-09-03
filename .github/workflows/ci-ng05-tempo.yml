@@ -61,6 +61,9 @@ jobs:
           for i in $(seq 1 45); do
             curl -fsS http://localhost:13200/ready && break || sleep 1
           done
+          for i in $(seq 1 45); do
+            test "$(docker inspect -f '{{.State.Health.Status}}' de-demo-otel-collector)" = healthy && break || sleep 1
+          done
           test "$(docker inspect -f '{{.State.Health.Status}}' de-demo-otel-collector)" = healthy
       - name: Start disposable Prometheus scrape authority
         run: |
