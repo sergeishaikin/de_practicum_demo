@@ -70,6 +70,26 @@ def source_config() -> str:
         "exporters: [debug, otlp_grpc/telemetry-backend]\n",
         "exporters: [debug, otlp/acceptance]\n",
     )
+    # Remove the optional Tempo exporter definition as well as the pipeline
+    # reference; the NG-0.4 harness owns an isolated network and must not
+    # attempt backend DNS resolution while it is starting.
+    config = config.replace(
+        "  # Named NG-0.4 insertion slot; NG-0.5 selects Tempo behind this boundary.\n"
+        "  otlp_grpc/telemetry-backend:\n"
+        "    endpoint: tempo:4317\n"
+        "    tls:\n"
+        "      insecure: true\n"
+        "    sending_queue:\n"
+        "      enabled: true\n"
+        "      num_consumers: 1\n"
+        "      queue_size: 256\n"
+        "    retry_on_failure:\n"
+        "      enabled: true\n"
+        "      initial_interval: 1s\n"
+        "      max_interval: 5s\n"
+        "      max_elapsed_time: 30s\n",
+        "",
+    )
     config = config.replace(
         "exporters: [debug]\n", "exporters: [debug, otlp/acceptance]\n"
     )
