@@ -199,6 +199,7 @@ contract, Prometheus/Grafana smoke, runtime evidence, and cleanup).
 
 ## Milestone 2 classification
 
-`PARTIAL — CONSISTENT`: bounded implementation, local gates, capability CI and
-exact-SHA core H1 all pass. Final adoption/archive is intentionally withheld
-pending explicit user approval; NG-0.5 remains `ACTIVE/pending`.
+`PASS_WITH_EXPLICIT_LIMITATIONS`: bounded implementation, local gates,
+capability CI and exact-SHA core H1 all pass. The only remaining limitation is
+governance: final adoption/archive is intentionally withheld pending explicit
+user approval; NG-0.5 remains `ACTIVE/pending`.
