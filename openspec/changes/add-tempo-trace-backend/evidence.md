@@ -63,3 +63,6 @@ or start NG-0.6.
 implementation milestone. Tempo image/config compatibility, isolated storage,
 retention/resource measurements, failure injection and final Grafana↔Tempo
 correlation remain M2 acceptance work. NG-0.5 stays `ACTIVE/pending`.
+
+`READY FOR NG-0.5 IMPLEMENTATION: YES` means the M1 design gate is satisfied;
+it does not authorise M2 or any Tempo runtime change.

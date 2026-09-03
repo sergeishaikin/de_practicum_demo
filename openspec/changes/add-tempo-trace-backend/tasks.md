@@ -16,5 +16,5 @@
       resolutions; do not implement either resolution.
 - [x] M1R: reference archived bounded application exemplars and verify that the
       metric-to-trace contradiction is resolved without span-derived metrics.
-- [ ] Milestone 2 implementation (explicitly blocked; requires a new grant and
-      resolved exemplar governance).
+- [ ] Milestone 2 implementation (requires a new explicit grant; governance
+      prerequisite is now resolved, but implementation remains unauthorised).
