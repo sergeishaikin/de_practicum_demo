@@ -74,6 +74,17 @@ validating metadata. The reserved `__invalid` regression asserts count `1`
 and sum `1.25`. No exception crosses into the metric or canonical processing
 path. Existing OTel/Prometheus/PostgreSQL authority remains unchanged.
 
+## Verification-contract repair
+
+The regression was first run against the unfixed implementation at detached
+SHA `fe56e19172e6535987e2c9c59a92dfd85270dc5d`, using the repaired
+`__invalid` test. It failed as expected with
+`lakehouse_duration_seconds_count == 2.0` (the old fallback retried after
+client-side mutation). The temporary proof worktree was then removed.
+
+The same test passes on repaired SHA `229882b85eadfcddc5ae31b535b36f9748ac7cc9`
+with count `1` and sum `1.25`.
+
 ## Resource bound
 
 `max_exemplars: 1000` is the explicit demo ceiling. Prometheus documentation
@@ -92,6 +103,7 @@ production sizing claim.
 
 - `uv run --locked pytest tests --cov=iceberg --cov-report=term-missing
   --cov-fail-under=90`: 517 passed, 1 skipped, 81 deselected; 93.31% coverage.
+- `uv run --locked pytest`: 517 passed, 1 skipped, 81 deselected.
 - `uv run --locked ruff check .`: passed.
 - `uv run --locked black --check .`: passed.
 - `uv run --locked mypy`: passed (10 source files).
