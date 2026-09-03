@@ -13,5 +13,5 @@
 - [x] Prove OpenMetrics output in the pinned application image.
 - [x] Prove Prometheus scrape/target health and exemplar retrieval through its
       API on an isolated temporary network.
-- [ ] Run final full repository gates, archive this change and reference its
-      closure from NG‑0.5 (remaining closure work).
+- [x] Run final full repository gates and archive this change. A short NG‑0.5
+      M1R reference remains intentionally separate; NG‑0.5 stays blocked.

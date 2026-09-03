@@ -5,8 +5,8 @@ Captured 2026-09-03 from starting SHA
 
 ## Status
 
-Implementation and live prerequisite proof complete; final gates and archive
-remain before closure.
+Implementation, live prerequisite proof and final gates complete; this receipt
+is ready to archive.
 
 ## Standing-spec clarification
 
@@ -87,9 +87,15 @@ production sizing claim.
 
 ## Gates
 
-Focused tests and changed-surface gates are run before closure. Full repository
-pytest/coverage, Compose validation, strict OpenSpec and backlog validation are
-the remaining closure checklist items.
+- `uv run --locked pytest tests --cov=iceberg --cov-report=term-missing
+  --cov-fail-under=90`: 517 passed, 1 skipped, 81 deselected; 93.13% coverage.
+- `uv run --locked ruff check .`: passed.
+- `uv run --locked black --check .`: passed.
+- `uv run --locked mypy`: passed (10 source files).
+- `openspec validate add-prometheus-trace-exemplars --strict`: valid.
+- `openspec validate --specs --strict`: 5 passed, 0 failed.
+- Compose config and pinned-image `promtool check config`: passed.
+- `git diff --check`: passed.
 
 ## CI
 
@@ -99,12 +105,12 @@ NG‑0.5 capability job owns the final Grafana→Tempo destination proof.
 
 ## Archive / standing capability
 
-Not archived yet. Archive only after all gates pass; retain this evidence and
-leave NG‑0.5 `ACTIVE/pending`.
+Archived as `2026-09-03-add-prometheus-trace-exemplars`; retain this evidence
+and leave NG‑0.5 `ACTIVE/pending`.
 
 ## Closure SHA
 
-Pending final commit.
+The archive commit is the closure SHA reported in the final receipt.
 
 ## NG‑0.5 state
 
