@@ -1,8 +1,8 @@
 # NG-0.5 — Grafana Tempo Trace Backend
 
-> **Lifecycle:** PLANNED
+> **Lifecycle:** ACTIVE
 > **Disposition:** pending
-> **Execution authorization:** NONE. This file specifies a future bounded change; it does not authorize implementation by itself.
+> **Execution authorization:** `operator:explicit-ng-0.5-milestone-1` — recovery, revalidation, design and preflight only; implementation is not authorised.
 > **Opens as:** `add-tempo-trace-backend`
 > **Repository:** `sergeishaikin/de_practicum_demo`
 > **Baseline branch used for analysis:** `test/dbt-extensive-testing`
