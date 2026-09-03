@@ -69,7 +69,7 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [memory_limiter, batch]
+      processors: [memory_limiter, redaction, batch]
       exporters: [debug, otlp_grpc/telemetry-backend]
     logs:
       receivers: [otlp]

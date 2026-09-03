@@ -76,12 +76,41 @@ jobs:
             -v ng05-ci-prom-data:/prometheus "$PROMETHEUS_IMAGE" \
             --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/prometheus --enable-feature=exemplar-storage
           for i in $(seq 1 30); do curl -fsS http://localhost:19090/-/ready && break || sleep 1; done
+      - name: Start disposable Grafana correlation surface
+        run: |
+          set -a; source .env; set +a
+          docker run -d --name ng05-ci-grafana --network de_demo_net \
+            --network-alias grafana -p 13001:3000 \
+            -e GF_SECURITY_ADMIN_PASSWORD=ng05-grafana-ci-secret \
+            -v "$PWD/observability/grafana/provisioning:/etc/grafana/provisioning:ro" \
+            -v "$PWD/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro" \
+            "$GRAFANA_IMAGE"
+          for i in $(seq 1 45); do curl -fsS http://localhost:13001/api/health && break || sleep 1; done
       - name: Static contracts and bounded live acceptance
         env:
           NG05_PROMETHEUS_URL: http://localhost:19090
+          NG05_GRAFANA_URL: http://localhost:13001
+          NG05_GRAFANA_PASSWORD: ng05-grafana-ci-secret
         run: |
           uv run --locked pytest -q tests/test_tempo_contract.py tests/test_otel_contract.py
           uv run --locked python tests/tempo_acceptance.py
+      - name: Tempo-specific restart and object-store outage probes
+        run: |
+          docker stop de-demo-tempo
+          if curl -fsS http://localhost:13200/ready; then
+            echo "Tempo remained ready while stopped" >&2
+            exit 1
+          fi
+          docker start de-demo-tempo
+          for i in $(seq 1 45); do curl -fsS http://localhost:13200/ready && break || sleep 1; done
+          curl -fsS http://localhost:13200/ready
+          docker stop de-demo-tempo-minio
+          sleep 3
+          test "$(docker inspect -f '{{.State.Status}}' de-demo-tempo-minio)" = exited
+          test "$(docker inspect -f '{{.State.Status}}' de-demo-tempo)" = running
+          docker start de-demo-tempo-minio
+          for i in $(seq 1 45); do curl -fsS http://localhost:13200/ready && break || sleep 1; done
+          curl -fsS http://localhost:13200/ready
       - name: Capture capability diagnostics
         if: failure()
         run: |
@@ -98,7 +127,7 @@ jobs:
       - name: Cleanup capability services
         if: always()
         run: |
-          docker rm -f ng05-ci-prometheus ng05-tempo-acceptance-writer || true
+          docker rm -f ng05-ci-prometheus ng05-ci-grafana ng05-tempo-acceptance-writer || true
           docker volume rm ng05-ci-prom-data || true
           docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml \
             --profile observability-next --profile otel down --remove-orphans

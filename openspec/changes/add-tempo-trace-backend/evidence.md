@@ -151,11 +151,28 @@ an over-broad duplicate NG-0.4 harness invocation); they are retained in the
 remote history rather than presented as passes.
 
 Repository-wide Ruff and Black gates passed, and the full unit suite passed
-`522 passed, 1 skipped, 81 deselected`. The exact broad mypy invocation fails
-identically on baseline `041f3ba` and current M2 with five pre-existing errors:
-missing `confluent_kafka`, `propagation`, and OTel stubs plus the duplicate
-medallion module path. This is a recorded governance exception, not a PASS;
-NG-0.5 changed no production Python source.
+`522 passed, 1 skipped, 81 deselected`. The required completion command
+`uv run --locked mypy` passes (`Success: no issues found in 10 source files`).
+The earlier path-explicit diagnostic (`mypy iceberg kafka/producer tests`) is
+outside the configured completion command and reports unrelated optional-stub
+and duplicate-module errors; it is not used as the M2 gate.
+
+The closure-only live regression now also proves `trace_redaction=true`: a
+controlled span containing authorization/password values and a SQL statement
+is stored with forbidden values masked while `lakehouse.load_id` remains
+queryable. The same run reports `storage_positive=tempo-traces/ng05/isolation-proof`
+and `storage_negative=DENIED canonical/iceberg-ng05-denied`, using a disposable
+canonical MinIO endpoint and no warehouse data.
+
+Grafana 11.2 was started with the real provisioning directory. Its health and
+both datasource UIDs were checked, then Grafana's datasource proxy returned the
+same Tempo trace ID and the same Prometheus exemplar trace ID. The receipt is
+`grafana_correlation=true`, not merely a static YAML assertion.
+
+The capability workflow now performs a Tempo stop/readiness failure, restart
+readiness recovery, MinIO stop while Tempo remains running, and MinIO restart
+readiness recovery. These are bounded probes; canonical H1 remains a separate
+workflow and has not yet produced an exact-SHA receipt for this M2 branch.
 
 ## Milestone 2 classification
 

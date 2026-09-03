@@ -34,3 +34,16 @@
 - [x] Define capability CI as an optional workflow; collect resource, outage,
       restart, object-store isolation and canonical-parity receipts.
 - [ ] Milestone 2 final report and explicit user approval for archive/adoption.
+
+## M2B — closure blockers only
+
+- [x] Add trace redaction to the traces pipeline and run a forbidden-value
+      regression with useful load identity preserved.
+- [x] Execute Tempo-vs-canonical MinIO permission proof (ALLOW dedicated trace
+      prefix, DENY canonical namespace).
+- [x] Start Grafana with real provisioning and verify same-trace proxy results
+      for Tempo and Prometheus exemplar navigation.
+- [x] Add Tempo stop/restart and object-store stop/restart probes to capability
+      CI; keep canonical H1 as a separate required workflow.
+- [x] Verify the configured completion gate `uv run --locked mypy` passes.
+- [ ] Obtain exact-SHA green core H1 receipt before final adoption/archive.
