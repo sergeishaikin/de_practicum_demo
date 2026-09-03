@@ -46,4 +46,4 @@
 - [x] Add Tempo stop/restart and object-store stop/restart probes to capability
       CI; keep canonical H1 as a separate required workflow.
 - [x] Verify the configured completion gate `uv run --locked mypy` passes.
-- [ ] Obtain exact-SHA green core H1 receipt before final adoption/archive.
+- [x] Obtain exact-SHA green core H1 receipt before final adoption/archive.

@@ -142,13 +142,13 @@ Collector capability plus a disposable Prometheus authority, runs both
 acceptance harnesses and uploads diagnostics. Core H1 CI does not depend on the
 profile. This receipt is not an archive or DONE transition.
 
-The executed GitHub receipt is run [33798098920](https://github.com/sergeishaikin/de_practicum_demo/actions/runs/33798098920),
-head SHA `7f24b5ee5af4c8fa54a0b17076991f3e6bfe6246`. Its Tempo job passed
-configuration verification, optional profile startup, disposable Prometheus
-startup, focused contracts, and the live Tempo acceptance. Earlier failed runs
-were corrected workflow defects (invalid setup-uv pin, missing build image, and
-an over-broad duplicate NG-0.4 harness invocation); they are retained in the
-remote history rather than presented as passes.
+The executed capability receipt is run [33803155411](https://github.com/sergeishaikin/de_practicum_demo/actions/runs/33803155411),
+head SHA `fdb93c184b757be83c5416838d4c15ff6e2e1414`. Its job passed pinned
+configuration verification, optional profile startup, disposable Prometheus and
+Grafana startup, focused contracts, live Tempo acceptance, and the Tempo/MinIO
+stop/restart and object-store outage probes. Earlier failed runs were corrected
+workflow defects; they are retained in remote history rather than presented as
+passes.
 
 Repository-wide Ruff and Black gates passed, and the full unit suite passed
 `522 passed, 1 skipped, 81 deselected`. The required completion command
@@ -172,10 +172,17 @@ same Tempo trace ID and the same Prometheus exemplar trace ID. The receipt is
 The capability workflow now performs a Tempo stop/readiness failure, restart
 readiness recovery, MinIO stop while Tempo remains running, and MinIO restart
 readiness recovery. These are bounded probes; canonical H1 remains a separate
-workflow and has not yet produced an exact-SHA receipt for this M2 branch.
+workflow.
+
+The exact-SHA core H1 receipt is run
+[33803379123](https://github.com/sergeishaikin/de_practicum_demo/actions/runs/33803379123),
+head SHA `fdb93c184b757be83c5416838d4c15ff6e2e1414`. Both jobs passed: the
+H1-owned clean OFF/ON/Collector-outage parity phases and the fresh-volume baked
+runtime full verification (integration, deterministic E2E, dbt semantic
+contract, Prometheus/Grafana smoke, runtime evidence, and cleanup).
 
 ## Milestone 2 classification
 
-`PARTIAL`: bounded implementation and local acceptance gates pass, but final
-adoption/archive is intentionally withheld pending explicit next approval.
-NG-0.5 is **not yet ready for final adoption/archive**.
+`PARTIAL — CONSISTENT`: bounded implementation, local gates, capability CI and
+exact-SHA core H1 all pass. Final adoption/archive is intentionally withheld
+pending explicit user approval; NG-0.5 remains `ACTIVE/pending`.
