@@ -84,6 +84,7 @@ archived and NG-0.5 remains `ACTIVE/pending`.
 | Storage | dedicated `tempo-minio`, `de_demo_tempo_minio_data`, Tempo WAL/data volume, bucket `tempo-traces`, prefix `ng05/` |
 | Retention | block retention 24h, compacted block retention 1h, compaction window 1h; MinIO lifecycle expires `ng05/` after 2 days |
 | Resource bounds | Tempo `mem_limit: 768m`, `cpus: 1.0`; Collector memory limiter 256 MiB and queue size 256 |
+| Disk/object receipt | `docker stats` showed Tempo `23.7MiB / 768MiB`; MinIO `mc du` reported `658KiB / 23 objects` under `tempo-traces/ng05/`; the mounted Tempo volume was `4096` bytes at the probe boundary |
 
 ### Live OTLP, TraceQL and correlation proof
 
@@ -140,6 +141,12 @@ renders and verifies the pinned Tempo config, starts only the optional Tempo /
 Collector capability plus a disposable Prometheus authority, runs both
 acceptance harnesses and uploads diagnostics. Core H1 CI does not depend on the
 profile. This receipt is not an archive or DONE transition.
+
+Repository-wide Ruff and Black gates passed, and the full unit suite passed
+`522 passed, 1 skipped, 81 deselected`. The existing broad mypy invocation
+still reports its pre-existing missing optional stubs/module-path errors
+(`confluent_kafka`, `propagation`, OTel stubs and duplicate medallion module);
+NG-0.5 changed no production Python source.
 
 ## Milestone 2 classification
 
