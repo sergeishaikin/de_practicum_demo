@@ -7,6 +7,8 @@ from typing import Any
 
 import psycopg2
 
+from common.telemetry import current_trace_exemplar
+
 METRICS_ENABLED = os.getenv("METRICS_ENABLED", "1") == "1"
 PROMETHEUS_METRICS_PORT = os.getenv("PROMETHEUS_METRICS_PORT")
 
@@ -338,6 +340,7 @@ class _RuntimeMetrics:
             from prometheus_client import CollectorRegistry
 
             registry = CollectorRegistry()
+            self.registry = registry
             self.events = Counter(
                 "lakehouse_events",
                 "Completed application metric records",
@@ -411,7 +414,22 @@ class _RuntimeMetrics:
         self.up.labels(source).set(1)
         self.last_event.labels(source).set(time.time())
         self.events.labels(source, status).inc()
-        self.duration.labels(source).observe(int(values["duration_ms"]) / 1000)
+        duration = int(values["duration_ms"]) / 1000
+        exemplar = current_trace_exemplar()
+        if exemplar is None:
+            self.duration.labels(source).observe(duration)
+        else:
+            try:
+                self.duration.labels(source).observe(duration, exemplar=exemplar)
+            except Exception as exc:
+                # A malformed/unsupported exemplar must never suppress the
+                # authoritative duration observation or canonical processing.
+                print(
+                    f"Prometheus exemplar unavailable; recording metric without it: {exc}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                self.duration.labels(source).observe(duration)
         for state in ("available", "in_flight", "completed"):
             self.work.labels(source, state).set(int(values[f"work_{state}"]))
         for kind in ("rows", "files", "keys"):

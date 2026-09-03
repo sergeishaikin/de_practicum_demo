@@ -151,3 +151,25 @@ class _NoopSpan:
 
 def setup_telemetry(service_name: str) -> Telemetry:
     return Telemetry(service_name)
+
+
+def current_trace_exemplar() -> dict[str, str] | None:
+    """Return a sampled current trace id for a bounded metric exemplar.
+
+    Exemplars are optional correlation metadata, not metric dimensions.  The
+    import and lookup are deliberately fail-open because the root environment
+    and the telemetry-disabled profile do not install/use the OTel SDK.
+    """
+
+    if os.getenv("OTEL_ENABLED", "0") != "1":
+        return None
+    try:
+        from opentelemetry import trace
+
+        context = trace.get_current_span().get_span_context()
+        if not context.is_valid or not context.trace_flags.sampled:
+            return None
+        return {"trace_id": f"{context.trace_id:032x}"}
+    except Exception:  # pragma: no cover - optional SDK/runtime boundary
+        LOGGER.debug("Unable to read OTel context for metric exemplar", exc_info=True)
+        return None

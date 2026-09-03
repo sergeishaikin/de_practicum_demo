@@ -582,14 +582,17 @@ def main() -> None:
                     "writer ingest completed",
                     attributes={"lakehouse.rows": arrow_table.num_rows},
                 )
-                metrics.record(
-                    source="writer",
-                    status="success",
-                    load_id=load_id,
-                    rows_processed=arrow_table.num_rows,
-                    files_processed=len(new_files),
-                    duration_ms=duration_ms,
-                )
+                # Keep a real sampled OTel context active for the existing
+                # duration observation so the exemplar points at this trace.
+                with telemetry.span("writer.metrics"):
+                    metrics.record(
+                        source="writer",
+                        status="success",
+                        load_id=load_id,
+                        rows_processed=arrow_table.num_rows,
+                        files_processed=len(new_files),
+                        duration_ms=duration_ms,
+                    )
                 emit_ingest_lineage(emitter, load_id, table)
         except SystemExit:
             raise
@@ -610,12 +613,13 @@ def main() -> None:
                 file_count = len(pending[load_id])
                 del pending[load_id]
                 save_state(done, pending)
-                metrics.record(
-                    source="writer",
-                    status="error",
-                    load_id=load_id,
-                    files_processed=file_count,
-                )
+                with telemetry.span("writer.metrics"):
+                    metrics.record(
+                        source="writer",
+                        status="error",
+                        load_id=load_id,
+                        files_processed=file_count,
+                    )
         time.sleep(POLL_INTERVAL)
 
 
