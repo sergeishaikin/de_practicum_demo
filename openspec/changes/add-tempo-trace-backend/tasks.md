@@ -16,5 +16,21 @@
       resolutions; do not implement either resolution.
 - [x] M1R: reference archived bounded application exemplars and verify that the
       metric-to-trace contradiction is resolved without span-derived metrics.
-- [ ] Milestone 2 implementation (requires a new explicit grant; governance
-      prerequisite is now resolved, but implementation remains unauthorised).
+
+## Milestone 2 — bounded implementation and acceptance (2026-09-03)
+
+- [x] Revalidate Tempo v3.0.3 release and pin the verified multi-arch image
+      digest; validate the rendered Tempo 3.x configuration with `--config.verify`.
+- [x] Add the opt-in `observability-next` profile with separate Tempo WAL/data
+      and MinIO trace storage, credentials, bucket prefix, retention and
+      compaction controls.
+- [x] Route Collector traces through the existing `telemetry-backend` boundary
+      with bounded queue/retry settings; retain OTLP application destination and
+      the Prometheus/Grafana metrics authority.
+- [x] Provision deterministic Grafana Tempo and Prometheus datasource UIDs,
+      trace-to-metrics and exemplar trace destinations; leave Loki unconfigured.
+- [x] Run focused contract tests, the existing NG-0.4 acceptance harness and
+      the bounded Tempo live acceptance (OTLP, TraceQL, exemplar same-trace ID).
+- [x] Define capability CI as an optional workflow; collect resource, outage,
+      restart, object-store isolation and canonical-parity receipts.
+- [ ] Milestone 2 final report and explicit user approval for archive/adoption.

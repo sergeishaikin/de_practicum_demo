@@ -64,6 +64,12 @@ def source_config() -> str:
       storage: file_storage
 """,
     )
+    # Replace the production trace route in the disposable source collector;
+    # this keeps the NG-0.4 harness isolated from the optional Tempo backend.
+    config = config.replace(
+        "exporters: [debug, otlp_grpc/telemetry-backend]\n",
+        "exporters: [debug, otlp/acceptance]\n",
+    )
     config = config.replace(
         "exporters: [debug]\n", "exporters: [debug, otlp/acceptance]\n"
     )
@@ -76,6 +82,7 @@ def pressure_config() -> str:
     config = source_config()
     config = config.replace("queue_size: 4", "queue_size: 1")
     config = config.replace("max_elapsed_time: 30s", "max_elapsed_time: 2s")
+    config = config.replace("max_interval: 5s", "max_interval: 500ms")
     config = config.replace(
         "    send_batch_size: 128", "    send_batch_size: 1\n    send_batch_max_size: 1"
     )

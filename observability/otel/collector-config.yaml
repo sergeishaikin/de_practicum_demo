@@ -38,6 +38,20 @@ processors:
 exporters:
   debug:
     verbosity: basic
+  # Named NG-0.4 insertion slot; NG-0.5 selects Tempo behind this boundary.
+  otlp_grpc/telemetry-backend:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+    sending_queue:
+      enabled: true
+      num_consumers: 1
+      queue_size: 256
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 5s
+      max_elapsed_time: 30s
 
 service:
   telemetry:
@@ -56,7 +70,7 @@ service:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [debug]
+      exporters: [debug, otlp_grpc/telemetry-backend]
     logs:
       receivers: [otlp]
       processors: [memory_limiter, redaction, batch]

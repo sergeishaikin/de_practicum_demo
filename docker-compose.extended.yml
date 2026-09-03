@@ -476,6 +476,70 @@ services:
     networks:
       - de_demo_net
 
+  tempo-minio:
+    profiles: ["observability-next"]
+    image: ${TEMPO_MINIO_IMAGE:?TEMPO_MINIO_IMAGE is required for the Tempo profile}
+    container_name: de-demo-tempo-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${TEMPO_S3_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${TEMPO_S3_SECRET_KEY}
+    volumes:
+      - de_demo_tempo_minio_data:/data
+    networks:
+      - de_demo_net
+
+  tempo-minio-init:
+    profiles: ["observability-next"]
+    image: ${TEMPO_MINIO_MC_IMAGE:?TEMPO_MINIO_MC_IMAGE is required for the Tempo profile}
+    container_name: de-demo-tempo-minio-init
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        until mc alias set tempo http://tempo-minio:9000
+        "$${TEMPO_S3_ACCESS_KEY}" "$${TEMPO_S3_SECRET_KEY}"; do sleep 1; done;
+        mc mb --ignore-existing "tempo/$${TEMPO_S3_BUCKET}";
+        mc ilm rule add --expire-days 2 --prefix "$${TEMPO_S3_PREFIX}"
+        "tempo/$${TEMPO_S3_BUCKET}";
+    environment:
+      TEMPO_S3_ACCESS_KEY: ${TEMPO_S3_ACCESS_KEY}
+      TEMPO_S3_SECRET_KEY: ${TEMPO_S3_SECRET_KEY}
+      TEMPO_S3_BUCKET: ${TEMPO_S3_BUCKET}
+      TEMPO_S3_PREFIX: ${TEMPO_S3_PREFIX}
+    depends_on:
+      tempo-minio:
+        condition: service_started
+    networks:
+      - de_demo_net
+
+  tempo:
+    profiles: ["observability-next"]
+    image: ${TEMPO_IMAGE:?TEMPO_IMAGE is required for the Tempo profile}
+    container_name: de-demo-tempo
+    command:
+      - -config.file=/etc/tempo/tempo.yaml
+      - -config.expand-env=true
+      - -target=all
+    environment:
+      TEMPO_S3_ENDPOINT: tempo-minio:9000
+      TEMPO_S3_BUCKET: ${TEMPO_S3_BUCKET}
+      TEMPO_S3_PREFIX: ${TEMPO_S3_PREFIX}
+      TEMPO_S3_ACCESS_KEY: ${TEMPO_S3_ACCESS_KEY}
+      TEMPO_S3_SECRET_KEY: ${TEMPO_S3_SECRET_KEY}
+    ports:
+      - "${TEMPO_HOST_PORT:-13200}:3200"
+    volumes:
+      - ./observability/tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - de_demo_tempo_data:/var/tempo
+    depends_on:
+      tempo-minio-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    mem_limit: 768m
+    cpus: 1.0
+    networks:
+      - de_demo_net
+
   grafana:
     image: ${GRAFANA_IMAGE:?GRAFANA_IMAGE is required}
     container_name: de-demo-grafana
@@ -728,6 +792,8 @@ volumes:
   de_demo_prometheus_data:
   de_demo_grafana_data:
   de_demo_otel_storage:
+  de_demo_tempo_data:
+  de_demo_tempo_minio_data:
 
 networks:
   de_demo_net:

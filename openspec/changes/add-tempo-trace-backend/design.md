@@ -4,16 +4,16 @@
 
 Baseline is adopted NG-0.4 closure `c151470c51a142ce8142166505b39ada861d094e`
 on branch `feature/ng-0.5-tempo`. NG-0.4 is `DONE/ADOPTED`; NG-0.5 is
-`ACTIVE/pending`; NG-0.6 remains `PLANNED` and is not authorised. The only
-authorised work in this change is M1 design/preflight.
+`ACTIVE/pending`; NG-0.6 remains `PLANNED` and is not authorised. M1 covered
+design/preflight; explicitly authorised M2 work adds the bounded optional
+Tempo capability below. Archive/adoption is still out of scope.
 
-NG-0.5 owns the future Tempo image/config/profile, dedicated trace storage,
+NG-0.5 owns the Tempo image/config/profile, dedicated trace storage,
 retention/compaction settings, Grafana Tempo datasource, TraceQL/query smoke,
-and profile evidence. Shared Collector routing, Grafana provisioning
-registration and lifecycle metadata are touched only minimally and only after
-a later implementation grant.
+and profile evidence. Shared Collector routing and Grafana provisioning are
+touched minimally; the existing metrics path remains authoritative.
 
-## Proposed topology (not implemented)
+## Implemented topology (opt-in `observability-next` profile)
 
 `application → OTLP/gRPC Collector:4317 → telemetry-backend → Tempo monolith →
 dedicated S3-compatible trace bucket → Grafana Tempo datasource`.
@@ -26,7 +26,7 @@ fail-open; its bounded queue/retry/WAL contract and redaction are reused.
 
 ## Storage, retention and recovery contract
 
-The implementation must use a dedicated trace bucket/prefix (for example,
+The implementation uses a dedicated trace bucket/prefix (for example,
 `tempo-traces`) and a dedicated credential with no Iceberg warehouse access.
 The local MinIO endpoint is a demo convenience only; endpoint, bucket, prefix,
 credentials and TLS are externalised so S3/GCS/Azure or another S3-compatible
@@ -75,13 +75,13 @@ part of NG-0.5.
 
 ## Failure, resources and CI
 
-The future profile must test healthy ingestion, Tempo unavailable, restored
+The profile tests healthy ingestion, Tempo unavailable, restored
 backend, Tempo restart, object-store write failure, queue saturation and
 Collector WAL recovery. Every case must show canonical writer/medallion/
 streaming results unchanged and bounded telemetry loss/pressure visible in
 Collector metrics. The profile remains opt-in and core H1 runs with it absent.
 
-CI design is limited to a future capability job: pinned image/digest and
+CI uses a separate capability job: pinned image/digest and
 component validation, clean profile start, OTLP/query smoke, isolated-prefix
 assertion, retention/disk receipt, and failure injection. It must not alter the
 existing core H1 job.

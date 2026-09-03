@@ -1,13 +1,14 @@
-# NG-0.5 — Grafana Tempo trace backend (Milestone 1)
+# NG-0.5 — Grafana Tempo trace backend (Milestones 1-2)
 
 ## Scope
 
 This authorised change covers recovery, primary-source revalidation, design,
-and preflight for `add-tempo-trace-backend`. It does not implement Tempo,
-change the Collector runtime, instrument services, provision a bucket, or
-alter the Prometheus/Grafana metrics authority.
+preflight, and the bounded Milestone 2 capability implementation for
+`add-tempo-trace-backend`. It adds only an opt-in Tempo profile and routes
+existing OTLP through the Collector; Prometheus/Grafana metrics remain
+authoritative.
 
-The design targets the smallest future `observability-next` profile: existing
+The design targets the smallest opt-in `observability-next` profile: existing
 applications continue to export only OTLP to the NG-0.4 Collector, and the
 Collector's named `telemetry-backend` slot is the only normal write path to a
 Tempo monolith. Tempo storage is a dedicated trace namespace, replaceable S3-
@@ -15,8 +16,8 @@ compatible object storage, with bounded retention and measured resource use.
 
 ## Non-goals and scope fence
 
-- No Tempo container, image pull, datasource, bucket, credentials, or CI job is
-  created in Milestone 1.
+- The Tempo profile is optional and isolated; core H1 startup does not require
+  it. Final archive/adoption remains outside this milestone.
 - No Loki, trace-to-logs runtime, metrics-generator, spanmetrics connector,
   application metric changes, OTLP route change, Kafka/schema/partition change,
   canonical persistence change, or engine-version change.
@@ -32,5 +33,6 @@ metric-to-trace contradiction is resolved by archived prerequisite
 `5644c49` (implementation repair `229882b`): an existing
 application Histogram now carries bounded sampled-trace exemplar metadata,
 without changing metric labels or enabling span-derived metrics. The NG-0.5
-design is therefore ready for a separately authorised implementation
-milestone; Tempo itself remains unimplemented.
+design was therefore ready for implementation. Milestone 2 now supplies the
+bounded implementation and local acceptance receipts in `evidence.md` while
+leaving NG-0.5 `ACTIVE/pending` pending explicit final adoption.

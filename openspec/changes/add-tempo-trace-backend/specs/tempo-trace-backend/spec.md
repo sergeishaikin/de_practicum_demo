@@ -2,7 +2,7 @@
 
 ### Requirement: Tempo uses the adopted Collector boundary and isolated storage
 
-Applications SHALL export only to the NG-0.4 Collector OTLP boundary. A future
+Applications SHALL export only to the NG-0.4 Collector OTLP boundary. The
 Tempo backend SHALL be selected behind the Collector's named
 `telemetry-backend` slot and SHALL write to a dedicated trace bucket/prefix
 with credentials that cannot write the Iceberg warehouse.
@@ -35,8 +35,9 @@ exemplar proof SHALL NOT be claimed until usable exemplars are present and
 their governance is compatible with NG-0.4; absence of exemplars is a blocking
 preflight contradiction, not a reason to enable spanmetrics silently.
 
-#### Scenario: Exemplar gate is absent
+#### Scenario: Exemplar gate is satisfied
 
-- **WHEN** no existing Prometheus exemplar can navigate to a trace
-- **THEN** implementation readiness is `NO`
-- **AND** a separate governance decision is required before implementation
+- **WHEN** the adopted bounded application exemplar points at a sampled Tempo
+  trace
+- **THEN** Grafana can navigate from the Prometheus series to that trace ID
+- **AND** no span-derived metric or new metric series label is introduced
