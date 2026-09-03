@@ -10,7 +10,7 @@ Alongside the pytest suites, the stack itself carries these checkable surfaces:
 - **SQL quality gates** — SQL files in `db/demo_sql/` executed inside the Postgres container by `scripts/run_checks.cmd` / `scripts/run_checks.sh`.
 - **Environment diagnostics** — `scripts/doctor.cmd` / `scripts/doctor.sh` validate Docker, Compose, raw CSV files, and host ports.
 - **Warehouse quality gates** — manual `warehouse_orders_ingestion` requires exact non-empty parity across all four CSV/staging pairs and read-only core readiness before its terminal task emits core events. Asset-triggered `warehouse_marts_validation` then runs marts readiness, payment reconciliation, publication, and the provenance audit. Any upstream failure emits no triggering event and creates no downstream run.
-- **Warehouse dbt tests** — the `dbt/warehouse` project carries 4 models, 79 data tests and 9 unit tests, run together by `dbt build`, plus a SQL mutation gate and a SQLFluff correctness gate. See [Warehouse dbt](#warehouse-dbt) below.
+- **Warehouse dbt tests** — the `dbt/warehouse` project carries four staging models, four mart models, 79 data tests and 9 unit tests, run together by `dbt build`, plus a SQL mutation gate, a SQLFluff correctness gate and a dbt Doctor architecture gate. See [Warehouse dbt](#warehouse-dbt) below.
 - **Iceberg verification job** — `spark/jobs/verify_bronze_orders.py` inspects the bronze table, snapshot history, and time travel.
 - **Lakehouse observability** — `marts.lakehouse_metrics` is written by the iceberg writer (one row per batch) and the medallion (one row per executed phase plus a `cycle` envelope row, sharing a `cycle_id`); query it to verify ingestion and transformation runs.
 - **Lakehouse maintenance** — scheduler-serialized mapped tasks run the Trino `optimize`/`expire_snapshots(clean_expired_metadata=false)`/`remove_orphan_files` procedures once and write their own `ok`/`noop` or `failed:<operation>` rows to `marts.maintenance_runs`; failures remain failed.
@@ -170,8 +170,8 @@ uv run --locked pytest tests/features/test_airflow_workflow_behavior.py -m "bdd 
 ### Warehouse dbt
 
 The `dbt/warehouse` project (`warehouse_transform`, PostgreSQL) owns the four
-`marts.v_*` views and is tested in seven layers. This is the *what and how to
-run it*; the rationale for each layer — and for what is deliberately **not**
+dbt staging models and the four `marts.v_*` views. It is tested at the levels
+below. Each level answers a different question. This is the *what and how to run it*; the rationale for each layer — and for what is deliberately **not**
 tested — lives in
 [W1 — Warehouse dbt ownership](warehouse/W1-dbt-ownership.md#testing-layers),
 which is the source of truth.
@@ -184,6 +184,7 @@ which is the source of truth.
 | Property tests | Do invariants that must hold on *any* data still hold? | `dbt/warehouse/tests/` |
 | Reconciliation | Do staging, core and marts agree on the money? | `tests/mart_reconciliation.sql`, `tests/payment_reconciliation.sql` |
 | Integration + replay parity | Does the whole chain line up, and is a rerun safe? | `tests/fixtures/warehouse/`, driven by `ci-pr.yml` |
+| Architecture gate | Does every mart model read a dbt staging model instead of a source? | `dbt/warehouse/.dbt-doctor`, see [W4](warehouse/W4-dbt-architecture-gate.md) |
 | Mutation gate | Do the layers above actually kill bugs? | `scripts/mutation_test.py`, see [W3](warehouse/W3-mutation-gate.md) |
 
 Invoke dbt through the project venv, never a bare `dbt` — see the
@@ -209,6 +210,21 @@ Static correctness gate and repository contracts (**no database needed**):
 uv run --locked sqlfluff lint dbt/warehouse/models dbt/warehouse/tests dbt/models
 uv run --locked pytest tests/test_warehouse_dbt.py tests/test_mutation_harness.py
 ```
+
+Architecture gate (**no database needed**; `dbt parse` does not connect).
+Delete the old manifest first. An old manifest describes an old graph, so the
+gate would check the wrong graph:
+
+```bash
+cd dbt\warehouse
+Remove-Item .\target\manifest.json -Force -ErrorAction SilentlyContinue
+..\..\.venv-dbt-warehouse\Scripts\dbt.exe parse --profiles-dir .
+npx -y dbt-doctor@0.3.4 --offline --manifest target/manifest.json
+```
+
+Expect exit 0, zero errors and two `source-childs` warnings. For both warnings,
+see [W4](warehouse/W4-dbt-architecture-gate.md#accepted-warnings). Do not add
+`--score`. On the pinned 0.3.4 it suppresses the failing exit code.
 
 SQL mutation gate — applies known-bad edits and requires a named unit test to
 fail for each (**stack must be running**; it runs dbt once per mutation):
@@ -316,7 +332,7 @@ The PR workflow contains a **>= 90%** statement coverage check for the `iceberg/
 
 GitHub Actions workflows under `.github/workflows/`:
 
-- `ci-pr.yml` — pull requests and pushes to `main`: compose validation, `ruff`, `black --check`, SQLFluff, the stale-lock check, the 90% `iceberg/` coverage gate, Airflow DagBag validation, and Gherkin workflow features (the Airflow checks run against `de-demo-airflow`). Its separate `warehouse-dbt-contract` job runs the whole warehouse dbt layer: `dbt build`, the seeded staging→core→marts integration fixture, replay parity, the repository contracts, and the SQL mutation gate.
+- `ci-pr.yml` — pull requests and pushes to `main`: compose validation, `ruff`, `black --check`, SQLFluff, the stale-lock check, the 90% `iceberg/` coverage gate, Airflow DagBag validation, and Gherkin workflow features (the Airflow checks run against `de-demo-airflow`). Its separate `warehouse-dbt-contract` job runs the whole warehouse dbt layer: a fresh `dbt parse`, the dbt Doctor architecture gate, `dbt build`, the seeded staging→core→marts integration fixture, replay parity, the repository contracts, and the SQL mutation gate.
 - `ci-integration.yml` — live Iceberg/Trino integration layer (9 tests), manual trigger and on push to `main`. Kept out of the PR gate: it needs the real MinIO/REST-catalog/Trino stack.
 - `ci-nightly.yml` — scheduled (02:15 UTC): full stack, integration layer, deterministic Kafka/Spark E2E (when `tests/e2e/` exists), and the maintenance DAG end-to-end check (`scripts/verify_maintenance_dag.py`).
 - `ci-m5-gates.yml` — PRs touching `iceberg/**` or `tests/test_*.py`: M3/M4 recovery and cutover gates on a minimal Iceberg stack.

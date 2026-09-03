@@ -92,7 +92,9 @@ python scripts/mutation_test.py --self-test --json mutation-report.json
 ## Limits
 
 The gate proves the suite catches *these* defects; it is not a coverage
-percentage and makes no claim about defects nobody has thought of. It runs only
+percentage and makes no claim about defects nobody has thought of. It also says
+nothing about the shape of the graph. [W4](W4-dbt-architecture-gate.md) enforces
+the layer rule separately. It runs only
 against Tier-1 mart SQL — the semantic models are thin aliases (see
 `W1-dbt-ownership.md`), and the staging-to-core rebuild is guarded by replay
 parity instead (`W2-execution-contract.md`).

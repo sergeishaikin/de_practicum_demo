@@ -519,3 +519,24 @@ def test_marts_dag_gates_dbt_build_on_source_freshness() -> None:
         "Prevent downstream certification from consuming staging "
         "whose most recent successful load is outside the permitted age." in w1
     )
+
+
+def test_the_staging_boundary_is_documented() -> None:
+    """Introducing `models/staging/` invalidated three documents and nothing
+    failed, which is the same drift this file already guards against elsewhere.
+
+    These assertions are deliberately coarse: they pin that the boundary is
+    described and cross-linked, never how it is worded, and never a count, a
+    score or a warning total. Pinning those would rebuild the brittleness that
+    let "4 models" and "seven layers" go stale in the first place.
+    """
+
+    assert (
+        ROOT / "docs" / "warehouse" / "W4-dbt-architecture-gate.md"
+    ).is_file(), "W4 documents the architecture gate; nothing else does"
+
+    w1 = read("docs/warehouse/W1-dbt-ownership.md")
+    assert "staging.stg_core__*" in w1, "W1 no longer states the dbt staging layer"
+    assert "W4-dbt-architecture-gate.md" in w1
+
+    assert "W4-dbt-architecture-gate.md" in read("docs/TESTING.md")
