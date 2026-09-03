@@ -14,6 +14,6 @@ select
   o.payment_value as order_payment_value,
   o.main_payment_type,
   oi.ingest_date
-from {{ source('core', 'order_items') }} oi
-left join {{ source('core', 'orders') }} o
+from {{ ref('stg_core__order_items') }} oi
+left join {{ ref('stg_core__orders') }} o
   on o.order_id = oi.order_id

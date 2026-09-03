@@ -13,7 +13,7 @@ unit_tests:
       shrink every downstream mart.
     model: v_order_items_wide
     given:
-      - input: source('core', 'order_items')
+      - input: ref('stg_core__order_items')
         rows:
           - order_id: orphan-1
             order_item_id: 1
@@ -26,7 +26,7 @@ unit_tests:
             price: 50.00
             freight_value: 5.00
             ingest_date: '2026-01-01'
-      - input: source('core', 'orders')
+      - input: ref('stg_core__orders')
         rows: []
     expect:
       rows:
@@ -43,7 +43,7 @@ unit_tests:
       and a NULL payment on the header propagates rather than dropping the row.
     model: v_order_items_wide
     given:
-      - input: source('core', 'order_items')
+      - input: ref('stg_core__order_items')
         rows:
           - order_id: order-1
             order_item_id: 1
@@ -78,7 +78,7 @@ unit_tests:
             price: 100.00
             freight_value: 5.00
             ingest_date: '2026-01-01'
-      - input: source('core', 'orders')
+      - input: ref('stg_core__orders')
         rows:
           - order_id: order-1
             customer_id: cust-1
@@ -109,7 +109,7 @@ unit_tests:
       two must not collapse into each other. Two days prove the grouping.
     model: v_sales_daily
     given:
-      - input: source('core', 'order_items')
+      - input: ref('stg_core__order_items')
         rows:
           - order_id: order-1
             order_item_id: 1
@@ -159,7 +159,7 @@ unit_tests:
             gross_sales: 90.00
           - sales_date: '2026-01-03'
             gross_sales: 100.00
-      - input: source('staging', 'orders')
+      - input: ref('stg_staging__orders')
         rows:
           - order_id: order-1
             order_purchase_timestamp: '2026-01-01 10:00:00'
@@ -170,7 +170,7 @@ unit_tests:
           - order_id: order-4
             order_purchase_timestamp: '2026-01-04 10:00:00'
             ingest_date: '2026-01-01'
-      - input: source('staging', 'order_items')
+      - input: ref('stg_staging__order_items')
         rows:
           - order_id: order-1
             order_item_id: 1
@@ -214,12 +214,12 @@ unit_tests:
         rows:
           - sales_date: '2026-01-01'
             gross_sales: 100.00
-      - input: source('staging', 'orders')
+      - input: ref('stg_staging__orders')
         rows:
           - order_id: order-1
             order_purchase_timestamp: '2026-01-01 10:00:00'
             ingest_date: '2026-01-01'
-      - input: source('staging', 'order_items')
+      - input: ref('stg_staging__order_items')
         rows:
           - order_id: order-1
             order_item_id: 1
@@ -239,7 +239,7 @@ unit_tests:
       orders_cnt stays distinct-per-group rather than distinct-per-day.
     model: v_customer_state_daily
     given:
-      - input: source('core', 'order_items')
+      - input: ref('stg_core__order_items')
         rows:
           - {order_id: order-1, order_item_id: 1, order_purchase_date: '2026-01-01', customer_state: SP, price: 20.00}
           - {order_id: order-1, order_item_id: 2, order_purchase_date: '2026-01-01', customer_state: SP, price: 30.00}
@@ -259,7 +259,7 @@ unit_tests:
       or double type.
     model: v_sales_daily
     given:
-      - input: source('core', 'order_items')
+      - input: ref('stg_core__order_items')
         rows:
           - {order_id: order-1, order_item_id: 1, order_purchase_date: '2026-01-01', price: 0.10, freight_value: 0.10}
           - {order_id: order-1, order_item_id: 2, order_purchase_date: '2026-01-01', price: 0.20, freight_value: 0.20}
@@ -274,7 +274,7 @@ unit_tests:
       make the model emit one row of NULLs.
     model: v_sales_daily
     given:
-      - input: source('core', 'order_items')
+      - input: ref('stg_core__order_items')
         rows: []
     expect:
       rows: []
@@ -287,9 +287,9 @@ unit_tests:
     given:
       - input: ref('v_sales_daily')
         rows: []
-      - input: source('staging', 'orders')
+      - input: ref('stg_staging__orders')
         rows: []
-      - input: source('staging', 'order_items')
+      - input: ref('stg_staging__order_items')
         rows: []
     expect:
       rows: []
