@@ -2,7 +2,7 @@
 
 Captured 2026-09-03 on `feature/ng-0.5-tempo` after M1R reconciliation, with
 the repaired exemplar prerequisite and adopted CI receipt in ancestry at
-`4931e4c`.
+`5644c49`.
 
 ## Recovery and repository inspection
 
@@ -30,7 +30,7 @@ created, and no canonical data was touched.
 | Retention/compaction | Tempo configuration/storage docs expose block retention and compaction controls | Values must be finite, paired and measured; defaults are not adopted by assumption |
 | TraceQL/search | Tempo/Grafana docs support TraceQL and search by service/span/attributes plus known trace ID | M2 smoke will use stable resource attributes, not ephemeral container names |
 | Trace→metrics | Grafana docs state trace-to-metrics uses existing Prometheus-compatible metrics and does not require metrics-generator | One-way correlation can preserve metric authority |
-| Metrics→trace | Grafana docs state reverse navigation requires Prometheus exemplars | Original M1 absence was blocking; resolved by `2026-09-03-add-prometheus-trace-exemplars` / adopted receipt `4931e4c` |
+| Metrics→trace | Grafana docs state reverse navigation requires Prometheus exemplars | Original M1 absence was blocking; resolved by `2026-09-03-add-prometheus-trace-exemplars` / adopted receipt `5644c49` |
 | Trace→logs | Grafana docs require both Tempo and Loki-side configuration for bidirectional links | NG-0.5 prepares mapping only; NG-0.6 owns Loki |
 | Metrics-generator | Tempo docs describe it as optional and capable of span-metrics/service-graphs; NG-0.4 explicitly locks out span-derived authority | Cannot enable it as an exemplar workaround |
 
@@ -47,7 +47,7 @@ Primary references (accessed 2026-09-03):
 ## M1R reconciliation
 
 Archived prerequisite `2026-09-03-add-prometheus-trace-exemplars` has repaired
-adopted receipt `4931e4c` (implementation repair
+adopted receipt `5644c49` (implementation repair
 `229882b85eadfcddc5ae31b535b36f9748ac7cc9`) and proves the chosen resolution: bounded application-generated
 exemplars on the existing `lakehouse_duration_seconds` Histogram. Its live
 proof confirms OpenMetrics output, Prometheus ingestion and unchanged series

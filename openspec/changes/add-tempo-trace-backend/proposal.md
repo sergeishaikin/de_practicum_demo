@@ -29,7 +29,7 @@ compatible object storage, with bounded retention and measured resource use.
 Repository recovery and compatibility review are complete. The former
 metric-to-trace contradiction is resolved by archived prerequisite
 `2026-09-03-add-prometheus-trace-exemplars` at adopted archive receipt
-`4931e4c` (implementation repair `229882b`): an existing
+`5644c49` (implementation repair `229882b`): an existing
 application Histogram now carries bounded sampled-trace exemplar metadata,
 without changing metric labels or enabling span-derived metrics. The NG-0.5
 design is therefore ready for a separately authorised implementation
