@@ -1,7 +1,8 @@
 # Milestone 1 evidence
 
 Captured 2026-09-03 on `feature/ng-0.5-tempo` after M1R reconciliation, with
-the repaired exemplar prerequisite in ancestry at `229882b`.
+the repaired exemplar prerequisite and adopted CI receipt in ancestry at
+`4931e4c`.
 
 ## Recovery and repository inspection
 
@@ -46,7 +47,8 @@ Primary references (accessed 2026-09-03):
 ## M1R reconciliation
 
 Archived prerequisite `2026-09-03-add-prometheus-trace-exemplars` has repaired
-closure `229882b85eadfcddc5ae31b535b36f9748ac7cc9` and proves the chosen resolution: bounded application-generated
+adopted receipt `4931e4c` (implementation repair
+`229882b85eadfcddc5ae31b535b36f9748ac7cc9`) and proves the chosen resolution: bounded application-generated
 exemplars on the existing `lakehouse_duration_seconds` Histogram. Its live
 proof confirms OpenMetrics output, Prometheus ingestion and unchanged series
 labels. The NG-0.4 spanmetrics/metric-authority lockout remains intact.
