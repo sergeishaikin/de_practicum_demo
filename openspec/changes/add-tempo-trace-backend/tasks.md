@@ -47,3 +47,14 @@
       CI; keep canonical H1 as a separate required workflow.
 - [x] Verify the configured completion gate `uv run --locked mypy` passes.
 - [x] Obtain exact-SHA green core H1 receipt before final adoption/archive.
+
+## M2C — verification repair (2026-09-03)
+
+- [x] Pass actual Tempo credentials to both storage probes without logging
+      secrets; assert positive `returncode == 0` and negative `returncode != 0`.
+- [x] Record a pre-fix traces-pipeline regression with forbidden bearer,
+      password and SQL values retained in Tempo.
+- [x] Assert the repaired traces pipeline masks all forbidden values while
+      preserving the safe load identity.
+- [x] Run capability CI on the repaired implementation SHA.
+- [x] Repeat exact-SHA core H1 because the Collector redaction policy changed.

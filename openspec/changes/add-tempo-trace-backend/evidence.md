@@ -142,13 +142,13 @@ Collector capability plus a disposable Prometheus authority, runs both
 acceptance harnesses and uploads diagnostics. Core H1 CI does not depend on the
 profile. This receipt is not an archive or DONE transition.
 
-The executed capability receipt is run [33803155411](https://github.com/sergeishaikin/de_practicum_demo/actions/runs/33803155411),
-head SHA `fdb93c184b757be83c5416838d4c15ff6e2e1414`. Its job passed pinned
+The latest executed capability receipt is run [33807398167](https://github.com/sergeishaikin/de_practicum_demo/actions/runs/33807398167),
+head SHA `4c6108f84d55f8c5e22cde9fa5eaf16a95fe420f`. Its job passed pinned
 configuration verification, optional profile startup, disposable Prometheus and
 Grafana startup, focused contracts, live Tempo acceptance, and the Tempo/MinIO
-stop/restart and object-store outage probes. Earlier failed runs were corrected
-workflow defects; they are retained in remote history rather than presented as
-passes.
+stop/restart and object-store outage probes. Earlier successful run
+`33803155411` tested the predecessor runtime SHA before this repair; it is
+retained as historical evidence, not used as the current closure receipt.
 
 Repository-wide Ruff and Black gates passed, and the full unit suite passed
 `522 passed, 1 skipped, 81 deselected`. The required completion command
@@ -164,6 +164,22 @@ queryable. The same run reports `storage_positive=tempo-traces/ng05/isolation-pr
 and `storage_negative=DENIED canonical/iceberg-ng05-denied`, using a disposable
 canonical MinIO endpoint and no warehouse data.
 
+The M2C storage repair supplies the actual `TEMPO_S3_ACCESS_KEY` and
+`TEMPO_S3_SECRET_KEY` from the runtime environment (or `.env`) to both probes.
+The positive and negative commands use the same credentials and assert their
+process return codes; no credential or command output is printed. A live local
+receipt passed with the configured `tempo-demo` credentials.
+
+For the required redaction regression, baseline source SHA `941eec1` had the
+traces pipeline `processors: [memory_limiter, batch]`. A disposable Collector
+with that pre-fix pipeline received the controlled span and Tempo trace
+`8cdca7a2a009343e08bb2fe8af06f108` retained all three forbidden values:
+`Bearer super-secret-token`, `do-not-store`, and
+`select customer_email from orders`; the acceptance exited 1 with
+`forbidden trace attribute survived redaction`. After the repaired pipeline,
+trace `f9d2a35beb972b5d7f2f4eb559c20cf9` masked all three values while
+preserving `ng05-m2-exemplar-acceptance` and the acceptance exited 0.
+
 Grafana 11.2 was started with the real provisioning directory. Its health and
 both datasource UIDs were checked, then Grafana's datasource proxy returned the
 same Tempo trace ID and the same Prometheus exemplar trace ID. The receipt is
@@ -174,9 +190,9 @@ readiness recovery, MinIO stop while Tempo remains running, and MinIO restart
 readiness recovery. These are bounded probes; canonical H1 remains a separate
 workflow.
 
-The exact-SHA core H1 receipt is run
-[33803379123](https://github.com/sergeishaikin/de_practicum_demo/actions/runs/33803379123),
-head SHA `fdb93c184b757be83c5416838d4c15ff6e2e1414`. Both jobs passed: the
+The exact-SHA core H1 receipt for the repaired runtime is run
+[33807455038](https://github.com/sergeishaikin/de_practicum_demo/actions/runs/33807455038),
+head SHA `4c6108f84d55f8c5e22cde9fa5eaf16a95fe420f`. Both jobs passed: the
 H1-owned clean OFF/ON/Collector-outage parity phases and the fresh-volume baked
 runtime full verification (integration, deterministic E2E, dbt semantic
 contract, Prometheus/Grafana smoke, runtime evidence, and cleanup).
