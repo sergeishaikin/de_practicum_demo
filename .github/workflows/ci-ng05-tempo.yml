@@ -40,6 +40,8 @@ jobs:
           cache-dependency-glob: uv.lock
       - name: Install host verification dependencies
         run: uv sync --locked
+      - name: Build disposable first-party acceptance image
+        run: docker build --tag de-practicum-demo-iceberg:0.11.1-h1 ./iceberg
       - name: Render and verify pinned Tempo configuration
         run: |
           cp .env.example .env
