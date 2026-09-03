@@ -203,3 +203,12 @@ contract, Prometheus/Grafana smoke, runtime evidence, and cleanup).
 capability CI and exact-SHA core H1 all pass. The only remaining limitation is
 governance: final adoption/archive is intentionally withheld pending explicit
 user approval; NG-0.5 remains `ACTIVE/pending`.
+
+## Final adoption and archive
+
+The explicit final adoption authorization was received after the M2C receipts.
+Pre-adoption HEAD was `ca33344b2694bff0292207004b16cb31048eac17`; the accepted
+runtime SHA was `4c6108f84d55f8c5e22cde9fa5eaf16a95fe420f`, covered by capability
+run `33807398167` and core H1 run `33807455038`. This change was then adopted
+into `openspec/specs/tempo-trace-backend/spec.md` and archived here. NG-0.5 is
+`DONE / ADOPTED`; NG-0.6 remains `PLANNED / pending` and unauthorised.

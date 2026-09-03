@@ -33,7 +33,7 @@
       the bounded Tempo live acceptance (OTLP, TraceQL, exemplar same-trace ID).
 - [x] Define capability CI as an optional workflow; collect resource, outage,
       restart, object-store isolation and canonical-parity receipts.
-- [ ] Milestone 2 final report and explicit user approval for archive/adoption.
+- [x] Milestone 2 final report and explicit user approval for archive/adoption.
 
 ## M2B — closure blockers only
 
