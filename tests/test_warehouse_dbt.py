@@ -74,13 +74,34 @@ def test_marts_preserve_existing_relation_names_and_sql_boundaries() -> None:
         )
         assert f"alias='{alias}'" in sql
         assert "{{ config(" in sql
-    assert "source('core', 'order_items')" in (
+    # Every `source()` lives in the staging layer and the marts reach it through
+    # `ref()`. All four marts used to read raw sources directly, so a layering
+    # regression surfaces here before dbt Doctor ever runs.
+    for staging_model, source_call in (
+        ("core/stg_core__orders", "source('core', 'orders')"),
+        ("core/stg_core__order_items", "source('core', 'order_items')"),
+        ("ingestion/stg_staging__orders", "source('staging', 'orders')"),
+        ("ingestion/stg_staging__order_items", "source('staging', 'order_items')"),
+    ):
+        staging_sql = (
+            PROJECT / "models" / "staging" / f"{staging_model}.sql"
+        ).read_text(encoding="utf-8")
+        assert source_call in staging_sql
+
+    for model in expected:
+        sql = (PROJECT / "models" / "marts" / f"{model}.sql").read_text(
+            encoding="utf-8"
+        )
+        assert "source(" not in sql, f"{model} still reads a raw source"
+
+    assert "ref('stg_core__order_items')" in (
         PROJECT / "models" / "marts" / "v_sales_daily.sql"
     ).read_text(encoding="utf-8")
     reconcile = (
         PROJECT / "models" / "marts" / "v_reconcile_sales_daily.sql"
     ).read_text(encoding="utf-8")
-    assert "source('staging', 'orders')" in reconcile
+    assert "ref('stg_staging__orders')" in reconcile
+    assert "ref('stg_staging__order_items')" in reconcile
     assert "ref('v_sales_daily')" in reconcile
 
 
@@ -151,7 +172,7 @@ def test_unit_tests_pin_the_mart_transformation_semantics() -> None:
     # The LEFT JOIN guard is only a guard if core.orders is mocked empty and the
     # payment columns are asserted NULL rather than merely absent.
     orphan = by_name["order_items_wide_keeps_items_without_a_matching_order"]
-    assert "input: source('core', 'orders')\n        rows: []" in orphan
+    assert "input: ref('stg_core__orders')\n        rows: []" in orphan
     assert "order_payment_value: null" in orphan.split("expect:")[1]
 
     # The cross-batch guard is only a guard if the ingest dates actually differ
@@ -409,21 +430,26 @@ def test_generate_schema_name_keeps_the_legacy_marts_relation_names() -> None:
     doc = read("docs/warehouse/W1-dbt-ownership.md")
     assert "generate_schema_name" in doc
 
-    # Stronger evidence when a parsed manifest is available: every mart model must
-    # land in `marts`, unprefixed. Skipped in the fast suite, where no dbt run has
-    # happened yet.
+    # Stronger evidence when a parsed manifest is available: every model must land
+    # in its own layer schema, unprefixed. Skipped in the fast suite, where no dbt
+    # run has happened yet.
     manifest_path = PROJECT / "target" / "manifest.json"
     if not manifest_path.is_file():
         return
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    marts = {
+    models = {
         node["name"]: node
         for node in manifest.get("nodes", {}).values()
         if node.get("resource_type") == "model"
     }
-    assert marts, "manifest contains no models"
-    for name, node in marts.items():
-        assert node["schema"] == "marts", f"{name} resolved to {node['schema']!r}"
+    assert models, "manifest contains no models"
+    for name, node in models.items():
+        # fqn[1] is the layer directory under `models/`. Asserting the schema
+        # equals it covers `staging` on the same terms as `marts`: a dbt default
+        # `<target>_<custom>` prefix would break either one.
+        layer = node["fqn"][1]
+        assert layer in ("marts", "staging"), f"{name} sits outside both layers"
+        assert node["schema"] == layer, f"{name} resolved to {node['schema']!r}"
 
 
 def test_core_rebuild_transaction_remains_airflow_owned() -> None:

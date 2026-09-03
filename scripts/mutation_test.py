@@ -65,8 +65,8 @@ CATALOGUE: list[Mutation] = [
     Mutation(
         name="left_join_to_inner_join",
         path="models/marts/v_order_items_wide.sql",
-        find="left join {{ source('core', 'orders') }} o",
-        into="inner join {{ source('core', 'orders') }} o",
+        find="left join {{ ref('stg_core__orders') }} o",
+        into="inner join {{ ref('stg_core__orders') }} o",
         killer="order_items_wide_keeps_items_without_a_matching_order",
         rationale="an inner join silently drops items whose header is missing",
     ),
