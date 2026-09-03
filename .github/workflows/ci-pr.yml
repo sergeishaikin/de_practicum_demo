@@ -81,9 +81,16 @@ jobs:
       DBT_POSTGRES_DB: dwh
     steps:
       - uses: actions/checkout@v4
+        with:
+          # dbt Doctor's `--diff` resolves the base branch locally, and the
+          # shallow default leaves it without a merge base to compare against.
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version-file: ".python-version"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           version: "0.12.5"
@@ -153,12 +160,30 @@ jobs:
         run: |
           docker exec -i de-demo-postgres psql -U app -d dwh -v ON_ERROR_STOP=1 \
             < tests/fixtures/warehouse/reset_staging_loaded_at.sql
+      # Deleting the manifest first is the point: dbt Doctor's DAG rules read
+      # whatever `target/manifest.json` holds, so a stale artifact left by an
+      # earlier step would gate the wrong graph.
+      - name: Parse warehouse dbt project
+        run: |
+          rm -f dbt/warehouse/target/manifest.json
+          .venv-dbt-warehouse/bin/dbt parse --project-dir dbt/warehouse --profiles-dir dbt/warehouse
+          test -s dbt/warehouse/target/manifest.json
+      # Severity and rule policy come from dbt/warehouse/.dbt-doctor, hence the
+      # working-directory. Pinned to 0.3.4: `@latest` would silently change the
+      # gate. `--score` is deliberately absent - it suppresses the exit code.
+      - name: Run dbt Doctor architecture gate
+        working-directory: dbt/warehouse
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            npx -y dbt-doctor@0.3.4 --offline --manifest target/manifest.json --diff "origin/${{ github.base_ref }}"
+          else
+            npx -y dbt-doctor@0.3.4 --offline --manifest target/manifest.json
+          fi
       - name: Run warehouse dbt build and docs
         run: |
-          .venv-dbt-warehouse/bin/dbt parse --project-dir dbt/warehouse --profiles-dir dbt/warehouse
           .venv-dbt-warehouse/bin/dbt build --project-dir dbt/warehouse --profiles-dir dbt/warehouse
           .venv-dbt-warehouse/bin/dbt docs generate --project-dir dbt/warehouse --profiles-dir dbt/warehouse
-          test -s dbt/warehouse/target/manifest.json
           test -s dbt/warehouse/target/run_results.json
           test -s dbt/warehouse/target/catalog.json
           test -s dbt/warehouse/target/index.html
