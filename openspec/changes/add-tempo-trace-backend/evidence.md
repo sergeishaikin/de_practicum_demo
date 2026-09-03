@@ -142,10 +142,19 @@ Collector capability plus a disposable Prometheus authority, runs both
 acceptance harnesses and uploads diagnostics. Core H1 CI does not depend on the
 profile. This receipt is not an archive or DONE transition.
 
+The executed GitHub receipt is run [33797852040](https://github.com/sergeishaikin/de_practicum_demo/actions/runs/33797852040),
+head SHA `0a0a7f2521b504327f2fca46917e227c1daec7d1`. Its Tempo job passed
+configuration verification, optional profile startup, disposable Prometheus
+startup, focused contracts, and the live Tempo acceptance. Earlier failed runs
+were corrected workflow defects (invalid setup-uv pin, missing build image, and
+an over-broad duplicate NG-0.4 harness invocation); they are retained in the
+remote history rather than presented as passes.
+
 Repository-wide Ruff and Black gates passed, and the full unit suite passed
-`522 passed, 1 skipped, 81 deselected`. The existing broad mypy invocation
-still reports its pre-existing missing optional stubs/module-path errors
-(`confluent_kafka`, `propagation`, OTel stubs and duplicate medallion module);
+`522 passed, 1 skipped, 81 deselected`. The exact broad mypy invocation fails
+identically on baseline `041f3ba` and current M2 with five pre-existing errors:
+missing `confluent_kafka`, `propagation`, and OTel stubs plus the duplicate
+medallion module path. This is a recorded governance exception, not a PASS;
 NG-0.5 changed no production Python source.
 
 ## Milestone 2 classification
