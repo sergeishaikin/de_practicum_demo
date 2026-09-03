@@ -48,6 +48,7 @@ def test_collector_route_stays_at_telemetry_backend_boundary() -> None:
     assert "otlp_grpc/telemetry-backend:" in config
     assert "endpoint: tempo:4317" in config
     assert "processors: [memory_limiter, redaction, batch]" in config
+    assert "select\\\\s+customer_email\\\\s+from\\\\s+orders" in config
     assert "sending_queue:" in config
     assert "retry_on_failure:" in config
     assert "exporters: [debug, otlp_grpc/telemetry-backend]" in config

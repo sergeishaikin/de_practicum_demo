@@ -34,6 +34,30 @@ def docker(*args: str, check: bool = True) -> str:
     return result.stdout
 
 
+def docker_result(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["docker", *args], cwd=ROOT, text=True, capture_output=True, timeout=60
+    )
+
+
+def configured_secret(name: str) -> str:
+    value = os.getenv(name)
+    if value:
+        return value
+    env_file = ROOT / ".env"
+    if env_file.exists():
+        for raw_line in env_file.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, candidate = line.split("=", 1)
+            if key.strip() == name:
+                candidate = candidate.strip().strip('"').strip("'")
+                if candidate:
+                    return candidate
+    raise RuntimeError(f"{name} must be provided by the runtime environment")
+
+
 def get_json(url: str) -> dict:
     with urllib.request.urlopen(url, timeout=5) as response:
         return json.loads(response.read().decode())
@@ -74,6 +98,7 @@ def wait_collector(timeout: float = 45) -> None:
 
 
 def start_writer() -> str:
+    otlp_endpoint = os.getenv("NG05_OTLP_ENDPOINT", "http://otel-collector:4317")
     code = """
 import sys, time
 sys.path.insert(0, '/app/iceberg')
@@ -113,7 +138,7 @@ time.sleep(45)
         "-e",
         "OTEL_ENABLED=1",
         "-e",
-        "OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317",
+        f"OTEL_EXPORTER_OTLP_ENDPOINT={otlp_endpoint}",
         "-e",
         "PROMETHEUS_METRICS_PORT=9101",
         "-v",
@@ -134,6 +159,8 @@ time.sleep(45)
 
 
 def storage_isolation() -> None:
+    tempo_access_key = configured_secret("TEMPO_S3_ACCESS_KEY")
+    tempo_secret_key = configured_secret("TEMPO_S3_SECRET_KEY")
     docker(
         "run",
         "-d",
@@ -173,39 +200,39 @@ def storage_isolation() -> None:
             time.sleep(1)
         else:
             raise TimeoutError("canonical disposable MinIO did not become ready")
-        positive = docker(
+        positive = docker_result(
             "run",
             "--rm",
             "--network",
             NETWORK,
             "--entrypoint",
             "/bin/sh",
+            "--env",
+            f"TEMPO_TEST_ACCESS_KEY={tempo_access_key}",
+            "--env",
+            f"TEMPO_TEST_SECRET_KEY={tempo_secret_key}",
             MC_IMAGE,
             "-c",
-            "mc alias set tempo http://tempo-minio:9000 tempo-demo replace-with-a-random-tempo-secret && "
+            'mc alias set tempo http://tempo-minio:9000 "$TEMPO_TEST_ACCESS_KEY" "$TEMPO_TEST_SECRET_KEY" && '
             "mc mb --ignore-existing tempo/tempo-traces && printf proof | mc pipe tempo/tempo-traces/ng05/isolation-proof",
-            check=False,
         )
-        if "error" in positive.lower():
-            raise AssertionError(f"Tempo credential positive write failed: {positive}")
-        negative = subprocess.run(
-            [
-                "docker",
-                "run",
-                "--rm",
-                "--network",
-                NETWORK,
-                "--entrypoint",
-                "/bin/sh",
-                MC_IMAGE,
-                "-c",
-                "mc alias set canonical http://canonical-minio:9000 tempo-demo replace-with-a-random-tempo-secret >/dev/null && "
-                "mc mb canonical/iceberg-ng05-denied",
-            ],
-            cwd=ROOT,
-            text=True,
-            capture_output=True,
-            timeout=60,
+        if positive.returncode != 0:
+            raise AssertionError("Tempo credential positive write failed")
+        negative = docker_result(
+            "run",
+            "--rm",
+            "--network",
+            NETWORK,
+            "--entrypoint",
+            "/bin/sh",
+            "--env",
+            f"TEMPO_TEST_ACCESS_KEY={tempo_access_key}",
+            "--env",
+            f"TEMPO_TEST_SECRET_KEY={tempo_secret_key}",
+            MC_IMAGE,
+            "-c",
+            'mc alias set canonical http://canonical-minio:9000 "$TEMPO_TEST_ACCESS_KEY" "$TEMPO_TEST_SECRET_KEY" >/dev/null && '
+            "mc mb canonical/iceberg-ng05-denied",
         )
         if negative.returncode == 0:
             raise AssertionError(
@@ -237,7 +264,11 @@ def main() -> int:
                 encoded = json.dumps(trace)
                 if any(
                     secret in encoded
-                    for secret in ("super-secret-token", "do-not-store")
+                    for secret in (
+                        "super-secret-token",
+                        "do-not-store",
+                        "select customer_email from orders",
+                    )
                 ):
                     raise AssertionError("forbidden trace attribute survived redaction")
                 if "ng05-m2-exemplar-acceptance" not in encoded:
@@ -255,6 +286,8 @@ def main() -> int:
                 ]
                 if trace and trace_id in ids and trace_id in labels:
                     break
+            except AssertionError:
+                raise
             except Exception:
                 pass
             time.sleep(2)

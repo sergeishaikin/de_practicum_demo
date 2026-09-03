@@ -29,6 +29,7 @@ processors:
       - "(?i).*api[_-]?key.*"
     blocked_values:
       - "(?i)bearer\\s+[a-z0-9._~-]+"
+      - "(?i)select\\s+customer_email\\s+from\\s+orders"
     summary: silent
     db_sanitizer:
       sql:

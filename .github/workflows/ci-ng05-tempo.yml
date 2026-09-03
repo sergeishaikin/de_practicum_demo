@@ -91,6 +91,8 @@ jobs:
           NG05_PROMETHEUS_URL: http://localhost:19090
           NG05_GRAFANA_URL: http://localhost:13001
           NG05_GRAFANA_PASSWORD: ng05-grafana-ci-secret
+          TEMPO_S3_ACCESS_KEY: tempo-demo
+          TEMPO_S3_SECRET_KEY: ng05-tempo-ci-secret
         run: |
           uv run --locked pytest -q tests/test_tempo_contract.py tests/test_otel_contract.py
           uv run --locked python tests/tempo_acceptance.py
