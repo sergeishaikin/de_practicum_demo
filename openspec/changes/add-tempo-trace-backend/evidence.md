@@ -142,8 +142,8 @@ Collector capability plus a disposable Prometheus authority, runs both
 acceptance harnesses and uploads diagnostics. Core H1 CI does not depend on the
 profile. This receipt is not an archive or DONE transition.
 
-The executed GitHub receipt is run [33797852040](https://github.com/sergeishaikin/de_practicum_demo/actions/runs/33797852040),
-head SHA `0a0a7f2521b504327f2fca46917e227c1daec7d1`. Its Tempo job passed
+The executed GitHub receipt is run [33798098920](https://github.com/sergeishaikin/de_practicum_demo/actions/runs/33798098920),
+head SHA `7f24b5ee5af4c8fa54a0b17076991f3e6bfe6246`. Its Tempo job passed
 configuration verification, optional profile startup, disposable Prometheus
 startup, focused contracts, and the live Tempo acceptance. Earlier failed runs
 were corrected workflow defects (invalid setup-uv pin, missing build image, and
