@@ -584,7 +584,7 @@ def main() -> None:
                 )
                 # Keep a real sampled OTel context active for the existing
                 # duration observation so the exemplar points at this trace.
-                with telemetry.span("writer.metrics"):
+                with telemetry.span("writer.metrics", {"lakehouse.load_id": load_id}):
                     metrics.record(
                         source="writer",
                         status="success",
@@ -613,7 +613,7 @@ def main() -> None:
                 file_count = len(pending[load_id])
                 del pending[load_id]
                 save_state(done, pending)
-                with telemetry.span("writer.metrics"):
+                with telemetry.span("writer.metrics", {"lakehouse.load_id": load_id}):
                     metrics.record(
                         source="writer",
                         status="error",

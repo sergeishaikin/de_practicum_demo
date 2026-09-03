@@ -134,12 +134,19 @@ def test_invalid_exemplar_falls_back_to_the_authoritative_observation(
     monkeypatch,
 ) -> None:
     runtime = _runtime(monkeypatch)
-    monkeypatch.setattr(ops, "current_trace_exemplar", lambda: {"bad label": "x"})
+    monkeypatch.setattr(ops, "current_trace_exemplar", lambda: {"__invalid": "x"})
 
     runtime.observe(**_observation())
 
-    assert any(
-        sample.name == "lakehouse_duration_seconds_count" and sample.value == 1
-        for metric in runtime.duration.collect()
-        for sample in metric.samples
+    samples = [
+        sample for metric in runtime.duration.collect() for sample in metric.samples
+    ]
+    assert (
+        next(s.value for s in samples if s.name == "lakehouse_duration_seconds_count")
+        == 1
     )
+    assert (
+        next(s.value for s in samples if s.name == "lakehouse_duration_seconds_sum")
+        == 1.25
+    )
+    assert all(s.exemplar is None for s in samples)

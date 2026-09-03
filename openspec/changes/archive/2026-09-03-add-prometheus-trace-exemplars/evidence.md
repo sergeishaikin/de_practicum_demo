@@ -67,9 +67,12 @@ outside the MetricSet, and the API response reports it under `exemplars`, not
 ## Fail-open proof
 
 Unit tests verify disabled/unsampled omission and invalid exemplar metadata
-fallback to the same duration observation. No exception crosses into the
-metric or canonical processing path. Existing OTel/Prometheus/PostgreSQL
-authority remains unchanged.
+fallback to the same duration observation. Exemplar shape is validated before
+Histogram mutation; the implementation does not retry after an `observe()`
+exception, avoiding double-counting in client versions that may mutate before
+validating metadata. The reserved `__invalid` regression asserts count `1`
+and sum `1.25`. No exception crosses into the metric or canonical processing
+path. Existing OTel/Prometheus/PostgreSQL authority remains unchanged.
 
 ## Resource bound
 
@@ -108,9 +111,16 @@ NG‑0.5 capability job owns the final Grafana→Tempo destination proof.
 Archived as `2026-09-03-add-prometheus-trace-exemplars`; retain this evidence
 and leave NG‑0.5 `ACTIVE/pending`.
 
+## Repair receipt
+
+Post-review repair was applied after the original archive commit: invalid
+exemplars are rejected before observation, and writer metric spans carry the
+bounded `lakehouse.load_id` trace attribute. Focused tests, full coverage and
+typing/lint gates were rerun successfully.
+
 ## Closure SHA
 
-The archive commit is the closure SHA reported in the final receipt.
+Repair closure commit is reported in the final receipt.
 
 ## NG‑0.5 state
 

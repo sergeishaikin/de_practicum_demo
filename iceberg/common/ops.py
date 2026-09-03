@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 import time
 from typing import Any
@@ -11,6 +12,7 @@ from common.telemetry import current_trace_exemplar
 
 METRICS_ENABLED = os.getenv("METRICS_ENABLED", "1") == "1"
 PROMETHEUS_METRICS_PORT = os.getenv("PROMETHEUS_METRICS_PORT")
+_TRACE_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 
 POSTGRES_HOST = os.getenv("POSTGRES_HOST", "de-demo-postgres")
 POSTGRES_PORT = int(os.getenv("POSTGRES_PORT", "5432"))
@@ -152,6 +154,23 @@ def pg_conn_params() -> dict[str, Any]:
         "user": POSTGRES_USER,
         "password": POSTGRES_PASSWORD,
     }
+
+
+def _bounded_trace_exemplar(exemplar: dict[str, str] | None) -> dict[str, str] | None:
+    """Accept only the canonical, bounded trace-id exemplar shape."""
+
+    if exemplar is None:
+        return None
+    if set(exemplar) != {"trace_id"} or not _TRACE_ID_RE.fullmatch(
+        exemplar["trace_id"]
+    ):
+        print(
+            "Prometheus exemplar rejected; recording metric without it",
+            file=sys.stderr,
+            flush=True,
+        )
+        return None
+    return exemplar
 
 
 class Metrics:
@@ -415,21 +434,14 @@ class _RuntimeMetrics:
         self.last_event.labels(source).set(time.time())
         self.events.labels(source, status).inc()
         duration = int(values["duration_ms"]) / 1000
-        exemplar = current_trace_exemplar()
+        exemplar = _bounded_trace_exemplar(current_trace_exemplar())
         if exemplar is None:
             self.duration.labels(source).observe(duration)
         else:
-            try:
-                self.duration.labels(source).observe(duration, exemplar=exemplar)
-            except Exception as exc:
-                # A malformed/unsupported exemplar must never suppress the
-                # authoritative duration observation or canonical processing.
-                print(
-                    f"Prometheus exemplar unavailable; recording metric without it: {exc}",
-                    file=sys.stderr,
-                    flush=True,
-                )
-                self.duration.labels(source).observe(duration)
+            # Validate before Histogram mutates count/sum/buckets. Do not retry
+            # after observe() raises: pinned clients may mutate before checking
+            # exemplar metadata and a retry would double-count.
+            self.duration.labels(source).observe(duration, exemplar=exemplar)
         for state in ("available", "in_flight", "completed"):
             self.work.labels(source, state).set(int(values[f"work_{state}"]))
         for kind in ("rows", "files", "keys"):
