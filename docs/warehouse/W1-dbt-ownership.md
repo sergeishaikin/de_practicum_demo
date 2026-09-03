@@ -12,12 +12,34 @@ core rebuild. Its successful `core.orders` Asset is the only schedule for
 
 The Asset-triggered DAG uses Astronomer Cosmos 1.15.0 in
 `ExecutionMode.WATCHER`. Cosmos renders the warehouse dbt graph and executes
-the canonical `dbt build` command. dbt owns the four PostgreSQL mart views:
+the canonical `dbt build` command.
+
+Airflow owns the physical arrival and rebuild layers; dbt owns everything from
+the normalization boundary onward:
+
+| Layer | Owner | Relations |
+|---|---|---|
+| ingestion | Airflow | `stg.*` |
+| core rebuild | Airflow | `core.*` |
+| staging | dbt | `staging.stg_core__*`, `staging.stg_staging__*` |
+| marts | dbt | `marts.v_*` |
+
+Note that two layers are called "staging" and they are different things: `stg.*`
+is where one CSV batch lands, `staging.stg_*` is the dbt boundary between the
+raw relations and the marts.
+
+The published mart views keep their existing names:
 
 - `marts.v_order_items_wide`
 - `marts.v_sales_daily`
 - `marts.v_customer_state_daily`
 - `marts.v_reconcile_sales_daily`
+
+Each reads its inputs through `ref()` on a staging model, never through
+`source()`. The dbt staging models are a column projection and nothing else —
+business joins and aggregates stay in the marts, which is why the `LEFT JOIN` in
+`v_order_items_wide` was not pushed down into staging. That boundary is enforced
+in CI by [W4 — dbt architecture gate](W4-dbt-architecture-gate.md).
 
 The final Airflow task runs only after dbt models and tests succeed. It checks
 the legacy audit invariants, writes `marts.pipeline_runs`, and publishes the
@@ -40,18 +62,19 @@ Selectors:
 
 ## Testing layers
 
-The project is tested at seven levels, each answering a different question. As
-of this writing the project carries **4 models, 79 data tests and 9 unit
-tests** (`dbt ls`).
+The project is tested at several levels, each answering a different question.
+It carries four source-facing staging models and four published mart models,
+with data tests and unit tests that `dbt build` runs together.
 
 **Unit tests** (`models/marts/unit_tests.yml`) — *does the SQL compute the right
-thing?* Fixture rows are mocked for every `source()` and `ref()`, so no
-warehouse data is involved. They pin the semantics that are easy to break and
-invisible in a green production run:
+thing?* Every input the mart declares is mocked, which since the staging layer
+was introduced means `ref()` on a staging model rather than `source()` on a raw
+relation; no warehouse data is involved. They pin the semantics that are easy to
+break and invisible in a green production run:
 
 | Unit test | Guards |
 |---|---|
-| `order_items_wide_keeps_items_without_a_matching_order` | the `LEFT JOIN` to `core.orders`; an inner join would silently drop items |
+| `order_items_wide_keeps_items_without_a_matching_order` | the `LEFT JOIN` to `stg_core__orders`; an inner join would silently drop items |
 | `order_items_wide_enriches_every_item_of_its_order` | per-item enrichment across a multi-item order, and NULL payment propagation |
 | `sales_daily_counts_orders_distinctly_and_sums_money_per_day` | `COUNT(DISTINCT order_id)` vs `COUNT(*)`, the money sums, and day grouping |
 | `sales_daily_sums_money_exactly_not_in_floating_point` | `0.10 + 0.20` is exactly `0.30` in `numeric` and `0.30000000000000004` in binary floating point; fails if a money column becomes a float or double |
@@ -70,6 +93,16 @@ runtime with no new failure mode. `composite_unique` covers the
 `(order_id, order_item_id)` and `(sales_date, customer_state)` grains — dbt's
 built-in `unique` is single-column only and this project carries no packages, so
 that generic test lives in `macros/`.
+
+Two singular tests deliberately do **not** follow that boundary.
+`payment_reconciliation.sql` and `order_items_wide_preserves_item_count.sql` keep
+reading `{{ source() }}` directly, because their question is different: a unit
+test asks whether a mart transforms *its declared parent* correctly, while these
+two compare two independently derived layers. Routing them through the same
+staging model the mart already reads would leave them comparing a relation with
+itself one hop away, and the reconciliation would pass by construction. The
+architecture gate does not object — [W4](W4-dbt-architecture-gate.md) constrains
+models, not tests.
 
 **Property tests** — *do relationships that must hold on any data still hold?*
 Distinct from reconciliation, which asserts that today's rows agree:
@@ -133,6 +166,13 @@ set found two real issues on adoption: an implicit `join` in
 `v_reconcile_sales_daily` (now `inner join`) and a `select *` of unknown width
 in the roll-up test. It uses the `jinja` templater rather than the `dbt` one, so
 the linter is not coupled to either pinned dbt runtime.
+
+**Architecture analysis** — SQLFluff asks whether an individual statement is
+unambiguous; this layer asks whether the *dependency graph* obeys the layering.
+dbt Doctor 0.3.4 runs in `ci-pr.yml` against a freshly parsed manifest and fails
+on any error-level finding, which is what keeps `source()` out of a mart. The
+rationale, the two rules deliberately turned off and the two warnings
+deliberately left visible are in [W4](W4-dbt-architecture-gate.md).
 
 **Mutation gate** — *do the layers above actually kill bugs?* Every layer here
 asserts something; only the mutation gate proves those assertions have teeth. It

@@ -126,3 +126,8 @@ nodes. They still execute, because `ExecutionMode.WATCHER` runs the canonical
 `dbt build`, which includes unit tests — but they are not individually visible in
 the Airflow UI. This is a display limitation, not a coverage gap; the run-results
 validation in `validate_dbt_artifacts` still fails the run if any of them fail.
+
+Structural dbt dependency policy — which layer may read a raw source — is
+enforced separately by [W4](W4-dbt-architecture-gate.md) at pull-request time. It
+is a static check on the graph and forms no part of the runtime failure contract
+described here.
