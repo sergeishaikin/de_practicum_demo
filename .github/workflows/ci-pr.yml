@@ -37,7 +37,7 @@ jobs:
       - name: Validate Compose files
         run: >
           docker compose --env-file .env.example
-          -f docker-compose.yml -f docker-compose.extended.yml config --quiet
+          -f docker-compose.yml -f docker-compose.extended.yml --profile '*' config --quiet
       - name: Ruff
         run: |
           uv run --locked ruff check .

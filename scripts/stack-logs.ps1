@@ -7,7 +7,7 @@ param(
 $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $RepoRoot
-$DockerArgs = @("compose", "--env-file", ".env", "-f", "docker-compose.yml", "-f", "docker-compose.extended.yml", "logs", "--tail", "$Tail")
+$DockerArgs = @("compose", "--env-file", ".env", "-f", "docker-compose.yml", "-f", "docker-compose.extended.yml", "--profile", "*", "logs", "--tail", "$Tail")
 if (-not $NoFollow) { $DockerArgs += "--follow" }
 if ($Service) { $DockerArgs += $Service }
 docker @DockerArgs

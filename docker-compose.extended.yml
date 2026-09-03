@@ -10,6 +10,7 @@ services:
   minio:
     image: ${MINIO_IMAGE:?MINIO_IMAGE is required}
     container_name: de-demo-minio
+    mem_limit: 1536m
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
@@ -28,6 +29,7 @@ services:
       dockerfile: Dockerfile
     image: de-practicum-demo-spark:4.2.0-h1
     container_name: de-demo-spark-master
+    mem_limit: 512m
     logging: *bounded-logging
     hostname: spark-master
     command:
@@ -56,6 +58,7 @@ services:
       dockerfile: Dockerfile
     image: de-practicum-demo-spark:4.2.0-h1
     container_name: de-demo-spark-worker
+    mem_limit: 3072m
     logging: *bounded-logging
     hostname: spark-worker
     command:
@@ -64,7 +67,7 @@ services:
     environment:
       SPARK_NO_DAEMONIZE: "true"
       SPARK_WORKER_CORES: "4"
-      SPARK_WORKER_MEMORY: 4g
+      SPARK_WORKER_MEMORY: 2g
       # Worker cleanup is already enabled by default in Spark 4.2.0, but its
       # default 7-day appDataTtl never expires anything on a demo-length run.
       # A 15-minute TTL is the guardrail; the real fix is the `local:` JAR
@@ -96,6 +99,8 @@ services:
       dockerfile: Dockerfile
     image: de-practicum-demo-spark:4.2.0-h1
     container_name: de-demo-spark-connect
+    profiles: ["tools"]
+    mem_limit: 1024m
     logging: *bounded-logging
     hostname: spark-connect
     command:
@@ -118,6 +123,8 @@ services:
       - spark.executor.cores=2
       - --conf
       - spark.cores.max=2
+      - --conf
+      - spark.driver.memory=512m
       - --conf
       - spark.executor.memory=1g
     environment:
@@ -148,6 +155,8 @@ services:
       dockerfile: Dockerfile
     image: de-practicum-demo-jupyter:spark420-h1
     container_name: de-demo-jupyter
+    profiles: ["tools"]
+    mem_limit: 1024m
     environment:
       SPARK_MASTER: spark://spark-master:7077
       JAVA_HOME: /usr/lib/jvm/java-21-openjdk-amd64
@@ -181,6 +190,7 @@ services:
     image: ${KAFKA_IMAGE:?KAFKA_IMAGE is required}
     container_name: de-demo-kafka
     hostname: kafka
+    mem_limit: 1280m
     ports:
       - "${KAFKA_HOST_PORT}:9092"
     environment:
@@ -196,6 +206,7 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+      KAFKA_HEAP_OPTS: "-Xms256m -Xmx512m"
       # Keep broker records on a named volume so a container recreation does
       # not silently create a new Kafka offset epoch.  The mount and
       # KAFKA_LOG_DIRS value intentionally point at the same directory.
@@ -216,6 +227,8 @@ services:
   kafka-ui:
     image: ${KAFKA_UI_IMAGE:?KAFKA_UI_IMAGE is required}
     container_name: de-demo-kafka-ui
+    profiles: ["tools"]
+    mem_limit: 512m
     ports:
       - "${KAFKA_UI_HOST_PORT}:8080"
     environment:
@@ -231,6 +244,7 @@ services:
     image: ${ICEBERG_REST_IMAGE:?ICEBERG_REST_IMAGE is required}
     container_name: de-demo-iceberg-rest
     hostname: iceberg-rest
+    mem_limit: 768m
     user: "0:0"
     command:
       - java
@@ -250,6 +264,7 @@ services:
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
       AWS_REGION: us-east-1
+      JAVA_TOOL_OPTIONS: "-Xms128m -Xmx384m"
     ports:
       - "${ICEBERG_REST_PORT}:8181"
     volumes:
@@ -278,6 +293,7 @@ services:
       dockerfile: Dockerfile
     image: de-practicum-demo-iceberg:0.11.1-h1
     container_name: de-demo-iceberg-writer
+    mem_limit: 384m
     logging: *bounded-logging
     working_dir: /app
     command:
@@ -328,6 +344,7 @@ services:
       dockerfile: Dockerfile
     image: de-practicum-demo-iceberg:0.11.1-h1
     container_name: de-demo-iceberg-medallion
+    mem_limit: 2560m
     logging: *bounded-logging
     working_dir: /app
     command:
@@ -388,6 +405,8 @@ services:
       dockerfile: Dockerfile
     image: de-practicum-demo-observability:0.22.1-h1
     container_name: de-demo-observability-exporter
+    profiles: ["observability"]
+    mem_limit: 128m
     environment:
       POSTGRES_HOST: de-demo-postgres
       POSTGRES_PORT: "5432"
@@ -414,6 +433,8 @@ services:
   prometheus:
     image: ${PROMETHEUS_IMAGE:?PROMETHEUS_IMAGE is required}
     container_name: de-demo-prometheus
+    profiles: ["observability"]
+    mem_limit: 256m
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
@@ -445,6 +466,8 @@ services:
   grafana:
     image: ${GRAFANA_IMAGE:?GRAFANA_IMAGE is required}
     container_name: de-demo-grafana
+    profiles: ["observability"]
+    mem_limit: 384m
     ports:
       - "${GRAFANA_HOST_PORT:-13001}:3000"
     environment:
@@ -472,6 +495,7 @@ services:
     image: ${TRINO_IMAGE:?TRINO_IMAGE is required}
     container_name: de-demo-trino
     hostname: trino
+    mem_limit: 1536m
     user: "0:0"
     command:
       - bash
@@ -508,12 +532,15 @@ services:
   metabase:
     image: ${METABASE_IMAGE:?METABASE_IMAGE is required}
     container_name: de-demo-metabase
+    profiles: ["bi"]
+    mem_limit: 1280m
     ports:
       - "${METABASE_HOST_PORT}:3000"
     volumes:
       - de_demo_metabase_data:/metabase-data
     environment:
       MB_DB_FILE: /metabase-data/metabase.db
+      JAVA_TOOL_OPTIONS: "-Xms256m -Xmx768m"
     networks:
       - de_demo_net
 
@@ -523,6 +550,7 @@ services:
       dockerfile: Dockerfile
     image: de-practicum-demo-orders-producer:0.1.0
     container_name: de-demo-orders-producer
+    mem_limit: 128m
     logging: *bounded-logging
     working_dir: /app
     environment:
@@ -544,6 +572,7 @@ services:
       dockerfile: Dockerfile
     image: de-practicum-demo-spark:4.2.0-h1
     container_name: de-demo-orders-streaming
+    mem_limit: 1280m
     logging: *bounded-logging
     hostname: orders-streaming
 
@@ -557,6 +586,7 @@ services:
           --conf spark.driver.bindAddress=0.0.0.0 \
           --conf spark.driver.port=17080 \
           --conf spark.blockManager.port=17081 \
+          --conf spark.driver.memory=512m \
           --conf spark.executor.cores=1 \
           --conf spark.executor.memory=1g \
           --conf spark.hadoop.fs.s3a.endpoint=http://minio:9000 \
@@ -624,6 +654,8 @@ services:
   superset:
     image: ${SUPERSET_IMAGE:?SUPERSET_IMAGE is required}
     container_name: de-demo-superset
+    profiles: ["bi"]
+    mem_limit: 512m
     ports:
       - "18088:8088"
     environment:
@@ -642,6 +674,8 @@ services:
   superset-mcp:
     image: ${SUPERSET_IMAGE:?SUPERSET_IMAGE is required}
     container_name: de-demo-superset-mcp
+    profiles: ["bi"]
+    mem_limit: 512m
 
     command:
       - superset

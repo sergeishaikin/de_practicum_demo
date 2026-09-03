@@ -82,7 +82,7 @@ jobs:
       - name: Ensure fresh state
         run: docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml down --volumes --remove-orphans
       - name: Build and start clean stack
-        run: docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml up -d --build --pull always
+        run: docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml --profile '*' up -d --build --pull always
       - name: Bootstrap and wait for dependencies
         run: uv run --locked python scripts/bootstrap_stack.py --env-file .env --timeout 900
       - name: Integration suite

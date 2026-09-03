@@ -103,6 +103,35 @@ docker network create de_demo_net || true
 docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml up -d <services>
 ```
 
+### Resource profiles and the 12 GB WSL budget
+
+The unprofiled graph is the core pipeline. Three optional groups in
+`docker-compose.extended.yml` and the existing metadata layer are opt-in:
+
+| Profile | Purpose | Measured idle cost on 2026-08-21 | Sum of service limits |
+|---|---|---:|---:|
+| default | core pipeline | 6.73 GiB with `orders-streaming` stopped | 14.75 GiB |
+| `tools` | Spark Connect, Jupyter, Kafka UI | 0.78 GiB | 2.50 GiB |
+| `bi` | Metabase, Superset, Superset MCP | 1.28 GiB | 2.25 GiB |
+| `observability` | exporter, Prometheus, Grafana | 0.24 GiB | 0.75 GiB |
+| `metadata` | four long-running OpenMetadata services | 2.45 GiB | 4.25 GiB |
+
+Limits are hard ceilings, not reservations, and their sum is deliberately
+oversubscribed: Spark worker capacity and medallion/Trino peaks are not normally
+resident at their ceilings together. The 12 GB WSL VM limit is the final
+aggregate boundary. Therefore:
+
+- run the default graph plus at most one heavy optional profile;
+- `observability` may accompany another profile because its measured cost is
+  small;
+- do not combine `tools`, `bi`, and `metadata` during a full streaming or
+  medallion load;
+- use `--profile "*"` only for a deliberate full-stack verification on a host
+  with more than 12 GB allocated to Docker.
+
+Compose limits take effect only when containers are created or recreated. A
+configuration-only change does not alter already-running containers.
+
 ### Image pins differ between local and CI
 
 The committed `.env.example` pins every image **by digest**. A developer's local
@@ -149,8 +178,8 @@ Docker disk usage:        images 30.78 GB (4.53 GB reclaimable)
 Derived from Compose, not transcribed:
 
 ```bash
-docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml config --services
-docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml config --images
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml --profile "*" config --services
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml --profile "*" config --images
 ```
 
 As measured: **22 services**, **16 distinct images**, of which **6 are built
@@ -183,3 +212,42 @@ This is the number that matters for the resource-sensitive NG items: the
 baseline is small, so a capability profile's cost should be measured against
 this floor rather than assumed from an ADR estimate. **Do not claim this host
 cannot support a profile until the profile has been started and measured.**
+
+### Full local stack resource snapshot
+
+Captured on **2026-08-21** with 24 long-running containers. The values below
+are one `docker stats --no-stream` sample after 17-23 hours of uptime;
+`orders-streaming` had exited and is therefore not represented by a live
+measurement. They are sizing evidence, not guaranteed peaks.
+
+| Service | Profile | Observed | Limit |
+|---|---|---:|---:|
+| `de-demo-postgres` | default | 93 MiB | 512 MiB |
+| `de-demo-airflow` | default | 1.105 GiB | 1536 MiB |
+| `de-demo-minio` | default | 1.038 GiB | 1536 MiB |
+| `de-demo-spark-master` | default | 184 MiB | 512 MiB |
+| `de-demo-spark-worker` | default | 286 MiB idle | 3072 MiB; 2 GiB executor capacity |
+| `de-demo-kafka` | default | 942 MiB | 1280 MiB; 512 MiB JVM heap |
+| `de-demo-iceberg-rest` | default | 238 MiB | 768 MiB; 384 MiB JVM heap |
+| `de-demo-iceberg-writer` | default | 99 MiB | 384 MiB |
+| `de-demo-iceberg-medallion` | default | 1.744 GiB | 2560 MiB |
+| `de-demo-trino` | default | 1.027 GiB | 1536 MiB; 1 GiB JVM heap |
+| `de-demo-orders-producer` | default | 16 MiB | 128 MiB |
+| `de-demo-orders-streaming` | default | stopped | 1280 MiB; 512 MiB driver |
+| `de-demo-spark-connect` | `tools` | 355 MiB | 1024 MiB; 512 MiB driver |
+| `de-demo-jupyter` | `tools` | 92 MiB | 1024 MiB |
+| `de-demo-kafka-ui` | `tools` | 349 MiB | 512 MiB |
+| `de-demo-metabase` | `bi` | 984 MiB | 1280 MiB; 768 MiB JVM heap |
+| `de-demo-superset` | `bi` | 163 MiB | 512 MiB |
+| `de-demo-superset-mcp` | `bi` | 164 MiB, unhealthy | 512 MiB |
+| `de-demo-observability-exporter` | `observability` | 22 MiB | 128 MiB |
+| `de-demo-prometheus` | `observability` | 88 MiB | 256 MiB |
+| `de-demo-grafana` | `observability` | 137 MiB | 384 MiB |
+| `de-metadata-postgres` | `metadata` | 124 MiB | 512 MiB |
+| `de-metadata-opensearch` | `metadata` | 1.400 GiB | 2048 MiB; 512 MiB JVM heap |
+| `de-metadata-server` | `metadata` | 834 MiB | 1280 MiB; 512 MiB JVM heap |
+| `de-metadata-ingestion` | `metadata` | 121 MiB | 512 MiB |
+
+The bounded metadata bootstrap/migration/dbt jobs have separate 256-1024 MiB
+limits. They run sequentially and are not part of the long-running 4.25 GiB
+metadata ceiling above.

@@ -60,6 +60,7 @@ services:
     <<: *metadata-profile
     image: ${METADATA_POSTGRES_IMAGE:?METADATA_POSTGRES_IMAGE is required}
     container_name: de-metadata-postgres
+    mem_limit: 512m
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${METADATA_POSTGRES_SUPERUSER_PASSWORD:?METADATA_POSTGRES_SUPERUSER_PASSWORD is required}
@@ -85,6 +86,7 @@ services:
     <<: *metadata-profile
     image: ${METADATA_OPENSEARCH_IMAGE:?METADATA_OPENSEARCH_IMAGE is required}
     container_name: de-metadata-opensearch
+    mem_limit: 2048m
     environment:
       discovery.type: single-node
       DISABLE_INSTALL_DEMO_CONFIG: "true"
@@ -107,6 +109,7 @@ services:
     <<: *metadata-profile
     image: ${METADATA_SERVER_IMAGE:?METADATA_SERVER_IMAGE is required}
     container_name: de-metadata-migrate
+    mem_limit: 1024m
     command: ["./bootstrap/openmetadata-ops.sh", "migrate"]
     environment:
       <<: *openmetadata-env
@@ -122,6 +125,7 @@ services:
     <<: *metadata-profile
     image: ${METADATA_SERVER_IMAGE:?METADATA_SERVER_IMAGE is required}
     container_name: de-metadata-server
+    mem_limit: 1280m
     environment:
       <<: *openmetadata-env
     ports:
@@ -144,6 +148,7 @@ services:
     <<: *metadata-profile
     image: ${METADATA_INGESTION_IMAGE:?METADATA_INGESTION_IMAGE is required}
     container_name: de-metadata-ingestion
+    mem_limit: 512m
     entrypoint: ["/bin/sh", "-lc"]
     command: ["exec tail -f /dev/null"]
     environment:
@@ -178,6 +183,7 @@ services:
     <<: *metadata-profile
     image: ${METADATA_INGESTION_IMAGE:?METADATA_INGESTION_IMAGE is required}
     container_name: de-metadata-bootstrap
+    mem_limit: 512m
     entrypoint: ["/bin/sh", "-lc"]
     command: ["exec python /opt/metadata/scripts/bootstrap_catalog.py"]
     environment:
@@ -211,6 +217,7 @@ services:
     <<: *metadata-profile
     image: ${METADATA_INGESTION_IMAGE:?METADATA_INGESTION_IMAGE is required}
     container_name: de-metadata-static-ingestion
+    mem_limit: 512m
     entrypoint: ["/bin/sh", "-lc"]
     command: ["exec python /opt/metadata/scripts/run_ingestion.py static"]
     environment:
@@ -238,6 +245,7 @@ services:
     <<: *metadata-profile
     image: ${METADATA_INGESTION_IMAGE:?METADATA_INGESTION_IMAGE is required}
     container_name: de-metadata-ownership
+    mem_limit: 512m
     entrypoint: ["/bin/sh", "-lc"]
     command: ["exec python /opt/metadata/scripts/apply_ownership.py"]
     environment:
@@ -263,6 +271,7 @@ services:
       dockerfile: airflow.Dockerfile
     image: de-practicum-demo-airflow:0.1.0
     container_name: de-metadata-dbt-warehouse
+    mem_limit: 768m
     entrypoint: ["/bin/bash", "-lc"]
     command:
       - >-
@@ -300,6 +309,7 @@ services:
       dockerfile: airflow.Dockerfile
     image: de-practicum-demo-airflow:0.1.0
     container_name: de-metadata-dbt-semantic
+    mem_limit: 768m
     entrypoint: ["/bin/bash", "-lc"]
     command:
       - >-
@@ -331,6 +341,7 @@ services:
     <<: *metadata-profile
     image: ${KAFKA_IMAGE:?KAFKA_IMAGE is required}
     container_name: de-metadata-lineage-topic
+    mem_limit: 256m
     entrypoint: ["/bin/sh", "-lc"]
     command:
       - >-
@@ -353,6 +364,7 @@ services:
     <<: *metadata-profile
     image: ${POSTGRES_IMAGE:?POSTGRES_IMAGE is required}
     container_name: de-metadata-source-reader
+    mem_limit: 256m
     entrypoint: ["/bin/sh", "-lc"]
     command:
       - >-

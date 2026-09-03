@@ -169,7 +169,7 @@ def _compose_command(env_file: str, *args: str) -> list[str]:
     command = ["docker", "compose", "--env-file", env_file]
     for name in COMPOSE_FILES:
         command += ["-f", name]
-    return command + list(args)
+    return command + ["--profile", "*"] + list(args)
 
 
 def compose_facts(env_file: str) -> dict[str, Any]:

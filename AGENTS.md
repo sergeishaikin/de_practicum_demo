@@ -122,7 +122,7 @@ Run additional checks according to the changed surface:
 
 - DAG changes: `uv run --locked ruff check dags --select AIR3 --preview`.
 - Compose or runtime configuration changes:
-  `docker compose --env-file .env.example -f docker-compose.yml -f docker-compose.extended.yml config --quiet`.
+  `docker compose --env-file .env.example -f docker-compose.yml -f docker-compose.extended.yml --profile '*' config --quiet`.
 - Airflow runtime changes: run
   `uv run --locked pytest tests/test_h1_runtime.py`, validate DAG imports with
   `uv run --locked pytest tests/test_dags.py -m airflow`, execute the Gherkin

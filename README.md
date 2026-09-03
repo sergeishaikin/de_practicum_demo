@@ -115,6 +115,7 @@ docker compose `
   --env-file .\.env `
   -f .\docker-compose.yml `
   -f .\docker-compose.extended.yml `
+  --profile "*" `
   config
 ```
 
@@ -140,6 +141,51 @@ Build and start:
 .\stack.ps1 logs -Service spark-worker -Tail 500
 .\stack.ps1 logs -Service spark-worker -NoFollow
 ```
+
+## Resource profiles
+
+`stack.ps1 up` starts the core pipeline only. Interactive tools, BI, and
+observability are opt-in so that the normal development graph stays within a
+12 GB WSL budget:
+
+| Profile | Services |
+|---|---|
+| default | PostgreSQL, Airflow, MinIO, Spark master/worker, Kafka, Iceberg, Trino, producer, streaming job |
+| `tools` | Spark Connect, JupyterLab, Kafka UI |
+| `bi` | Metabase, Superset, Superset MCP |
+| `observability` | runtime exporter, Prometheus, Grafana |
+| `metadata` | OpenMetadata server, ingestion worker, PostgreSQL, OpenSearch, and bounded bootstrap jobs |
+
+Add one optional profile to the running core stack:
+
+```powershell
+$composeArgs = @(
+  "--env-file", ".env",
+  "-f", "docker-compose.yml",
+  "-f", "docker-compose.extended.yml"
+)
+
+docker compose @composeArgs --profile tools up -d --wait
+docker compose @composeArgs --profile bi up -d --wait
+docker compose @composeArgs --profile observability up -d --wait
+```
+
+Metadata keeps its separate configuration layer:
+
+```powershell
+docker compose `
+  --env-file .env `
+  -f docker-compose.yml `
+  -f docker-compose.extended.yml `
+  -f docker-compose.metadata.yml `
+  --profile metadata `
+  up -d --wait
+```
+
+The committed limits are safety ceilings, not reservations. Enabling every
+profile together still exceeds a 12 GB WSL allocation. See
+[`docs/LOCAL-ENVIRONMENT.md`](docs/LOCAL-ENVIRONMENT.md) for the measured
+per-service budget.
 
 ## Jupyter authentication
 
@@ -476,6 +522,7 @@ docker compose `
   --env-file .\.env `
   -f .\docker-compose.yml `
   -f .\docker-compose.extended.yml `
+  --profile "*" `
   config --services
 ```
 

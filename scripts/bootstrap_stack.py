@@ -61,8 +61,6 @@ def wait_for_stack(values: dict[str, str], deadline: float) -> None:
     checks = {
         "iceberg-rest": f"http://127.0.0.1:{values['ICEBERG_REST_PORT']}/v1/config",
         "trino": f"http://127.0.0.1:{values['TRINO_HOST_PORT']}/v1/info",
-        "prometheus": f"http://127.0.0.1:{values['PROMETHEUS_HOST_PORT']}/-/ready",
-        "grafana": f"http://127.0.0.1:{values['GRAFANA_HOST_PORT']}/api/health",
     }
     # Trino needs a different question asked; everything else is status-only.
     probes = {"trino": _trino_ready}
