@@ -14,7 +14,7 @@ Captured 2026-09-03 on `feature/ng-0.5-tempo` at
 | Existing metrics | Prometheus scrapes writer, medallion, streaming, durable exporter and Collector self-metrics; PostgreSQL/Prometheus remain authority |
 | Grafana | Only Prometheus datasource is provisioned; no Tempo datasource or correlation config exists |
 | Storage | MinIO currently backs `de-practicum` Iceberg warehouse; no trace bucket/prefix/credential exists |
-| Exemplars | No `exemplar`, `add_exemplar`, OpenMetrics exemplar sample, `trace_id` metric sample, or exemplar config found in current code/config/tests |
+| Exemplars at original M1 | No exemplar capability existed at `30e7deb`; this was the recorded contradiction |
 
 No service was started, no image was pulled, no bucket or credential was
 created, and no canonical data was touched.
@@ -43,10 +43,21 @@ Primary references (accessed 2026-09-03):
 - https://grafana.com/docs/grafana/latest/datasources/tempo/configure-tempo-data-source/configure-trace-to-metrics/
 - https://grafana.com/docs/grafana/latest/datasources/tempo/configure-tempo-data-source/configure-trace-to-logs/
 
+## M1R reconciliation
+
+Archived prerequisite `2026-09-03-add-prometheus-trace-exemplars` closed at
+`fe56e19` and proves the chosen resolution: bounded application-generated
+exemplars on the existing `lakehouse_duration_seconds` Histogram. Its live
+proof confirms OpenMetrics output, Prometheus ingestion and unchanged series
+labels. The NG-0.4 spanmetrics/metric-authority lockout remains intact.
+
+The former `FAIL_SPEC_CONTRADICTION` is therefore resolved. This M1R changes
+design readiness only; it does not implement Tempo, alter Collector routing,
+or start NG-0.6.
+
 ## Classification
 
-`FAIL_SPEC_CONTRADICTION`: the required exemplar-based metrics→trace gate has
-no existing repository evidence and cannot be implemented within the adopted
-NG-0.4 metric-authority/spanmetrics lockout. The smallest governance resolution
-is recorded in `design.md`; this change deliberately does not choose or apply
-one.
+`PASS_WITH_EXPLICIT_LIMITATIONS`: NG-0.5 is ready for a separately authorised
+implementation milestone. Tempo image/config compatibility, isolated storage,
+retention/resource measurements, failure injection and final Grafana↔Tempo
+correlation remain M2 acceptance work. NG-0.5 stays `ACTIVE/pending`.

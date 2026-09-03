@@ -52,30 +52,22 @@ TraceQL examples will be small and repository vocabulary will be selected from
 the adopted resource identity during implementation; no new attribute naming
 is invented in M1.
 
-## Correlation gate and contradiction
+## Correlation gate and resolved prerequisite
 
 Grafana documentation supports trace-to-metrics links against existing
 Prometheus-compatible metrics without requiring Tempo metrics-generator, while
-reverse metric-to-trace navigation requires Prometheus exemplars. The current
-repository was inspected read-only: `observability/prometheus/prometheus.yml`
-contains scrape jobs only; Grafana provisions only the Prometheus datasource;
-code/tests contain no exemplar API, OpenMetrics exemplar, `trace_id` metric
-sample, or exemplar configuration.
+reverse metric-to-trace navigation requires Prometheus exemplars. Archived
+prerequisite `2026-09-03-add-prometheus-trace-exemplars` supplies that primitive:
+`lakehouse_duration_seconds` retains its existing `source` label set and carries
+only bounded sampled OTel `trace_id` exemplar metadata. Prometheus exemplar
+storage is explicitly bounded and OpenMetrics negotiation is configured.
 
-The adopted NG-0.4 standing spec prohibits `spanmetrics` and promotion of
-span-derived metrics to business/SLO authority. Consequently the NG-0.5
-acceptance scenario “Prometheus panel containing a configured exemplar” is not
-currently satisfiable. This is `FAIL_SPEC_CONTRADICTION`, not a missing
-container capability. The smallest resolution must be separately authorised:
-
-1. amend/reconcile the NG-0.5 gate to accept one-way trace→metrics only and
-   explicitly defer metrics→trace; or
-2. authorise a bounded application-metric exemplar contract that preserves
-   existing metric authority and does not derive metrics from spans.
-
-Tempo metrics-generator, Collector spanmetrics, or any silent metric-schema
-change are prohibited as “fixes”. No implementation starts until the operator
-chooses and governs one resolution.
+The adopted NG-0.4 standing spec still prohibits `spanmetrics` and promotion
+of span-derived metrics to business/SLO authority. The prerequisite changed
+neither rule nor metric authority; its evidence proves the former contradiction
+is gone. Tempo metrics-generator, Collector spanmetrics, and silent metric
+schema changes remain prohibited. NG-0.5 M2 may now implement Tempo only after
+a separate implementation grant.
 
 Trace-to-logs is prepared only as a future mapping (`tracesToLogsV2`) to the
 stable fields NG-0.6 will define; no Loki datasource or bidirectional proof is

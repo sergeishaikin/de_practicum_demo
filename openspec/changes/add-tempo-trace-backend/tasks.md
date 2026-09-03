@@ -14,5 +14,7 @@
       redaction, failure-injection, resource and future CI contracts.
 - [x] Record the exemplar contradiction and the two smallest governance
       resolutions; do not implement either resolution.
+- [x] M1R: reference archived bounded application exemplars and verify that the
+      metric-to-trace contradiction is resolved without span-derived metrics.
 - [ ] Milestone 2 implementation (explicitly blocked; requires a new grant and
       resolved exemplar governance).

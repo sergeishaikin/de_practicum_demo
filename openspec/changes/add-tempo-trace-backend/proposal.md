@@ -26,11 +26,10 @@ compatible object storage, with bounded retention and measured resource use.
 
 ## Preflight outcome
 
-Repository recovery and compatibility review are complete. A required
-metric-to-trace acceptance gate cannot currently be satisfied: the repository
-has no configured or emitted Prometheus exemplars, while the adopted NG-0.4
-contract explicitly forbids span-derived metrics. Enabling Tempo's
-metrics-generator, Collector spanmetrics, or silently changing business
-metrics would violate that contract. Therefore Milestone 1 ends with
-`FAIL_SPEC_CONTRADICTION`; implementation readiness is `NO` pending a separate
-governance decision that supplies the smallest allowed exemplar resolution.
+Repository recovery and compatibility review are complete. The former
+metric-to-trace contradiction is resolved by archived prerequisite
+`2026-09-03-add-prometheus-trace-exemplars` at closure `fe56e19`: an existing
+application Histogram now carries bounded sampled-trace exemplar metadata,
+without changing metric labels or enabling span-derived metrics. The NG-0.5
+design is therefore ready for a separately authorised implementation
+milestone; Tempo itself remains unimplemented.
