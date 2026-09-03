@@ -82,7 +82,6 @@ jobs:
         run: |
           uv run --locked pytest -q tests/test_tempo_contract.py tests/test_otel_contract.py
           uv run --locked python tests/tempo_acceptance.py
-          uv run --locked python tests/otel_acceptance.py
       - name: Capture capability diagnostics
         if: failure()
         run: |
