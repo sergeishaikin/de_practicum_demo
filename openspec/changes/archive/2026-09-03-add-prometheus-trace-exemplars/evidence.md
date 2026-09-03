@@ -5,8 +5,8 @@ Captured 2026-09-03 from starting SHA
 
 ## Status
 
-Implementation, live prerequisite proof and final gates complete; this receipt
-is ready to archive.
+Implementation, live prerequisite proof, exact-SHA CI and final gates complete;
+the prerequisite is archived and adopted.
 
 ## Standing-spec clarification
 
@@ -91,7 +91,7 @@ production sizing claim.
 ## Gates
 
 - `uv run --locked pytest tests --cov=iceberg --cov-report=term-missing
-  --cov-fail-under=90`: 517 passed, 1 skipped, 81 deselected; 93.13% coverage.
+  --cov-fail-under=90`: 517 passed, 1 skipped, 81 deselected; 93.31% coverage.
 - `uv run --locked ruff check .`: passed.
 - `uv run --locked black --check .`: passed.
 - `uv run --locked mypy`: passed (10 source files).
@@ -100,11 +100,18 @@ production sizing claim.
 - Compose config and pinned-image `promtool check config`: passed.
 - `git diff --check`: passed.
 
-## CI
+## Exact-SHA CI receipt
 
-The existing `ci-pr` unit/coverage path automatically includes the focused
-exemplar tests; no second framework or core H1 path is introduced. A later
-NG‑0.5 capability job owns the final Grafana→Tempo destination proof.
+Head SHA `229882b85eadfcddc5ae31b535b36f9748ac7cc9` was exercised by PR [#3](https://github.com/sergeishaikin/de_practicum_demo/pull/3)
+and all required jobs passed:
+
+- [CI](https://github.com/sergeishaikin/de_practicum_demo/actions/runs/33745729020): lint/compose, unit+coverage, dbt artifacts and Airflow validation.
+- [M5 architecture gates](https://github.com/sergeishaikin/de_practicum_demo/actions/runs/33745729022): recovery and cutover gates.
+- [Metadata profile](https://github.com/sergeishaikin/de_practicum_demo/actions/runs/33745729019): isolated metadata acceptance.
+- [H1 clean reproducible stack](https://github.com/sergeishaikin/de_practicum_demo/actions/runs/33745729092): fresh-volume full verification and NG‑0.4 OTel acceptance.
+
+The PR was fast-forward merged at the exact prerequisite SHA. No Tempo
+implementation or span-derived metric path was introduced.
 
 ## Archive / standing capability
 
@@ -120,9 +127,11 @@ typing/lint gates were rerun successfully.
 
 ## Closure SHA
 
-Repair closure commit is reported in the final receipt.
+Repair closure commit: `229882b85eadfcddc5ae31b535b36f9748ac7cc9`.
+This receipt update is documentation-only; implementation content and the
+exact-SHA CI target remain unchanged.
 
 ## NG‑0.5 state
 
-`ACTIVE / BLOCKED PENDING RECONCILIATION` until this prerequisite is archived
-and referenced by a short NG‑0.5 M1R reconciliation.
+`ACTIVE / pending` with M1R reconciliation recorded on the rebased NG‑0.5
+branch. NG‑0.5 implementation remains separately unauthorised.
