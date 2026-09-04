@@ -58,32 +58,32 @@
       invokes a capability gate through `uses:` and owns the exact-SHA target
       contract, so the `workflow_call` path can be proved without opening a
       pull request nobody intends to merge.
-- [ ] Prove `workflow_call` behaviourally, not by declaration: dispatch the
+- [x] Prove `workflow_call` behaviourally, not by declaration: dispatch the
       orchestrator with an `expected_sha`, and show the caller's resolved SHA
       and the callee's `git rev-parse HEAD` are that same commit. A green
       `pull_request` run proves only that the declaration parses and the
       pull-request path still works.
-- [ ] Prove the lifecycle end to end on a canary branch: base SHA, head SHA,
+- [x] Prove the lifecycle end to end on a canary branch: base SHA, head SHA,
       pull request number, required check names, all required checks green on
       the merge candidate, merge SHA, `main` verification run id, and source
       branch absent after merge.
-- [ ] Prove the negative cases, each producing a receipt rather than a claim:
+- [x] Prove the negative cases, each producing a receipt rather than a claim:
       direct push to `main` rejected; merge blocked on a failing required
       check; merge-commit and rebase merging unavailable; fitness function red
       when a working-branch name is reintroduced into a capability workflow.
-- [ ] Prove the out-of-date case against real base movement: a disposable
+- [x] Prove the out-of-date case against real base movement: a disposable
       branch whose pull request is green, then advance `main` independently,
       and show GitHub reports the pull request as **not mergeable until the
       branch is updated to the current protected base**. A settings read-back
       of `strict: true` is not this proof; the property is behavioural.
-- [ ] Delete only the fully subsumed, dependency-free branches:
+- [x] Delete only the fully subsumed, dependency-free branches:
       `feature/ng-0.4-otel`, `feature/ng-0.5-tempo`,
       `feature/prometheus-trace-exemplars`, `integration/ng-0.5`. Anchor any
       claim that names them to immutable identity first.
-- [ ] Record every receipt by immutable identity — SHA, run id, artifact
+- [x] Record every receipt by immutable identity — SHA, run id, artifact
       digest, pull request number — with the base branch and base SHA recorded
       alongside each `pull_request` run.
-- [ ] Promote the capability to `openspec/specs/development-workflow/` and
+- [x] Promote the capability to `openspec/specs/development-workflow/` and
       archive this change, only once the repository conforms. Not at Milestone
       1: `engineering-governance` requires a standing capability to describe
       present behaviour, and until this milestone lands the repository
@@ -115,7 +115,13 @@
       `closure/ng-0.6-loki` or NG-0.6 governance artifacts. Contested state
       under another session; frozen by operator decision on 2026-09-04.
 - [ ] Carrying `de68270` (NG-0.6 lifecycle-safe test repair) into this change.
-- [ ] Deleting any branch. Cleanup follows Milestone 2 as a separate authorised
-      step, because `ci-ng05-tempo.yml` and `ci-ng06-loki.yml` still name two
-      of the deletion candidates, and `test/dbt-extensive-testing` is the base
-      of pull requests whose receipts are currently cited.
+- [ ] Deleting `feature/ng-0.6-loki` or `test/dbt-extensive-testing`. Both are
+      registered as recorded exceptions in the standing capability with the
+      conditions that end them. Their deletion follows NG-0.6's resolution, not
+      branch hygiene.
+
+Historical note: at Milestone 1 this section also forbade deleting **any**
+branch, because `ci-ng05-tempo.yml` and `ci-ng06-loki.yml` still named two
+deletion candidates in their triggers. Milestone 2 removed that coupling first
+and then deleted the four approved branches under its own authorisation, which
+is why the fence reads narrower here than it did when the change opened.

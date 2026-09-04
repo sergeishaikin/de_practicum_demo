@@ -208,3 +208,126 @@ One honest distinction: the deletion refusal cites the default-branch rule, not
 the protection rule. `allow_deletions: false` is set and read back, but the
 default-branch guard answers first, so this receipt proves deletion is refused
 without isolating which of the two mechanisms refused it.
+
+## Milestone 2 — `workflow_call` proved behaviourally
+
+Declaring `workflow_call` proves only that the declaration parses. The called
+path was proved by dispatching the permanent orchestrator, twice.
+
+**Negative first.** Run `33907911886`, `workflow_dispatch` on `main`, with a
+stale `expected_sha` (`3f41692`, the previous `main`):
+
+```
+dispatched ref resolved to 261a4c5453c37d8f05b613a62774338f56943446
+but the operator expected 3f4169245bb6a34873383ad244e53913d689a1d1
+
+Verify the dispatched ref resolves to the intended SHA : failure
+NG-0.6 Loki capability (called)                        : skipped
+NG-0.5 Tempo capability (called)                       : skipped
+```
+
+The callee was **skipped**, not executed and ignored. A mismatch between
+operator intent and resolved ref stops the capability from running at all, so
+this path cannot produce a receipt against a commit nobody named — which is the
+class of defect that produced run `33890376252`.
+
+**Positive.** Run `33907950450`, `workflow_dispatch` on `main`,
+`capability: ng06-loki`, `expected_sha: 261a4c5453c37d8f05b613a62774338f56943446`:
+
+| Link in the chain | Value | Source |
+| --- | --- | --- |
+| Operator intent | `261a4c5453c37d8f05b613a62774338f56943446` | `expected_sha` input |
+| Dispatcher resolved ref | `261a4c5453c37d8f05b613a62774338f56943446` | run `33907950450` `head_sha`, asserted equal in preflight |
+| Callee checkout `HEAD` | `261a4c5453c37d8f05b613a62774338f56943446` | job `101137305273` `head_sha`, with step 6 `Verify exact implementation SHA` (`test "$(git rev-parse HEAD)" = "$GITHUB_SHA"`) concluding `success` |
+| Called capability execution | run `33907950450`, job `101137305273` | `NG-0.6 Loki capability (called) / capability`, conclusion `success` |
+
+One honest note on the fourth row: a called workflow does **not** receive its
+own run id. Its jobs execute inside the caller's run, so the durable identity
+of the called capability is the caller run id plus the job id, not a separate
+run. Recording only "the capability ran" without the job id would leave nothing
+to open.
+
+## Milestone 2 — lifecycle proof
+
+| Event | Value |
+| --- | --- |
+| Base at branch creation | `3f4169245bb6a34873383ad244e53913d689a1d1` |
+| PR #11 head / merge | `3326ba2` → squash `20469d58a3923d8845c5ac84887a5603e4eaee64` |
+| PR #12 head / merge | `ea72486af808e4e9f8199415dd51c64c1b991b3d` → squash `261a4c5453c37d8f05b613a62774338f56943446` |
+| Required checks | Lint + compose validation, Unit tests + coverage, Warehouse dbt contract + artifacts, Airflow DAG validation |
+| PR #11 checks | run `33907052341` (4 jobs) and `33907052290`, all `success` |
+| PR #12 checks after update | run `33907581457`, all four `success` |
+| Branch after merge | `GET /git/ref/heads/feat/capability-dispatch` → `404`; `GET /git/ref/heads/docs/m2-evidence-shape-dependency` → `404` |
+
+Neither merge passed `--delete-branch`; the branches were removed by
+`delete_branch_on_merge`. Both merges were squash — merge-commit and rebase
+merging are disabled, so no other mode was available.
+
+### The `strict: true` proof, as a single-event transition
+
+PR #12 was branched from `main` at `3f41692` **before** PR #11, so one merge
+moved its base while nothing about the pull request itself changed.
+
+| | `main` | PR #12 head | `mergeable` | `mergeable_state` |
+| --- | --- | --- | --- | --- |
+| Before | `3f41692` | `3269f5f` | `MERGEABLE` | `CLEAN` |
+| After merging #11 | `20469d5` | `3269f5f` | `MERGEABLE` | `BEHIND` |
+
+Its four required checks were green before and stayed green; only the base
+moved. The merge was then refused:
+
+```
+gh pr merge 12 --squash
+  exit 1
+  "Pull request #12 is not mergeable: the head branch is not up to date with the base branch."
+```
+
+`mergeable: true` with `mergeable_state: behind` is the distinction that
+matters: the merge is conflict-free and still forbidden until the branch is
+updated to the current protected base. A settings read-back of `strict: true`
+could not have shown this. `PUT /pulls/12/update-branch` moved the head to
+`ea72486` and the state returned to `BLOCKED` on re-triggered checks, then
+`CLEAN`.
+
+### Negative case not run
+
+`gh` offered `--admin` to force the out-of-date merge. It was not attempted.
+`enforce_admins: true` is already proved on the stronger vector — an admin's
+direct push rejected — and deliberately testing a bypass of newly installed
+protection has an irreversible outcome if it unexpectedly succeeds. Covering
+that vector belongs on a disposable branch as its own test.
+
+## Milestone 2 — final topology assertion
+
+Read from the API after cleanup, at `main` = `261a4c5`:
+
+```
+permanent:
+  main                                    protected = true
+
+temporarily retained by recorded exception:
+  feature/ng-0.6-loki                     9 ahead of main
+  test/dbt-extensive-testing              11 ahead of main
+
+legacy branches, asserted absent:
+  feature/ng-0.4-otel                     deleted
+  feature/ng-0.5-tempo                    deleted
+  feature/prometheus-trace-exemplars      deleted
+  integration/ng-0.5                      deleted
+```
+
+Each deleted branch was verified `0` commits ahead of `main` and
+`merge-base --is-ancestor origin/<branch> origin/main` returned true
+immediately before deletion, so every commit they named remains reachable from
+`main` and no recorded claim was orphaned.
+
+The two retained branches are registered as exceptions in the standing
+capability with their reasons and the conditions that end them. Both are
+consequences of the same unresolved change and both close with it. They are not
+residue of the old topology left unexamined.
+
+Note that `test/dbt-extensive-testing` was `0` ahead of `main` when this change
+began and is now `11` ahead; `feature/ng-0.6-loki` moved from `1013876` to
+`89a44bc` across the same period. Both are under active work by another
+session. That is a further reason the exception is recorded rather than
+resolved here.
