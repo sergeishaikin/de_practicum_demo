@@ -36,6 +36,9 @@ Marked ``e2e`` and excluded from the fast suite via pytest.ini.
 
 from __future__ import annotations
 
+import csv
+import hashlib
+import io
 import json
 import os
 import shutil
@@ -946,6 +949,181 @@ def _metrics_match(expected: dict, load_ids: list[str], since) -> bool:
 
 
 # --------------------------------------------------------------------------- #
+# Observed runtime contract (acceptance evidence)
+#
+# The H1 OTel acceptance job compares three phases (OFF / ON / Collector outage)
+# and claims they produced the same business result. That claim is only
+# falsifiable if it is computed from what the run *observed*, not from what the
+# fixture *predicts*: `expected_pipeline(build_fixture())` is a pure function of
+# this file, so a hash of it is identical across phases by construction and can
+# never disagree with itself.
+#
+# Everything below is read-only and runs inside the test lifecycle, immediately
+# before the `finally` block drops the namespace, the landing prefix and the
+# Kafka topic. After pytest returns there is no isolated state left to observe,
+# so an out-of-process observer cannot exist.
+# --------------------------------------------------------------------------- #
+OBSERVED_EVIDENCE_ENV = "E2E_OBSERVED_EVIDENCE_PATH"
+
+# Rendered in SQL rather than in Python so that the text hashed here is the text
+# Trino produced. `<null>` is a sentinel: coalescing before the sort makes the
+# ordering total, which an ORDER BY over real NULLs would not guarantee across
+# engine versions.
+NULL_SENTINEL = "<null>"
+
+# Every column is canonicalised the same way: test the column for NULL first,
+# then render it. The obvious `coalesce(format('%.6f', x), '<null>')` is wrong
+# and silently so - Trino's `format` follows Java's Formatter and renders a NULL
+# argument as the *string* "null", so coalesce sees a non-NULL value and never
+# fires. That shipped once: the first hardened run recorded
+# ('2026-08-07','FR','paid','1','null','null','1') beside rows whose NULL country
+# had correctly become '<null>', i.e. two spellings of one SQL NULL inside a
+# payload whose whole purpose is to be canonical before hashing. Using one
+# explicit form for all seven columns removes the need to know which Trino
+# functions propagate NULL and which swallow it.
+GOLD_SNAPSHOT_SQL = f"""
+SELECT
+  CASE WHEN event_date IS NULL THEN '{NULL_SENTINEL}'
+       ELSE CAST(event_date AS varchar) END AS event_date,
+  CASE WHEN country IS NULL THEN '{NULL_SENTINEL}'
+       ELSE country END AS country,
+  CASE WHEN status IS NULL THEN '{NULL_SENTINEL}'
+       ELSE status END AS status,
+  CASE WHEN orders_count IS NULL THEN '{NULL_SENTINEL}'
+       ELSE CAST(orders_count AS varchar) END AS orders_count,
+  CASE WHEN total_amount IS NULL THEN '{NULL_SENTINEL}'
+       ELSE format('%.6f', total_amount) END AS total_amount,
+  CASE WHEN avg_amount IS NULL THEN '{NULL_SENTINEL}'
+       ELSE format('%.6f', avg_amount) END AS avg_amount,
+  CASE WHEN distinct_customers IS NULL THEN '{NULL_SENTINEL}'
+       ELSE CAST(distinct_customers AS varchar) END AS distinct_customers
+FROM iceberg.{{ns}}.orders_daily_metrics
+ORDER BY 1, 2, 3
+"""
+
+
+def canonical_json(payload: object) -> str:
+    """The exact byte sequence that gets hashed. One definition, one meaning."""
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+
+def contract_sha256(payload: object) -> str:
+    return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
+
+
+def _money(value: float) -> str:
+    """Match Trino's `format('%.6f', ...)` so expected and observed compare as text.
+
+    Comparing doubles across a Python model and an Iceberg double column invites
+    a last-bit disagreement that means nothing. Six decimal places is well past
+    the precision this fixture carries and is what the gold snapshot already uses.
+    """
+    return f"{value:.6f}"
+
+
+def expected_contract(expected: dict) -> dict:
+    """Project the predicted pipeline onto the keys the runtime can be asked for.
+
+    Every key here must be answerable by a live query in `observed_contract`;
+    a prediction with no observable counterpart cannot be part of a parity claim.
+    """
+    return {
+        "kafka_events": expected["total_events"],
+        "landing_rows": expected["landing_rows"],
+        "bronze_rows": expected["bronze_rows"],
+        "bronze_distinct_orders": expected["silver_rows"],
+        "silver_rows": expected["silver_rows"],
+        "duplicates_removed": expected["duplicates_removed"],
+        "gold_row_count": expected["gold_row_count"],
+        "gold_orders_count": expected["silver_rows"],
+        "gold_total_revenue": _money(expected["total_revenue"]),
+    }
+
+
+def observed_gold_snapshot(ns: str) -> list[list[str]]:
+    """Every materialised gold row, as Trino rendered it.
+
+    Aggregates alone (row count, summed revenue) are satisfied by many different
+    tables. The rows themselves are what "the three phases produced the same
+    result" has to mean.
+    """
+    rendered = trino_raw(GOLD_SNAPSHOT_SQL.format(ns=ns))
+    rows = list(csv.reader(io.StringIO(rendered)))
+    rows = [row for row in rows if row]
+    assert rows, f"gold snapshot query returned no header from namespace {ns}"
+    header, body = rows[0], rows[1:]
+    assert header == [
+        "event_date",
+        "country",
+        "status",
+        "orders_count",
+        "total_amount",
+        "avg_amount",
+        "distinct_customers",
+    ], f"unexpected gold snapshot header: {header}"
+    assert body, f"gold snapshot is empty in namespace {ns}"
+    return body
+
+
+def observed_contract(ns: str, run_id: str, topic: str) -> dict:
+    """Ask the running stack what it actually holds. Read-only, no defaults.
+
+    Every field is a direct data-plane read - a Kafka end offset, the landing
+    parquet, a Trino count. `marts.lakehouse_metrics` is deliberately not a
+    source here: the medallion writes one row per executed phase plus a `cycle`
+    envelope sharing a `cycle_id`, so a single row is not by itself the run's
+    account of itself, and an evidence layer must not guess which row it meant.
+    Quality violations therefore stay asserted by the test body (via
+    `_metrics_match`) rather than carried in the parity contract.
+    """
+    bronze_rows = int(trino_scalar(f"SELECT count(*) FROM iceberg.{ns}.orders"))
+    silver_rows = int(trino_scalar(f"SELECT count(*) FROM iceberg.{ns}.orders_clean"))
+    return {
+        "kafka_events": kafka_end_offset(topic),
+        "landing_rows": landing_rows(_fs(), run_id),
+        "bronze_rows": bronze_rows,
+        "bronze_distinct_orders": int(
+            trino_scalar(f"SELECT count(DISTINCT order_id) FROM iceberg.{ns}.orders")
+        ),
+        "silver_rows": silver_rows,
+        "duplicates_removed": bronze_rows - silver_rows,
+        "gold_row_count": int(
+            trino_scalar(f"SELECT count(*) FROM iceberg.{ns}.orders_daily_metrics")
+        ),
+        "gold_orders_count": int(
+            trino_scalar(
+                f"SELECT sum(orders_count) FROM iceberg.{ns}.orders_daily_metrics"
+            )
+        ),
+        "gold_total_revenue": _money(
+            float(
+                trino_scalar(
+                    f"SELECT sum(total_amount) FROM iceberg.{ns}.orders_daily_metrics"
+                )
+            )
+        ),
+    }
+
+
+def write_observed_evidence(payload: dict) -> None:
+    """Write the evidence file when a caller asked for one.
+
+    Deliberately unguarded: if the path was requested and the write fails, the
+    run fails. An evidence layer that degrades to "no file" on error is the
+    defect this whole function exists to remove.
+    """
+    destination = os.getenv(OBSERVED_EVIDENCE_ENV)
+    if not destination:
+        return
+    path = Path(destination)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    print(f"[e2e] observed evidence written to {path}", flush=True)
+
+
+# --------------------------------------------------------------------------- #
 # The test
 # --------------------------------------------------------------------------- #
 @pytest.mark.e2e
@@ -1242,6 +1420,38 @@ def test_deterministic_nightly_pipeline() -> None:
             60,
             "pipeline metrics",
             probes=(metrics_probe,),
+        )
+
+        # Observe before teardown. The `finally` below drops the namespace, the
+        # landing prefix and the topic, so this is the last instant at which the
+        # run can be asked what it produced rather than what it intended.
+        predicted = expected_contract(expected)
+        observed = observed_contract(ns, run_id, topic)
+        assert observed == predicted, (
+            "observed runtime contract diverged from the expected pipeline: "
+            f"{ {k: (predicted[k], observed[k]) for k in predicted if predicted[k] != observed[k]} }"
+        )
+        gold_snapshot = observed_gold_snapshot(ns)
+        assert len(gold_snapshot) == expected["gold_row_count"], (
+            f"gold snapshot has {len(gold_snapshot)} rows, "
+            f"expected {expected['gold_row_count']}"
+        )
+        write_observed_evidence(
+            {
+                "run_id": run_id,
+                "namespace": ns,
+                "topic": topic,
+                # The job checks out the PR head, while GITHUB_SHA on a
+                # pull_request event is the merge commit - so the evidence is
+                # tied to an explicitly exported commit, not to the event's.
+                "git_sha": os.getenv("E2E_EVIDENCE_COMMIT", ""),
+                "expected_contract": predicted,
+                "expected_contract_sha256": contract_sha256(predicted),
+                "observed_contract": observed,
+                "observed_contract_sha256": contract_sha256(observed),
+                "observed_gold_snapshot": gold_snapshot,
+                "observed_gold_sha256": contract_sha256(gold_snapshot),
+            }
         )
         success = True
     except Exception:

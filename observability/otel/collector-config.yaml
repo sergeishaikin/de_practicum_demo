@@ -53,6 +53,18 @@ exporters:
       initial_interval: 1s
       max_interval: 5s
       max_elapsed_time: 30s
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
+    sending_queue:
+      enabled: true
+      num_consumers: 1
+      queue_size: 256
+      storage: file_storage
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 5s
+      max_elapsed_time: 30s
 
 service:
   telemetry:
@@ -75,4 +87,4 @@ service:
     logs:
       receivers: [otlp]
       processors: [memory_limiter, redaction, batch]
-      exporters: [debug]
+      exporters: [debug, otlphttp/loki]

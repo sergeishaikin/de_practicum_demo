@@ -169,6 +169,21 @@ The GitHub workflow is `.github/workflows/ci-ng05-tempo.yml`; it exercises the
 same capability on a clean stack and captures/uploads diagnostics on failure.
 The core Prometheus scrape path remains covered by the normal H1/PR suites.
 
+### NG-0.6 Loki capability
+
+The optional Loki capability requires both `otel` and `observability-next`
+profiles. Its focused tests and live harness verify native OTLP ingestion,
+explicit low-cardinality labels, persisted redaction, isolated storage,
+same-trace correlation, and Loki restart behaviour:
+
+```bash
+uv run --locked pytest -q tests/test_loki_contract.py
+uv run --locked python tests/loki_acceptance.py
+```
+
+The separate GitHub workflow is `.github/workflows/ci-ng06-loki.yml`. Core H1
+does not start Loki and remains the canonical independence check.
+
 ### Airflow BDD features
 
 The Gherkin specification in `tests/features/airflow_workflow_behavior.feature`

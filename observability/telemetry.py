@@ -100,10 +100,20 @@ class Telemetry:
             except Exception:  # pragma: no cover
                 LOGGER.exception("OpenTelemetry log shutdown failed; continuing")
 
-    def log(self, body: str) -> None:
+    def log(
+        self,
+        body: str,
+        *,
+        event_name: str,
+        severity: str = "INFO",
+        attributes: dict[str, Any] | None = None,
+    ) -> None:
         try:
             if self.logger is not None:
-                self.logger.emit(body=body)
+                safe_attributes = dict(attributes or {})
+                safe_attributes.setdefault("event.name", event_name)
+                safe_attributes.setdefault("severity", severity.upper())
+                self.logger.emit(body=body, attributes=safe_attributes)
         except Exception:  # pragma: no cover
             LOGGER.exception("OpenTelemetry log failed; continuing fail-open")
 

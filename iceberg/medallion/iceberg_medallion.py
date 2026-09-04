@@ -1940,10 +1940,19 @@ def main() -> None:
         try:
             with telemetry.span("medallion.cycle"):
                 run(catalog, metrics)
-            telemetry.log("medallion cycle completed")
+            telemetry.log(
+                "medallion cycle completed",
+                event_name="medallion.cycle.completed",
+                severity="INFO",
+            )
         except Exception as exc:
             print(f"Medallion error: {exc}", file=sys.stderr, flush=True)
-            telemetry.log("medallion cycle failed")
+            telemetry.log(
+                "medallion cycle failed",
+                event_name="medallion.cycle.failed",
+                severity="ERROR",
+                attributes={"error.type": type(exc).__name__},
+            )
         time.sleep(INTERVAL)
 
 

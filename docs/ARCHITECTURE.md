@@ -53,6 +53,8 @@ graph LR
 graph LR
   APP[First-party services] -->|OTLP traces/logs| COL[OpenTelemetry Collector]
   COL -->|telemetry-backend| TEMPO[(Grafana Tempo)]
+  COL -->|otlphttp/loki| LOKI[(Grafana Loki)]
+  LOKI -->|isolated bucket| LMINIO[(Loki MinIO)]
   APP -->|/metrics direct scrape| PROM[(Prometheus)]
   PROM --> GRAF[Grafana]
   TEMPO --> GRAF
@@ -66,9 +68,12 @@ Tempo datasource is provisioned continuously, becoming functional when the
 Tempo backend is running.
 Prometheus application metrics remain directly
 scraped and, together with PostgreSQL durable metrics, remain authoritative;
-no spanmetrics or metrics-generator path is enabled. Trace-to-logs navigation
-is a future design boundary and is not provisioned until NG-0.6 is separately
-authorised.
+no spanmetrics or metrics-generator path is enabled. When the optional Loki
+capability is enabled, Collector logs use Loki's native OTLP endpoint and Grafana links Tempo spans to
+Loki logs (and Loki structured trace IDs back to Tempo). Loki uses a dedicated
+MinIO store and finite Compactor retention; third-party/container logs remain
+outside the first-wave scope. The complete capability requires both `otel` and
+`observability-next` profiles.
 
 ## Data flow
 
