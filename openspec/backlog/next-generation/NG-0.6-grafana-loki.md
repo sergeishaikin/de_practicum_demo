@@ -1,18 +1,18 @@
 # NG-0.6 — Grafana Loki Log Backend
 
-> **Lifecycle:** PLANNED
+> **Lifecycle:** ACTIVE
 > **Disposition:** pending
-> **Execution authorization:** NONE. This file specifies a future bounded change; it does not authorize implementation by itself.
+> **Execution authorization:** `operator:explicit-ng-0.6-milestone-1` — recovery, design and preflight only. Implementation remains unauthorised.
 > **Opens as:** `add-loki-log-backend`
 > **Repository:** `sergeishaikin/de_practicum_demo`
-> **Baseline branch used for analysis:** `test/dbt-extensive-testing`
+> **Baseline branch used for analysis:** `test/dbt-extensive-testing` at `07b475fd28a831794d817580c1dee09c56d098b9`; working branch `feature/ng-0.6-loki`.
 > **SDD convention:** implementation SHALL be opened as its own OpenSpec change with `proposal.md`, `design.md`, `tasks.md`, evidence, and the required spec delta before code is applied.
 
 Normative terms `SHALL`, `SHALL NOT`, `SHOULD`, and `MAY` are intentional. A requirement is not complete because a container starts; it is complete only when its acceptance evidence is captured and the relevant live CI gates are green.
 
 ## Freshness of external assumptions
 
-Versions, compatibility matrices, resource requirements, connector capabilities and product limitations recorded in this item are planning assumptions, not frozen truths. They were recorded against the baseline branch named above and are not re-verified while the item sits in the backlog.
+Versions, compatibility matrices, resource requirements, connector capabilities and product limitations recorded in this item are planning assumptions, not frozen truths. They were re-verified for Milestone 1 on 2026-09-04 against the primary sources recorded in the active change evidence.
 
 - **WHEN** this item is promoted to an authorised change
 - **THEN** every externally time-sensitive premise SHALL be re-verified against primary documentation before the design is accepted
