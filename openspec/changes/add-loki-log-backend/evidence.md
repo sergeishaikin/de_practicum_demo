@@ -54,5 +54,47 @@ failure evidence.
 
 ## Preflight
 
-`PASS_WITH_EXPLICIT_LIMITATIONS` — design may proceed to implementation after
-explicit Milestone 2 authorisation. Milestone 1 stops here.
+`PASS_WITH_EXPLICIT_LIMITATIONS` — design proceeded only after the separate
+explicit Milestone 2 authorisation recorded in the operator checkpoint.
+
+## Milestone 2 implementation and local acceptance receipt
+
+- Commit ancestry: implementation is based on authorised M1 `6a2be13` and
+  exact programme baseline `07b475f`.
+- Loki image: `grafana/loki@sha256:d70e4659623f3e109af669cae76fe2a5dd5be54e2298fe8aed380d982fbc2500`
+  (v3.7.7, revision `7a40404f`).
+- Compose rendered with `--profile '*'`: PASS.
+- Loki config `--verify-config=true`: PASS.
+- `tests/test_loki_contract.py`, Tempo and OTel contracts: 12 passed, 1 skipped.
+- Live `tests/loki_acceptance.py`: PASS. Same trace ID
+  `78ea723b9edc4540d69b8da0eb0da4b7`; persisted LogQL query returned the
+  record, retained `ng06-loki-load-001`, and rejected
+  `super-secret-token`, `do-not-store`, and the sensitive SQL literal.
+- Storage permissions: positive write to `loki-logs/ng06/storage-proof`;
+  negative write to canonical MinIO was denied using the same Loki credentials.
+- Loki outage/restart: Collector remained healthy and canonical MinIO remained
+  running while Loki was stopped; Loki returned HTTP 200 `/ready` after restart.
+- Grafana proxy query: provisioned Loki datasource UID `loki` returned one
+  result for the same trace ID through `/api/datasources/proxy/.../loki/api/v1/query_range`;
+  the provisioned Tempo datasource exposes the reciprocal Loki mapping and
+  Label-derived `trace_id` field.
+- Resource sample during local acceptance: Loki 56.69 MiB RSS / 13.36% CPU,
+  Loki MinIO 236.2 MiB RSS / 0.06% CPU, Collector 39.25 MiB RSS / 0.08% CPU.
+  This is demo-host evidence, not production sizing.
+
+## Completion gates
+
+```text
+uv run --locked ruff check .                         PASS
+uv run --locked black --check .                     PASS
+uv run --locked mypy                                PASS
+uv run --locked pytest                              532 passed, 1 skipped
+uv run --locked pytest tests --cov=iceberg ...      532 passed, 1 skipped; 92.72%
+openspec validate --all --strict                    PASS
+backlog validator                                   PASS (14 items)
+git diff --check                                    PASS
+```
+
+Remote capability CI has not yet run for the implementation SHA; the workflow
+is present and will execute on the pushed branch. Core H1 remains independent
+and the exact baseline H1 receipt is `33869184341` SUCCESS on `07b475f`.

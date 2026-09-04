@@ -1,0 +1,119 @@
+name: NG-0.6 Loki capability
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/ng-0.6-loki]
+    paths:
+      - ".env.example"
+      - "docker-compose*.yml"
+      - "observability/otel/**"
+      - "observability/loki/**"
+      - "observability/tempo/**"
+      - "observability/grafana/provisioning/**"
+      - "tests/test_loki_contract.py"
+      - "tests/loki_acceptance.py"
+  pull_request:
+    paths:
+      - ".env.example"
+      - "docker-compose*.yml"
+      - "observability/otel/**"
+      - "observability/loki/**"
+      - "observability/tempo/**"
+      - "observability/grafana/provisioning/**"
+      - "tests/test_loki_contract.py"
+      - "tests/loki_acceptance.py"
+
+jobs:
+  capability:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: ".python-version"
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.5"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Install host verification dependencies
+        run: uv sync --locked
+      - name: Verify exact implementation SHA
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Render and verify pinned Loki configuration
+        run: |
+          cp .env.example .env
+          sed -i 's/^LOKI_S3_SECRET_KEY=.*/LOKI_S3_SECRET_KEY=ng06-loki-ci-secret/' .env
+          docker network create de_demo_net || true
+          docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml --profile observability-next --profile otel config --quiet
+          set -a; source .env; set +a
+          docker run --rm --entrypoint /usr/bin/loki \
+            --env LOKI_S3_ENDPOINT=localhost:9000 \
+            --env LOKI_S3_BUCKET="$LOKI_S3_BUCKET" \
+            --env LOKI_S3_ACCESS_KEY="$LOKI_S3_ACCESS_KEY" \
+            --env LOKI_S3_SECRET_KEY="$LOKI_S3_SECRET_KEY" \
+            --env LOKI_S3_PREFIX="$LOKI_S3_PREFIX" \
+            -v "$PWD/observability/loki/loki.yaml:/etc/loki/loki.yaml:ro" \
+            "$LOKI_IMAGE" --config.file=/etc/loki/loki.yaml --config.expand-env=true --verify-config=true
+      - name: Build disposable first-party acceptance image
+        run: docker build --tag de-practicum-demo-iceberg:0.11.1-h1 ./iceberg
+      - name: Start Loki, Tempo and Collector capability
+        run: |
+          docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml \
+            --profile observability-next --profile otel up -d minio loki-minio loki-minio-init loki tempo-minio tempo-minio-init tempo otel-collector
+          for i in $(seq 1 60); do curl -fsS http://localhost:13100/ready && break || sleep 1; done
+          curl -fsS http://localhost:13100/ready
+          for i in $(seq 1 45); do test "$(docker inspect -f '{{.State.Health.Status}}' de-demo-otel-collector)" = healthy && break || sleep 1; done
+          test "$(docker inspect -f '{{.State.Health.Status}}' de-demo-otel-collector)" = healthy
+      - name: Start disposable Grafana correlation surface
+        run: |
+          set -a; source .env; set +a
+          docker run -d --name ng06-ci-grafana --network de_demo_net \
+            --network-alias grafana -p 13001:3000 \
+            -e GF_SECURITY_ADMIN_PASSWORD=ng06-grafana-ci-secret \
+            -v "$PWD/observability/grafana/provisioning:/etc/grafana/provisioning:ro" \
+            -v "$PWD/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro" \
+            "$GRAFANA_IMAGE"
+          for i in $(seq 1 45); do curl -fsS http://localhost:13001/api/health && break || sleep 1; done
+          curl -fsS http://localhost:13001/api/datasources/uid/loki | grep -q '"uid":"loki"'
+      - name: Static contracts and persisted live acceptance
+        env:
+          LOKI_S3_ACCESS_KEY: loki-demo
+          LOKI_S3_SECRET_KEY: ng06-loki-ci-secret
+          LOKI_S3_BUCKET: loki-logs
+          NG06_LOKI_URL: http://localhost:13100
+        run: |
+          uv run --locked pytest -q tests/test_loki_contract.py tests/test_tempo_contract.py tests/test_otel_contract.py
+          uv run --locked python tests/loki_acceptance.py
+      - name: Loki-specific outage and recovery
+        run: |
+          docker stop de-demo-loki
+          test "$(docker inspect -f '{{.State.Status}}' de-demo-loki)" = exited
+          docker start de-demo-loki
+          for i in $(seq 1 60); do curl -fsS http://localhost:13100/ready && break || sleep 1; done
+          curl -fsS http://localhost:13100/ready
+          docker stop de-demo-loki-minio
+          test "$(docker inspect -f '{{.State.Status}}' de-demo-loki-minio)" = exited
+          test "$(docker inspect -f '{{.State.Status}}' de-demo-loki)" = running
+          docker start de-demo-loki-minio
+      - name: Capture capability diagnostics
+        if: failure()
+        run: |
+          docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml logs --no-color loki loki-minio otel-collector > ng06-loki-capability.log 2>&1 || true
+          docker logs ng06-ci-grafana > ng06-grafana.log 2>&1 || true
+      - name: Upload capability diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ng06-loki-capability
+          path: |
+            ng06-loki-capability.log
+            ng06-grafana.log
+      - name: Cleanup capability services
+        if: always()
+        run: |
+          docker rm -f ng06-ci-grafana ng06-loki-acceptance-writer || true
+          docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml \
+            --profile observability-next --profile otel down --remove-orphans

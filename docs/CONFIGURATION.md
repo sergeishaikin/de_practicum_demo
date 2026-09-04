@@ -45,7 +45,7 @@
 | `GRAFANA_IMAGE` | Optional | `grafana/grafana:11.2.0` | Grafana image tag. |
 | `GRAFANA_HOST_PORT` | Optional | `13001` | Grafana host port. |
 
-### Optional observability profile (NG-0.5)
+### Optional observability profiles (NG-0.5 and NG-0.6)
 
 These settings are read from `.env` when the `otel` or
 `observability-next` Compose profiles are enabled. The reference
@@ -67,13 +67,20 @@ keep real secrets in the untracked `.env` file.
 | `TEMPO_S3_ACCESS_KEY` | Required for `observability-next` | `tempo-demo` | Trace-store access identity; do not reuse warehouse credentials. |
 | `TEMPO_S3_SECRET_KEY` | Required for `observability-next` | placeholder | Secret for the dedicated trace store. |
 | `TEMPO_MINIO_IMAGE` / `TEMPO_MINIO_MC_IMAGE` | Required for `observability-next` | digest-pinned | Dedicated MinIO and initialization helper images. |
+| `LOKI_IMAGE` | Required for NG-0.6 `observability-next` | digest-pinned Loki 3.7.7 | Loki image; keep the immutable manifest digest. |
+| `LOKI_HOST_PORT` | Optional | `13100` | Host port for Loki HTTP/query API. |
+| `LOKI_S3_BUCKET` / `LOKI_S3_PREFIX` | Required for Loki | `loki-logs` / `ng06/` | Dedicated Loki object-store location. |
+| `LOKI_S3_ACCESS_KEY` / `LOKI_S3_SECRET_KEY` | Required for Loki | `loki-demo` / placeholder | Dedicated Loki identity; never use warehouse root credentials. |
+| `LOKI_MINIO_IMAGE` / `LOKI_MINIO_MC_IMAGE` | Required for Loki | digest-pinned | Dedicated Loki MinIO and initialization helper images. |
 | `GRAFANA_ADMIN_PASSWORD` | Required for Grafana | placeholder | Local Grafana admin password. |
 
 Enablement is explicit: `--profile otel` starts the Collector, while adding
-`--profile observability-next` starts Tempo and its dedicated MinIO store;
-Grafana is part of the extended stack and uses its provisioned Tempo datasource
-when that backend is running. Prometheus continues its direct scrape path in
-either case.
+`--profile observability-next` starts Tempo, Loki and their dedicated MinIO
+stores. Grafana is part of the extended stack and has provisioned Tempo and
+Loki datasources; each becomes functional when its backend is running.
+Prometheus continues its direct scrape path in either case. The complete
+NG-0.6 trace/log capability requires both `--profile otel` and
+`--profile observability-next`.
 
 ### Required beyond `.env.example`
 

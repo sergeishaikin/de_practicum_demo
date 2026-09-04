@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from contextlib import contextmanager
 from typing import Any, Iterator
 
@@ -18,6 +19,28 @@ OTEL_ENDPOINT = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel-collector:
 OTEL_TIMEOUT = float(os.getenv("OTEL_EXPORTER_OTLP_TIMEOUT", "5"))
 OTEL_NAMESPACE = os.getenv("OTEL_SERVICE_NAMESPACE", "de-practicum")
 OTEL_ENVIRONMENT = os.getenv("OTEL_DEPLOYMENT_ENVIRONMENT", "local")
+
+_DENIED_KEYS = re.compile(
+    r"(?i)(password|secret|authorization|token|api[_-]?key|connection|string)"
+)
+_DENIED_VALUES = (
+    re.compile(r"(?i)bearer\s+[a-z0-9._~-]+"),
+    re.compile(r"(?i)select\s+customer_email\s+from\s+orders"),
+)
+
+
+def _safe_value(value: Any) -> Any:
+    text = str(value)
+    for pattern in _DENIED_VALUES:
+        text = pattern.sub("[REDACTED]", text)
+    return text
+
+
+def _safe_attributes(attributes: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: "[REDACTED]" if _DENIED_KEYS.search(key) else _safe_value(value)
+        for key, value in attributes.items()
+    }
 
 
 class Telemetry:
@@ -124,7 +147,17 @@ class Telemetry:
         if not self.enabled:
             return
         try:
-            self.logger.emit(body=body, attributes=attributes or {})
+            safe_attributes = _safe_attributes(attributes or {})
+            try:
+                from opentelemetry import trace
+
+                context = trace.get_current_span().get_span_context()
+                if context.is_valid:
+                    safe_attributes.setdefault("trace_id", f"{context.trace_id:032x}")
+                    safe_attributes.setdefault("span_id", f"{context.span_id:016x}")
+            except Exception:  # pragma: no cover - optional SDK boundary
+                pass
+            self.logger.emit(body=_safe_value(body), attributes=safe_attributes)
         except Exception:  # pragma: no cover - exporter/runtime boundary
             LOGGER.exception("OpenTelemetry log failed; continuing fail-open")
 

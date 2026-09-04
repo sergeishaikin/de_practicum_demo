@@ -564,6 +564,76 @@ services:
     networks:
       - de_demo_net
 
+  loki-minio:
+    profiles: ["observability-next"]
+    image: ${LOKI_MINIO_IMAGE:?LOKI_MINIO_IMAGE is required for the Loki profile}
+    container_name: de-demo-loki-minio
+    mem_limit: 256m
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${LOKI_S3_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${LOKI_S3_SECRET_KEY}
+    volumes:
+      - de_demo_loki_minio_data:/data
+    networks:
+      - de_demo_net
+
+  loki-minio-init:
+    profiles: ["observability-next"]
+    image: ${LOKI_MINIO_MC_IMAGE:?LOKI_MINIO_MC_IMAGE is required for the Loki profile}
+    container_name: de-demo-loki-minio-init
+    mem_limit: 128m
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        until mc alias set loki http://loki-minio:9000
+        "$${LOKI_S3_ACCESS_KEY}" "$${LOKI_S3_SECRET_KEY}"; do sleep 1; done;
+        mc mb --ignore-existing "loki/$${LOKI_S3_BUCKET}";
+    environment:
+      LOKI_S3_ACCESS_KEY: ${LOKI_S3_ACCESS_KEY}
+      LOKI_S3_SECRET_KEY: ${LOKI_S3_SECRET_KEY}
+      LOKI_S3_BUCKET: ${LOKI_S3_BUCKET}
+      LOKI_S3_PREFIX: ${LOKI_S3_PREFIX}
+    depends_on:
+      loki-minio:
+        condition: service_started
+    networks:
+      - de_demo_net
+
+  loki:
+    profiles: ["observability-next"]
+    image: ${LOKI_IMAGE:?LOKI_IMAGE is required for the Loki profile}
+    container_name: de-demo-loki
+    mem_limit: 768m
+    cpus: 1.0
+    command:
+      - --config.file=/etc/loki/loki.yaml
+      - --config.expand-env=true
+      - --target=all
+    environment:
+      LOKI_S3_ENDPOINT: loki-minio:9000
+      LOKI_S3_BUCKET: ${LOKI_S3_BUCKET}
+      LOKI_S3_PREFIX: ${LOKI_S3_PREFIX}
+      LOKI_S3_ACCESS_KEY: ${LOKI_S3_ACCESS_KEY}
+      LOKI_S3_SECRET_KEY: ${LOKI_S3_SECRET_KEY}
+    ports:
+      - "${LOKI_HOST_PORT:-13100}:3100"
+    volumes:
+      - ./observability/loki/loki.yaml:/etc/loki/loki.yaml:ro
+      - de_demo_loki_data:/loki
+    depends_on:
+      loki-minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "/usr/bin/loki", "--config.file=/etc/loki/loki.yaml", "--verify-config=true"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - de_demo_net
+
   grafana:
     image: ${GRAFANA_IMAGE:?GRAFANA_IMAGE is required}
     container_name: de-demo-grafana
@@ -831,6 +901,8 @@ volumes:
   de_demo_otel_storage:
   de_demo_tempo_data:
   de_demo_tempo_minio_data:
+  de_demo_loki_data:
+  de_demo_loki_minio_data:
 
 networks:
   de_demo_net:

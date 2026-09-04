@@ -12,13 +12,13 @@
 - [x] Record preflight limits and evidence in `evidence.md`.
 - [x] Create the required OpenSpec capability delta.
 
-## Milestone 2 — implementation (not authorised)
+## Milestone 2 — implementation (authorised)
 
-- [ ] Add pinned Loki profile and isolated storage configuration.
-- [ ] Configure Collector `otlphttp` Loki exporter and bounded queue/WAL
+- [x] Add pinned Loki profile and isolated storage configuration.
+- [x] Configure Collector `otlphttp` Loki exporter and bounded queue/WAL
       behaviour without changing the existing trace/metrics routes.
-- [ ] Adapt first-party log emitters to the approved schema and redaction.
-- [ ] Provision Grafana Loki datasource and trace-to-logs derived fields.
-- [ ] Add capability tests, failure injection, resource/cardinality receipts,
+- [x] Adapt first-party log emitters to the approved schema and redaction.
+- [x] Provision Grafana Loki datasource and trace-to-logs derived fields.
+- [x] Add capability tests, failure injection, resource/cardinality receipts,
       and a separate CI workflow; keep core H1 Loki-free.
-- [ ] Obtain explicit Milestone 2 authorisation before executing any item above.
+- [x] Obtain explicit Milestone 2 authorisation before executing implementation.
