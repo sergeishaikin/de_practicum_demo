@@ -55,5 +55,9 @@
       history and leaving NG-0.7 `PLANNED / pending / none`.
 - [x] Resolve the Tempo capability's forward reference to unauthorised NG-0.6.
 - [x] Archive this completed change under the dated archive path.
-- [ ] Produce fresh exact-SHA capability and Loki-free H1 receipts on the new
-      candidate, and record the merge-time receipt against base `main`.
+- [x] Produce fresh exact-SHA capability and Loki-free H1 receipts on the new
+      candidate: Loki capability `33912934372` through `workflow_call` with
+      `expected_sha`, H1 `33912936640`, M5 `33912940204`, all **success** on
+      `51ca4ac`.
+- [ ] Record the merge-time receipt against base `main` on the final pull
+      request head.
