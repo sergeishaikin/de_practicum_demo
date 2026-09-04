@@ -41,14 +41,13 @@ limits_config:
   max_structured_metadata_size: 64KB
   max_structured_metadata_entries_count: 128
   max_query_lookback: 48h
+
+distributor:
   otlp_config:
-    resource_attributes:
-      attributes_config:
-        - action: index_label
-          attributes:
-            - service.name
-            - service.namespace
-            - deployment.environment.name
+    default_resource_attributes_as_index_labels:
+      - service.name
+      - service.namespace
+      - deployment.environment.name
 
 compactor:
   working_directory: /loki/retention

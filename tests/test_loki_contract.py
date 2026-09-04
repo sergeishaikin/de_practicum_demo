@@ -37,11 +37,15 @@ def test_loki_otlp_route_and_explicit_label_allow_list() -> None:
     assert "otlphttp/loki:" in collector
     assert "endpoint: http://loki:3100/otlp" in collector
     assert "exporters: [debug, otlphttp/loki]" in collector
+    assert "default_resource_attributes_as_index_labels" in config
     assert "service.name" in config
     assert "service.namespace" in config
     assert "deployment.environment.name" in config
     assert "service.instance.id" not in config
-    assert "trace_id" not in config.split("attributes_config", 1)[1]
+    assert "service.instance.id" not in config
+    assert "trace_id" not in config.split(
+        "default_resource_attributes_as_index_labels", 1
+    )[1]
 
 
 def test_grafana_trace_to_logs_uses_structured_metadata_label() -> None:
