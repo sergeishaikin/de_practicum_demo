@@ -61,11 +61,16 @@ Iceberg writer (PyIceberg -> REST Catalog)
 
 ### Optional observability plane
 
-The adopted NG-0.5 profile is opt-in. First-party traces and logs destined for
-Tempo flow over OTLP to the OpenTelemetry Collector and then to Tempo. Existing
-application Prometheus metrics remain directly scraped by Prometheus; Grafana
-links bounded Prometheus exemplars to the same Tempo trace. This profile does
-not replace the existing Prometheus/Grafana path and does not provision Loki.
+The adopted NG-0.5 profile is opt-in. First-party traces and logs flow over
+OTLP to the OpenTelemetry Collector. Traces are routed through
+`telemetry-backend` to Tempo; logs remain Collector-only until NG-0.6 provides
+a separately authorised log backend. Existing application Prometheus metrics
+remain directly scraped by Prometheus; Grafana links bounded Prometheus
+exemplars to the same Tempo trace. This profile does not replace the existing
+Prometheus/Grafana path.
+
+The complete NG-0.5 trace capability requires both `--profile otel` and
+`--profile observability-next`.
 
 ## Components and URLs
 
@@ -87,8 +92,8 @@ not replace the existing Prometheus/Grafana path and does not provision Loki.
 | Kafka UI | Kafka administration | `http://localhost:18090` |
 | Metabase | Analytics and dashboards | `http://localhost:13000` |
 | Prometheus | Directly scraped application metrics | `http://localhost:19090` |
-| Grafana | Prometheus/Tempo correlation UI (Tempo datasource is optional) | `http://localhost:13001` |
-| OpenTelemetry Collector | OTLP receiver and bounded telemetry queue (optional profile) | `http://localhost:13133` |
+| Grafana | Prometheus/Tempo correlation UI (Tempo backend is optional) | `http://localhost:13001` |
+| OpenTelemetry Collector | OTLP receiver and bounded telemetry queue | internal only (`otel-collector:13133` health) |
 | Tempo | Trace query API (optional profile) | `http://localhost:13200` |
 
 ## Requirements

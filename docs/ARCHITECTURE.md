@@ -52,8 +52,10 @@ graph LR
 ```
 
 The Collector is enabled by the `otel` profile and Tempo plus its dedicated
-trace store by `observability-next`; Grafana remains part of the extended
-stack and receives the Tempo datasource when that backend is running.
+trace store by `observability-next`; the complete NG-0.5 trace capability
+requires both profiles. Grafana remains part of the extended stack and its
+Tempo datasource is provisioned continuously, becoming functional when the
+Tempo backend is running.
 Prometheus application metrics remain directly
 scraped and, together with PostgreSQL durable metrics, remain authoritative;
 no spanmetrics or metrics-generator path is enabled. Trace-to-logs navigation
