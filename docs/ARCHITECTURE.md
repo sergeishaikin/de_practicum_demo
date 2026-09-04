@@ -47,6 +47,29 @@ graph LR
   MARTS --> REPORT[reports/demo_quality_report.html]
 ```
 
+### Optional observability plane
+
+```mermaid
+graph LR
+  APP[First-party services] -->|OTLP traces/logs| COL[OpenTelemetry Collector]
+  COL -->|telemetry-backend| TEMPO[(Grafana Tempo)]
+  APP -->|/metrics direct scrape| PROM[(Prometheus)]
+  PROM --> GRAF[Grafana]
+  TEMPO --> GRAF
+  PROM -. bounded exemplar trace_id .-> TEMPO
+```
+
+The Collector is enabled by the `otel` profile and Tempo plus its dedicated
+trace store by `observability-next`; the complete NG-0.5 trace capability
+requires both profiles. Grafana remains part of the extended stack and its
+Tempo datasource is provisioned continuously, becoming functional when the
+Tempo backend is running.
+Prometheus application metrics remain directly
+scraped and, together with PostgreSQL durable metrics, remain authoritative;
+no spanmetrics or metrics-generator path is enabled. Trace-to-logs navigation
+is a future design boundary and is not provisioned until NG-0.6 is separately
+authorised.
+
 ## Data flow
 
 ### Real-time flow
@@ -104,6 +127,7 @@ The warehouse documents are indexed in [docs/warehouse/](warehouse/README.md).
 | `data/` | Raw CSV input and shared data mounted into Airflow/Spark/Jupyter containers. |
 | `docs/` | Documentation, DBML schemas, and exercise/troubleshooting guides. |
 | `iceberg/` | PyIceberg services: `writer/` (landing → bronze), `medallion/` (bronze → silver/gold, quality checks), plus the shared `Dockerfile` and `common/ops.py` (metrics helper). |
+| `observability/` | OpenTelemetry Collector, Tempo, and Grafana provisioning for the optional trace profile. |
 | `jupyter/` | Jupyter image with PySpark/Spark Connect access for interactive development. |
 | `kafka/` | Kafka producer source (`producer/orders_producer.py`). |
 | `scripts/` | PowerShell/sh/cmd operational scripts (doctor, checks, stack lifecycle). |

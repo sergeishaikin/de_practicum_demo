@@ -11,7 +11,7 @@ This project is a local, single-host demo platform. Deployment means running the
 | Base batch stack (PostgreSQL + Airflow) | `docker-compose.yml` |
 | Offline base stack (pre-built local Airflow image) | `docker-compose.local-airflow.yml` |
 
-Images referenced by tag (`postgres:15`, `apache/kafka:4.0.0`, `trinodb/trino:483`, `apache/superset:latest-dev`, `metabase/metabase:v0.54.6`, `minio/minio:RELEASE.2025-04-22T22-12-26Z`, `tabulario/iceberg-rest:latest`) come from public registries. Four images are built locally from Dockerfiles:
+Images referenced by tag (`postgres:15`, `apache/kafka:4.0.0`, `trinodb/trino:483`, `apache/superset:latest-dev`, `metabase/metabase:v0.54.6`, `minio/minio:RELEASE.2025-04-22T22-12-26Z`, `tabulario/iceberg-rest:latest`) come from public registries. The optional OpenTelemetry Collector, Tempo, and dedicated MinIO helper images are digest-pinned in `.env.example`. Four images are built locally from Dockerfiles:
 
 | Image | Dockerfile | Used by |
 |---|---|---|
@@ -24,7 +24,7 @@ Images referenced by tag (`postgres:15`, `apache/kafka:4.0.0`, `trinodb/trino:48
 
 CI is provided by GitHub Actions (`.github/workflows/`):
 
-- `ci-pr.yml` runs on every pull request: compose validation, `ruff`, `black --check`, the fast unit suite, the 90% coverage check, and Airflow DagBag validation. The coverage command passes at 93.66%, so a coverage failure is a real regression.
+- `ci-pr.yml` runs on every pull request: compose validation, `ruff`, `black --check`, the fast unit suite, the 90% coverage threshold, and Airflow DagBag validation. See the latest CI receipt for the measured coverage; a threshold failure is a real regression.
 - `ci-integration.yml` (manual or on push to `main`) brings up the live Iceberg/Trino stack and runs the integration layer.
 - `ci-nightly.yml` (02:15 UTC) builds the full stack, runs the integration layer, the deterministic Kafka/Spark E2E, and the maintenance DAG end-to-end check.
 
@@ -70,12 +70,17 @@ SELECT count(*) FROM iceberg.bronze.orders FOR TIMESTAMP AS OF TIMESTAMP '<times
 
 ## Monitoring
 
-There is no external monitoring (no Sentry, Datadog, OpenTelemetry, or alerting configured). Operational visibility comes from the stack itself:
+Observability is optional and extends the existing Prometheus/Grafana path. With
+`--profile otel`, first-party traces and logs are exported over OTLP to the
+OpenTelemetry Collector; adding `--profile observability-next` enables the
+Tempo backend and dedicated trace store. Prometheus application metrics remain
+directly scraped and authoritative. Operational visibility comes from the
+stack itself:
 
 - Container health: `.\stack.ps1 status` / `docker compose ps`; healthchecks are defined for `de-demo-kafka`, `de-demo-spark-connect`, `de-demo-iceberg-rest`, and `de-demo-postgres`.
 - Logs: `.\stack.ps1 logs -Service <name>`.
 - Diagnostics: `scripts\doctor.cmd` (environment) and `scripts\run_checks.cmd` (SQL quality gates).
 - Pipeline audit: `marts.pipeline_runs.run_id` records each downstream warehouse validation DagRun, while nullable `ingestion_run_id` records its source ingestion DagRun.
-- UIs: Spark Master UI (`http://localhost:18080`), Kafka UI (`http://localhost:18090`), MinIO console (`http://localhost:19001`), Trino (`http://localhost:18082`).
+- UIs and APIs: Spark Master UI (`http://localhost:18080`), Kafka UI (`http://localhost:18090`), MinIO console (`http://localhost:19001`), Trino (`http://localhost:18082`), Prometheus (`http://localhost:19090`), Grafana (`http://localhost:13001`), and Tempo (`http://localhost:13200`). Tempo is available only with the optional profile; trace-to-logs/Loki is not provisioned until NG-0.6.
 
 <!-- VERIFY: the host ports above are the defaults from .env.example; they change if *_HOST_PORT variables are overridden in .env -->

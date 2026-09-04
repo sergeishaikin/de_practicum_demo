@@ -47,7 +47,7 @@ Restart Docker Desktop after the update.
 
 ```powershell
 cd D:\
-git clone https://github.com/dim4eg91/de_practicum_demo.git de_practicum_demo
+git clone https://github.com/sergeishaikin/de_practicum_demo.git de_practicum_demo
 cd D:\de_practicum_demo
 ```
 

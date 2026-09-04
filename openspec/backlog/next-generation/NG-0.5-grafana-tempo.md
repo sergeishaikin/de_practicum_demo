@@ -1,8 +1,9 @@
 # NG-0.5 — Grafana Tempo Trace Backend
 
-> **Lifecycle:** PLANNED
-> **Disposition:** pending
-> **Execution authorization:** NONE. This file specifies a future bounded change; it does not authorize implementation by itself.
+> **Lifecycle:** DONE
+> **Disposition:** ADOPTED
+> **Historical intent:** This item records the pre-adoption contract; it is historical intent, not current behaviour. Current truth is the standing `openspec/specs/tempo-trace-backend/spec.md` and the archived `add-tempo-trace-backend` change.
+> **Execution authorization:** `operator:explicit-ng-0.5-milestone-1` opened recovery, revalidation, design and preflight. Subsequent explicit operator continuations authorised bounded M2 implementation/local acceptance/capability CI, M2B closure blockers, M2C verification repair, and final adoption/archive of this same change. None of these authorisations grants NG-0.6 or any successor item.
 > **Opens as:** `add-tempo-trace-backend`
 > **Repository:** `sergeishaikin/de_practicum_demo`
 > **Baseline branch used for analysis:** `test/dbt-extensive-testing`

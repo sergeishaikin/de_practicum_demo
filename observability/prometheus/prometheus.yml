@@ -1,6 +1,13 @@
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
+  # The Python client exposes exemplars through OpenMetrics; negotiate that
+  # format explicitly so a plain-text fallback cannot silently discard them.
+  scrape_protocols: [OpenMetricsText1.0.0]
+
+storage:
+  exemplars:
+    max_exemplars: 1000
 
 rule_files:
   - /etc/prometheus/alerts.yml
@@ -18,3 +25,6 @@ scrape_configs:
   - job_name: durable-metrics-exporter
     static_configs:
       - targets: [observability-exporter:9104]
+  - job_name: otel-collector
+    static_configs:
+      - targets: [otel-collector:8888]

@@ -35,6 +35,7 @@ from openlineage.client.event_v2 import RunState
 from common import lineage
 from common import provenance as prov
 from common.ops import Metrics
+from common.telemetry import setup_telemetry
 
 CATALOG_URI = os.getenv("ICEBERG_CATALOG_URI", "http://iceberg-rest:8181")
 WAREHOUSE = os.getenv("ICEBERG_WAREHOUSE", "s3://de-practicum/warehouse")
@@ -499,6 +500,7 @@ def main() -> None:
     fs = get_fs()
     catalog = get_catalog()
     metrics = Metrics()
+    telemetry = setup_telemetry("iceberg-writer")
     lineage.register_edge_owner(BRONZE_DATASET, LINEAGE_JOB)
     emitter = lineage.LineageEmitter(LINEAGE_JOB)
 
@@ -522,28 +524,34 @@ def main() -> None:
                     )
                     os._exit(2)
 
-                arrow_table = read_batch(fs, new_files)
+                with telemetry.span(
+                    "writer.ingest",
+                    {"lakehouse.files": len(new_files)},
+                ):
+                    arrow_table = read_batch(fs, new_files)
                 ensure_table(catalog)
                 table = catalog.load_table(TABLE_IDENTIFIER)
                 before_data_files = table_data_files(table)
                 started = time.monotonic()
-                for attempt in range(1, MAX_APPEND_ATTEMPTS + 1):
-                    try:
-                        table.append(
-                            arrow_table,
-                            snapshot_properties={LOAD_ID_KEY: load_id},
-                        )
-                        break
-                    except CommitFailedException as exc:
-                        if attempt == MAX_APPEND_ATTEMPTS:
-                            raise
-                        print(
-                            f"Commit conflict (attempt {attempt}/{MAX_APPEND_ATTEMPTS}): "
-                            f"{exc}; reloading table and retrying",
-                            flush=True,
-                        )
-                        time.sleep(1)
-                        table = catalog.load_table(TABLE_IDENTIFIER)
+                with telemetry.span("writer.bronze_append") as append_span:
+                    for attempt in range(1, MAX_APPEND_ATTEMPTS + 1):
+                        try:
+                            table.append(
+                                arrow_table,
+                                snapshot_properties={LOAD_ID_KEY: load_id},
+                            )
+                            break
+                        except CommitFailedException as exc:
+                            if attempt == MAX_APPEND_ATTEMPTS:
+                                raise
+                            append_span.set_attribute("lakehouse.retry", attempt)
+                            print(
+                                f"Commit conflict (attempt {attempt}/{MAX_APPEND_ATTEMPTS}): "
+                                f"{exc}; reloading table and retrying",
+                                flush=True,
+                            )
+                            time.sleep(1)
+                            table = catalog.load_table(TABLE_IDENTIFIER)
                 duration_ms = int((time.monotonic() - started) * 1000)
 
                 after_data_files = table_data_files(table)
@@ -570,19 +578,27 @@ def main() -> None:
                     f"from {len(new_files)} new files (load {load_id[:8]})",
                     flush=True,
                 )
-                metrics.record(
-                    source="writer",
-                    status="success",
-                    load_id=load_id,
-                    rows_processed=arrow_table.num_rows,
-                    files_processed=len(new_files),
-                    duration_ms=duration_ms,
+                telemetry.log(
+                    "writer ingest completed",
+                    attributes={"lakehouse.rows": arrow_table.num_rows},
                 )
+                # Keep a real sampled OTel context active for the existing
+                # duration observation so the exemplar points at this trace.
+                with telemetry.span("writer.metrics", {"lakehouse.load_id": load_id}):
+                    metrics.record(
+                        source="writer",
+                        status="success",
+                        load_id=load_id,
+                        rows_processed=arrow_table.num_rows,
+                        files_processed=len(new_files),
+                        duration_ms=duration_ms,
+                    )
                 emit_ingest_lineage(emitter, load_id, table)
         except SystemExit:
             raise
         except Exception as exc:
             print(f"Ingestion error: {exc}", file=sys.stderr, flush=True)
+            telemetry.log("writer ingest failed")
             if load_id is not None and load_id in pending:
                 committed = committed_load_records(catalog)
                 if load_id in committed:
@@ -597,12 +613,13 @@ def main() -> None:
                 file_count = len(pending[load_id])
                 del pending[load_id]
                 save_state(done, pending)
-                metrics.record(
-                    source="writer",
-                    status="error",
-                    load_id=load_id,
-                    files_processed=file_count,
-                )
+                with telemetry.span("writer.metrics", {"lakehouse.load_id": load_id}):
+                    metrics.record(
+                        source="writer",
+                        status="error",
+                        load_id=load_id,
+                        files_processed=file_count,
+                    )
         time.sleep(POLL_INTERVAL)
 
 
