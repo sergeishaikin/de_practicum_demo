@@ -208,3 +208,20 @@ prefer the standing spec after adoption and fall back to the active design
 before adoption, with focused coverage for both lifecycle states. No runtime,
 Compose, Collector, Grafana, workflow, dependency, or logging-scope changes
 are made by this repair.
+
+## Final adoption and archive reconciliation
+
+Implementation SHA: `3a07da170fb460f5fd2342e63b29786529da013f`.
+Test-contract repair SHA: `de68270ad3bb5c993af5e35479115cf8aae1d733`.
+Repair capability run `33889981082` completed **SUCCESS** on that exact repair
+SHA. Repair Core CI run `33890376252` completed **SUCCESS** from source head
+`de68270ad3bb5c993af5e35479115cf8aae1d733` using GitHub PR merge SHA
+`a58f74df777cbee878e4670001b594ab2af3add9`; all four jobs were green.
+
+The standing contract is `openspec/specs/loki-log-backend/spec.md`, and this
+change is archived at
+`openspec/changes/archive/2026-09-04-add-loki-log-backend/`. NG-0.6 is now
+`DONE / ADOPTED`; NG-0.7 remains `PLANNED / pending` with authorization
+`none`. The original M1 provenance and subsequent explicit M2, M2B, M2C,
+test-repair and final adoption authorizations are retained in the backlog
+history; no grant IDs are inferred.
