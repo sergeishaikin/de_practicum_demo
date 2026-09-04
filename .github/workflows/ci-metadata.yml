@@ -181,7 +181,7 @@ jobs:
       - name: Verify metadata API bootstrap
         run: |
           curl -fsS http://localhost:18586/healthcheck >/dev/null
-          docker exec de-metadata-ingestion python - <<'PY'
+          docker exec -i de-metadata-ingestion python - <<'PY'
           import base64
           import json
           import os
@@ -224,7 +224,7 @@ jobs:
 
       - name: Verify the catalog indexed the dbt staging layer
         run: |
-          docker exec de-metadata-ingestion python - <<'PY'
+          docker exec -i de-metadata-ingestion python - <<'PY'
           import base64
           import json
           import os
@@ -296,7 +296,7 @@ jobs:
 
       - name: Verify deterministic Container lineage and idempotency
         run: |
-          docker exec de-metadata-ingestion python - <<'PY'
+          docker exec -i de-metadata-ingestion python - <<'PY'
           import base64
           import json
           import os
