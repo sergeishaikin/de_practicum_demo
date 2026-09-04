@@ -66,10 +66,14 @@ explicit Milestone 2 authorisation recorded in the operator checkpoint.
 - Compose rendered with `--profile '*'`: PASS.
 - Loki config `--verify-config=true`: PASS.
 - `tests/test_loki_contract.py`, Tempo and OTel contracts: 12 passed, 1 skipped.
-- Live `tests/loki_acceptance.py`: PASS. Same trace ID
-  `78ea723b9edc4540d69b8da0eb0da4b7`; persisted LogQL query returned the
+- Live `tests/loki_acceptance.py`: PASS. Final fresh-volume run used same trace ID
+  `3d6ee23371a4efe68fac7f7a0c9f3568`; persisted LogQL query returned the
   record, retained `ng06-loki-load-001`, and rejected
   `super-secret-token`, `do-not-store`, and the sensitive SQL literal.
+- Fresh-series inspection after the explicit OTLP resource-label allow-list
+  fix returned only `service_name`, `service_namespace`, and
+  `deployment_environment_name`; `service_instance_id` and trace identifiers
+  were not indexed.
 - Storage permissions: positive write to `loki-logs/ng06/storage-proof`;
   negative write to canonical MinIO was denied using the same Loki credentials.
 - Loki outage/restart: Collector remained healthy and canonical MinIO remained
@@ -104,6 +108,12 @@ omitted authentication; that probe was corrected in `095f057` and the manual
 run passed. Core H1 remains independent; exact baseline H1 receipt is
 `33869184341` SUCCESS on `07b475f`.
 
+Final remote capability CI: run `33874499624` **SUCCESS** on exact
+implementation SHA `fe51bdbda50bd7591e818e670479dc3c2ca0a793`. It reran the
+same pinned-image, native OTLP, persisted redaction, Grafana correlation,
+storage-isolation and outage/recovery contracts after the explicit label
+allow-list correction.
+
 Retention is configuration-verified (`retention_enabled=true`, 48h,
 Compactor intervals and delete-request store); a literal 48-hour elapsed
 expiry was not observed in this bounded run. Canonical parity was checked by
@@ -111,8 +121,10 @@ keeping canonical MinIO and the Collector healthy during Loki stop/restart;
 the full business workload parity remains a follow-up acceptance detail, not
 an adoption claim.
 
-Exact implementation-SHA core H1: run `33872953865` **SUCCESS** on
-`55acd9eacc72953e7f9ee5e2bc34ae194d67d327`. Both the fresh-volume full
+Exact implementation-SHA core H1: run `33874679399` **SUCCESS** on
+`fe51bdbda50bd7591e818e670479dc3c2ca0a793`. Both the fresh-volume full
 verification and NG-0.4 OTel-owned clean phases passed, including deterministic
 E2E, dbt semantic contract, Prometheus/Grafana smoke, Collector outage parity,
 and teardown. H1 ran without the Loki profile, proving profile independence.
+The earlier exact-runtime receipt `33872953865` on `55acd9e` is retained as
+historical evidence; the final exact-SHA run supersedes it for closure.
