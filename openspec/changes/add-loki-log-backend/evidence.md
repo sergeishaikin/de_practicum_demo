@@ -195,3 +195,16 @@ contracts. Core H1 run `33884414502` also completed **SUCCESS** on the same
 SHA with Loki disabled. The new runtime/config receipts supersede the earlier
 M2B exact-SHA receipts for closure; lifecycle remains `ACTIVE / pending` until
 separately authorised adoption/archive.
+
+## Failed closure attempt and lifecycle-safe test repair
+
+The first post-archive closure attempt at `2e1005b5ca50db1d7695063307a8710a1fc9453d`
+was correctly reverted as `1013876d9c891bc2b40687b36a99cf22f437551b`. Capability
+run `33888257726` and Core CI run `33888257735` exposed one test-contract defect:
+`tests/test_loki_contract.py` read the temporary active-change path after the
+archive had intentionally removed it, producing `FileNotFoundError`. The Loki
+runtime and focused contracts were otherwise green. The repair makes the test
+prefer the standing spec after adoption and fall back to the active design
+before adoption, with focused coverage for both lifecycle states. No runtime,
+Compose, Collector, Grafana, workflow, dependency, or logging-scope changes
+are made by this repair.
