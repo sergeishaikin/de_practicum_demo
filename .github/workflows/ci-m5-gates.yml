@@ -1,6 +1,7 @@
 name: M5 architecture gates
 
 on:
+  workflow_call:
   pull_request:
     paths:
       - "iceberg/**"

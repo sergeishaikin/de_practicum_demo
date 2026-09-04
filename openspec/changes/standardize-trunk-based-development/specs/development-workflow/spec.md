@@ -321,6 +321,22 @@ Evidence SHALL NOT depend on a branch continuing to exist or continuing to
 point at the same commit. A branch name is a moving reference; once integrated
 branches are deleted automatically, a claim anchored to one is unrecoverable.
 
+Branch deletion is a consequence of successful integration, never a cause of
+evidence loss. Before any branch is deleted, every claim that depended on it
+SHALL already be anchored to immutable identity — commit SHA, workflow run id,
+artifact digest, pull request number, archived OpenSpec change. Cleanup that
+would make a recorded claim unverifiable is not cleanup; it is the destruction
+of the record, and the correct response is to anchor the claim first, not to
+retain the branch indefinitely.
+
+#### Scenario: Cleanup would orphan a recorded claim
+
+- **WHEN** a branch proposed for deletion is named by evidence that has no
+  immutable anchor
+- **THEN** the claim is re-anchored to SHA, run id and pull request number
+  before the branch is deleted
+- **AND** the branch is not retained as the anchor
+
 #### Scenario: A branch named in evidence has been deleted
 
 - **WHEN** a reader follows a receipt after the branch was deleted

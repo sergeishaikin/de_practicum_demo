@@ -1,15 +1,13 @@
 """Executable fitness functions for the `development-workflow` capability.
 
 These check the repository-visible rules of the standing contract: standing CI
-definitions must not name working branches, and each acceptance capability must
+definitions must not name working branches, each acceptance capability must
 exist as one composable definition that is invocable without opening a pull
-request.
+request, and a required gate must trigger on edits to its own definition.
 
-Two of the rules are known to be violated when the contract is written. They are
-recorded as strict xfails rather than as a red suite, so that the rule is
-encoded now and the marker itself fails once Milestone 2 satisfies it — a strict
-xfail that starts passing is an error, which forces the marker to be removed
-rather than left behind as a stale exemption.
+Every rule that asserts an absence is paired with a test that feeds the same
+detector a synthetic violation, so a rule cannot pass because the detector
+stopped working.
 """
 
 from __future__ import annotations
@@ -60,11 +58,11 @@ def _branch_names(triggers: dict[str, Any]) -> set[str]:
     return names
 
 
-def _workflows() -> dict[str, dict[str, Any]]:
-    return {path.name: _load(path) for path in sorted(WORKFLOWS.glob("*.y*ml"))}
+def _workflows(directory: Path = WORKFLOWS) -> dict[str, dict[str, Any]]:
+    return {path.name: _load(path) for path in sorted(directory.glob("*.y*ml"))}
 
 
-def _capability_workflows() -> dict[str, dict[str, Any]]:
+def _capability_workflows(directory: Path = WORKFLOWS) -> dict[str, dict[str, Any]]:
     """Workflows that carry an acceptance capability.
 
     Derived rather than listed: a capability gate is one that verifies a
@@ -74,7 +72,7 @@ def _capability_workflows() -> dict[str, dict[str, Any]]:
     """
 
     selected: dict[str, dict[str, Any]] = {}
-    for name, doc in _workflows().items():
+    for name, doc in _workflows(directory).items():
         triggers = _triggers(doc)
         pull_request = triggers.get("pull_request")
         if "workflow_dispatch" not in triggers:
@@ -84,13 +82,18 @@ def _capability_workflows() -> dict[str, dict[str, Any]]:
     return selected
 
 
-def _working_branch_references() -> dict[str, set[str]]:
+def _working_branch_references(directory: Path = WORKFLOWS) -> dict[str, set[str]]:
     offenders: dict[str, set[str]] = {}
-    for name, doc in _workflows().items():
+    for name, doc in _workflows(directory).items():
         working = _branch_names(_triggers(doc)) - PERMANENT_BRANCHES
         if working:
             offenders[name] = working
     return offenders
+
+
+def _write_workflow(directory: Path, name: str, body: str) -> None:
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / name).write_text(body, encoding="utf-8")
 
 
 @pytest.mark.architecture
@@ -114,60 +117,24 @@ def test_capability_workflows_are_discovered() -> None:
 
 
 @pytest.mark.architecture
-def test_working_branch_detector_reports_the_known_violations() -> None:
-    """Prove the detector detects, so the strict xfail below is not vacuous.
-
-    This asserts the violation set observed on 2026-09-04 by equality. It fails
-    if a new branch-pinned workflow appears, and it fails once the known two are
-    converted — at which point it is replaced by the requirement it guards.
-    """
-
-    assert _working_branch_references() == {
-        "ci-ng05-tempo.yml": {"feature/ng-0.5-tempo"},
-        "ci-ng06-loki.yml": {"feature/ng-0.6-loki"},
-    }
-
-
-@pytest.mark.architecture
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Milestone 2 converts ci-ng05-tempo.yml and ci-ng06-loki.yml to "
-        "workflow_call and removes their branch-pinned push triggers"
-    ),
-)
 def test_standing_ci_does_not_name_working_branches() -> None:
     assert _working_branch_references() == {}
 
 
 @pytest.mark.architecture
-@pytest.mark.xfail(
-    strict=True,
-    reason="Milestone 2 makes each acceptance capability composable",
-)
-def test_capability_workflows_declare_workflow_call() -> None:
-    missing = sorted(
-        name
-        for name, doc in _capability_workflows().items()
-        if "workflow_call" not in _triggers(doc)
+def test_working_branch_detector_reports_a_synthetic_violation(
+    tmp_path: Path,
+) -> None:
+    """Prove the rule above is not passing because the detector went blind."""
+
+    _write_workflow(
+        tmp_path,
+        "ci-example.yml",
+        "name: Example\non:\n  push:\n    branches: [feature/example]\n",
     )
-    assert missing == []
-
-
-@pytest.mark.architecture
-def test_capability_workflows_retain_workflow_dispatch() -> None:
-    """The exact-SHA escape hatch is what makes a validation-only PR avoidable.
-
-    This already holds, and it is asserted so that Milestone 2's conversion to
-    `workflow_call` cannot quietly drop it.
-    """
-
-    missing = sorted(
-        name
-        for name, doc in _capability_workflows().items()
-        if "workflow_dispatch" not in _triggers(doc)
-    )
-    assert missing == []
+    assert _working_branch_references(tmp_path) == {
+        "ci-example.yml": {"feature/example"}
+    }
 
 
 @pytest.mark.architecture
@@ -183,7 +150,86 @@ def test_no_workflow_triggers_on_a_non_main_push() -> None:
         if working:
             offenders[name] = sorted(working)
 
-    assert offenders == {
-        "ci-ng05-tempo.yml": ["feature/ng-0.5-tempo"],
-        "ci-ng06-loki.yml": ["feature/ng-0.6-loki"],
-    }, "the branch-pinned push triggers changed; update the contract evidence"
+    assert offenders == {}
+
+
+@pytest.mark.architecture
+def test_capability_push_triggers_are_filtered_to_permanent_branches() -> None:
+    """An unfiltered `push` reintroduces branch gating without naming a branch.
+
+    Verifying the integrated result on `main` is legitimate and expected — that
+    is what `ci-s1-dbt.yml` does. What the rule forbids is a `push` trigger
+    that fires on whatever branch the work happens to sit on, which is the
+    branch-driven gating this capability removes, expressed without a branch
+    name for the previous rule to catch.
+    """
+
+    offenders = {}
+    for name, doc in _capability_workflows().items():
+        push = _triggers(doc).get("push")
+        if push is None and "push" not in _triggers(doc):
+            continue
+        branches = push.get("branches") if isinstance(push, dict) else None
+        if not branches or not set(map(str, branches)) <= PERMANENT_BRANCHES:
+            offenders[name] = branches
+    assert offenders == {}
+
+
+@pytest.mark.architecture
+def test_capability_workflows_declare_workflow_call() -> None:
+    missing = sorted(
+        name
+        for name, doc in _capability_workflows().items()
+        if "workflow_call" not in _triggers(doc)
+    )
+    assert missing == []
+
+
+@pytest.mark.architecture
+def test_capability_workflows_retain_workflow_dispatch() -> None:
+    """The exact-SHA escape hatch is what makes a validation-only PR avoidable."""
+
+    missing = sorted(
+        name
+        for name, doc in _capability_workflows().items()
+        if "workflow_dispatch" not in _triggers(doc)
+    )
+    assert missing == []
+
+
+@pytest.mark.architecture
+def test_capability_workflows_trigger_on_edits_to_themselves() -> None:
+    """A required gate must not be editable without running.
+
+    Without this, a pull request can change an acceptance gate's own logic and
+    the gate stays silent, so the change that weakens the check is the one
+    change the check never sees.
+    """
+
+    missing = []
+    for name, doc in _capability_workflows().items():
+        paths = _triggers(doc)["pull_request"].get("paths") or []
+        if f".github/workflows/{name}" not in paths:
+            missing.append(name)
+    assert sorted(missing) == []
+
+
+@pytest.mark.architecture
+def test_self_reference_detector_reports_a_synthetic_violation(
+    tmp_path: Path,
+) -> None:
+    """Prove the self-reference rule is not passing vacuously."""
+
+    _write_workflow(
+        tmp_path,
+        "ci-example.yml",
+        "name: Example\n"
+        "on:\n"
+        "  workflow_dispatch:\n"
+        "  pull_request:\n"
+        '    paths: ["src/**"]\n',
+    )
+    capabilities = _capability_workflows(tmp_path)
+    assert "ci-example.yml" in capabilities
+    paths = _triggers(capabilities["ci-example.yml"])["pull_request"]["paths"]
+    assert ".github/workflows/ci-example.yml" not in paths

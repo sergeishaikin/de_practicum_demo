@@ -24,36 +24,74 @@
 - [x] Open the pull request against `main`, and record head SHA, base branch,
       base SHA and every required check's run id.
 
-## Milestone 2 — conformance (requires its own authorisation)
+## Milestone 2 — conformance (authorised 2026-09-04)
 
-- [ ] Convert `ci-ng05-tempo.yml` and `ci-ng06-loki.yml` to `workflow_call` +
+- [x] Convert `ci-ng05-tempo.yml` and `ci-ng06-loki.yml` to `workflow_call` +
       `workflow_dispatch` + path-filtered `pull_request`; remove the
       branch-pinned `push` triggers.
-- [ ] Compose the capability workflows from the orchestrating workflows so each
-      acceptance exists as one definition.
-- [ ] Confirm the Milestone 1 fitness functions turn green for the reason
-      intended, and not because an assertion was relaxed.
+- [x] Declare `workflow_call` on every capability gate, not only the two that
+      were branch-pinned. The requirement is on capability workflows as a
+      class; `ci-h1-clean`, `ci-m5-gates`, `ci-metadata` and `ci-s1-dbt` were
+      found missing it by the fitness function, which is wider than the
+      Milestone 2 plan anticipated.
+- [x] Add the missing gate self-references so a pull request cannot edit an
+      acceptance gate's own definition without triggering it. `ci-h1-clean`,
+      `ci-ng05-tempo` and `ci-ng06-loki` lacked it; `ci-m5-gates`,
+      `ci-metadata` and `ci-s1-dbt` already had it.
+- [x] Confirm the Milestone 1 fitness functions turn green for the reason
+      intended, and not because an assertion was relaxed. Replace the
+      known-violation guards with synthetic-violation guards so each absence
+      rule stays non-vacuous once the repository conforms.
+- [x] Pin the branch-deletion rule in the capability: deletion is a consequence
+      of successful integration, never a cause of evidence loss; claims are
+      anchored to immutable identity before any branch is deleted.
 - [ ] Apply `main` protection: no direct push, no force push, no deletion,
-      required status checks, required conversation resolution, branch up to
-      date before merge.
+      required status checks, `strict: true`, required conversation
+      resolution, `enforce_admins: true`.
+- [ ] Require only the four always-running `ci-pr.yml` contexts. Path-filtered
+      gates SHALL NOT be required checks until the aggregating gate job exists,
+      because a required context that never reports leaves the pull request
+      permanently unmergeable.
 - [ ] Disable merge-commit and rebase merging; leave squash merging enabled.
 - [ ] Enable `delete_branch_on_merge`.
 - [ ] Prove the lifecycle end to end on a canary branch: base SHA, head SHA,
       pull request number, required check names, all required checks green on
       the merge candidate, merge SHA, `main` verification run id, and source
       branch absent after merge.
-- [ ] Prove the negative cases: direct push to `main` rejected; merge blocked
-      on a failing required check; out-of-date branch blocked; fitness function
-      red when a working-branch name is reintroduced into a capability
-      workflow.
+- [ ] Prove the negative cases, each producing a receipt rather than a claim:
+      direct push to `main` rejected; merge blocked on a failing required
+      check; merge-commit and rebase merging unavailable; fitness function red
+      when a working-branch name is reintroduced into a capability workflow.
+- [ ] Prove the out-of-date case against real base movement: a disposable
+      branch whose pull request is green, then advance `main` independently,
+      and show GitHub reports the pull request as **not mergeable until the
+      branch is updated to the current protected base**. A settings read-back
+      of `strict: true` is not this proof; the property is behavioural.
+- [ ] Delete only the fully subsumed, dependency-free branches:
+      `feature/ng-0.4-otel`, `feature/ng-0.5-tempo`,
+      `feature/prometheus-trace-exemplars`, `integration/ng-0.5`. Anchor any
+      claim that names them to immutable identity first.
 - [ ] Record every receipt by immutable identity — SHA, run id, artifact
       digest, pull request number — with the base branch and base SHA recorded
       alongside each `pull_request` run.
+- [ ] Promote the capability to `openspec/specs/development-workflow/` and
+      archive this change, only once the repository conforms. Not at Milestone
+      1: `engineering-governance` requires a standing capability to describe
+      present behaviour, and until this milestone lands the repository
+      knowingly violates it.
 - [ ] Add the deferred evidence-shape fitness function: evidence citing a
       `pull_request` run records its base branch and base SHA. Deferred from
       Milestone 1 deliberately — the receipt format it would check is settled
       by the Milestone 2 lifecycle proof, and a checker written against an
       unsettled format would assert on prose rather than on a contract.
+
+## Deferred to the impact-router change
+
+- [ ] Compose the capability workflows from an orchestrating workflow so each
+      acceptance is invoked rather than restated. Declaring `workflow_call`
+      unblocks this; performing it requires the changed-files impact router and
+      the aggregating gate job, which are the existing CI backlog item and not
+      this change's fence.
 
 ## Explicitly out of scope
 
