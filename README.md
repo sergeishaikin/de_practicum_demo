@@ -61,13 +61,14 @@ Iceberg writer (PyIceberg -> REST Catalog)
 
 ### Optional observability plane
 
-The adopted NG-0.5 profile is opt-in. First-party traces and logs flow over
-OTLP to the OpenTelemetry Collector. Traces are routed through
-`telemetry-backend` to Tempo; logs remain Collector-only until NG-0.6 provides
-a separately authorised log backend. Existing application Prometheus metrics
-remain directly scraped by Prometheus; Grafana links bounded Prometheus
-exemplars to the same Tempo trace. This profile does not replace the existing
-Prometheus/Grafana path.
+The adopted observability profiles are opt-in. First-party traces and logs flow
+over OTLP to the OpenTelemetry Collector. Traces are routed through
+`telemetry-backend` to Tempo; logs are routed through the Collector's native
+OTLP HTTP exporter to Loki when NG-0.6 is enabled. Existing application
+Prometheus metrics remain directly scraped by Prometheus; Grafana links bounded
+Prometheus exemplars to Tempo and provides trace-to-logs navigation through
+Loki. This does not replace the existing Prometheus/Grafana path, stdout, or
+PostgreSQL metric authority.
 
 The complete NG-0.5 trace capability requires both `--profile otel` and
 `--profile observability-next`.
@@ -95,6 +96,7 @@ The complete NG-0.5 trace capability requires both `--profile otel` and
 | Grafana | Prometheus/Tempo correlation UI (Tempo backend is optional) | `http://localhost:13001` |
 | OpenTelemetry Collector | OTLP receiver and bounded telemetry queue | internal only (`otel-collector:13133` health) |
 | Tempo | Trace query API (optional profile) | `http://localhost:13200` |
+| Loki | Structured log query API (optional NG-0.6 profile) | `http://localhost:13100` |
 
 ## Requirements
 

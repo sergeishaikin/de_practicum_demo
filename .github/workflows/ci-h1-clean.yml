@@ -58,7 +58,13 @@ jobs:
       - name: Validate configuration and Compose graph
         run: |
           uv run --locked python scripts/validate_runtime_config.py --env-file .env --profile clean
-          docker network create de_demo_net || true
+          # Known-state branch, not a blanket `|| true`: the network must exist
+          # after this line, and the only acceptable reason for `create` not to
+          # run is that it already does. A swallowed error here surfaces later
+          # as an unrelated compose failure.
+          if ! docker network inspect de_demo_net >/dev/null 2>&1; then
+            docker network create de_demo_net
+          fi
           docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml config >/tmp/h1-compose.yml
       - name: Export clean runtime configuration for host checks
         run: |
@@ -262,7 +268,13 @@ jobs:
       - name: Validate OTel profile graph and export host configuration
         run: |
           uv run --locked python scripts/validate_runtime_config.py --env-file .env --profile clean
-          docker network create de_demo_net || true
+          # Known-state branch, not a blanket `|| true`: the network must exist
+          # after this line, and the only acceptable reason for `create` not to
+          # run is that it already does. A swallowed error here surfaces later
+          # as an unrelated compose failure.
+          if ! docker network inspect de_demo_net >/dev/null 2>&1; then
+            docker network create de_demo_net
+          fi
           docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml \
             --profile otel --profile observability config >/tmp/h1-otel-compose.yml
           set -a
@@ -282,113 +294,110 @@ jobs:
           } >> "$GITHUB_ENV"
       - name: Run bounded OFF, ON, and Collector-outage parity phases
         shell: bash
+        env:
+          # Exported explicitly: this job checks out the PR head, while
+          # GITHUB_SHA on a pull_request event is the merge commit. The receipts
+          # must name the commit that was actually exercised.
+          E2E_EVIDENCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
           compose=(docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml --profile otel --profile observability)
 
+          # The WAL is declared acceptance evidence: the collector profile mounts
+          # de_demo_otel_storage at /var/lib/otelcol, so the volume is required by
+          # the architecture, not optional. The previous `echo 0` fallbacks made
+          # "the volume is missing", "du failed" and "the WAL is empty" the same
+          # recorded number. Both are removed: a measurement that cannot be taken
+          # fails the phase. `set -o pipefail` above is what surfaces a `docker
+          # run` failure through the pipe - do not drop it.
           wal_bytes() {
-            local volume
+            local volume bytes
             volume="$(docker volume ls -q --filter label=com.docker.compose.volume=de_demo_otel_storage | head -n 1)"
-            if [ -z "$volume" ]; then echo 0; return; fi
-            docker run --rm -v "$volume:/var/lib/otelcol" busybox:1.36 du -sb /var/lib/otelcol 2>/dev/null \
-              | awk 'NR == 1 {print $1}' || echo 0
+            if [ -z "$volume" ]; then
+              echo "ERROR: OTel WAL volume de_demo_otel_storage does not exist" >&2
+              return 1
+            fi
+            bytes="$(docker run --rm -v "$volume:/var/lib/otelcol:ro" busybox:1.36 \
+              du -sb /var/lib/otelcol | awk 'NR == 1 {print $1}')"
+            if ! [[ "$bytes" =~ ^[0-9]+$ ]]; then
+              echo "ERROR: invalid WAL measurement: '$bytes'" >&2
+              return 1
+            fi
+            printf '%s\n' "$bytes"
           }
 
-          capture_stats() {
-            local output="$1"
-            : > "$output"
-            for container in de-demo-orders-streaming de-demo-iceberg-writer \
-              de-demo-iceberg-medallion de-demo-otel-collector; do
-              docker stats --no-stream --format '{{.Name}} {{.CPUPerc}} {{.MemUsage}}' \
-                "$container" >> "$output" 2>&1 || true
-            done
-          }
-
-          write_receipt() {
-            local phase="$1" enabled="$2" outage="$3" duration_file="$4"
-            PHASE="$phase" OTEL_ENABLED="$enabled" COLLECTOR_OUTAGE="$outage" \
-              DURATION_FILE="$duration_file" WAL_BEFORE="$(cat "otel-${phase}-wal-before.txt")" \
-              WAL_AFTER="$(cat "otel-${phase}-wal-after.txt")" \
-              python - <<'PY'
-          import ast
-          import hashlib
-          import json
-          import os
-          from collections import Counter
-          from datetime import datetime, timezone
-          from pathlib import Path
-
-          # Reuse only the deterministic fixture/contract functions from the
-          # authoritative E2E test.  AST extraction deliberately avoids
-          # importing the test module: that module's Docker/DB adapters are
-          # not part of receipt generation and may be absent on the host.
-          tree = ast.parse(Path("tests/e2e/test_lakehouse_e2e.py").read_text())
-          wanted = {"FIXTURE_DATE", "FIXTURE_TS", "VALID_STATUSES", "build_fixture", "expected_pipeline"}
-          namespace = {"Counter": Counter, "datetime": datetime, "timezone": timezone}
-          selected = []
-          for node in tree.body:
-              names = set()
-              if isinstance(node, ast.FunctionDef):
-                  names.add(node.name)
-              elif isinstance(node, (ast.Assign, ast.AnnAssign)):
-                  targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-                  for target in targets:
-                      if isinstance(target, ast.Name):
-                          names.add(target.id)
-              if names & wanted:
-                  selected.append(node)
-          exec(compile(ast.Module(body=selected, type_ignores=[]), "otel-contract", "exec"), namespace)
-          expected = namespace["expected_pipeline"](namespace["build_fixture"]())
-          contract = {
-              "total_events": expected["total_events"],
-              "landing_rows": expected["landing_rows"],
-              "bronze_rows": expected["bronze_rows"],
-              "silver_rows": expected["silver_rows"],
-              "duplicates_removed": expected["duplicates_removed"],
-              "total_violations": expected["total_violations"],
-              "gold_row_count": expected["gold_row_count"],
-              "total_revenue": expected["total_revenue"],
-          }
-          encoded = json.dumps(contract, sort_keys=True, separators=(",", ":")).encode()
-          receipt = {
-              "phase": os.environ["PHASE"],
-              "otel_enabled": os.environ["OTEL_ENABLED"] == "1",
-              "collector_outage": os.environ["COLLECTOR_OUTAGE"] == "1",
-              "pytest_e2e_passed": True,
-              "canonical_contract": contract,
-              "canonical_contract_sha256": hashlib.sha256(encoded).hexdigest(),
-              "duration_seconds": float(Path(os.environ["DURATION_FILE"]).read_text()),
-              "otel_wal_bytes_before": int(os.environ["WAL_BEFORE"]),
-              "otel_wal_bytes_after": int(os.environ["WAL_AFTER"]),
-              "resource_before": Path(f"otel-{os.environ['PHASE']}-stats-before.txt").read_text(),
-              "resource_after": Path(f"otel-{os.environ['PHASE']}-stats-after.txt").read_text(),
-          }
-          Path(f"otel-{os.environ['PHASE']}-receipt.json").write_text(
-              json.dumps(receipt, indent=2, sort_keys=True) + "\n"
-          )
-          PY
+          # Structured, validated, and phase-aware. `docker stats ... || true`
+          # used to let a daemon error land in the evidence as plain text while
+          # the receipt still reported RECORDED; the script below refuses to
+          # write a stats object it could not parse, and distinguishes
+          # "stopped on purpose" from "not measured".
+          capture_resources() {
+            local phase="$1" stage="$2" collector_state="$3" worker_state="$4"
+            uv run --locked python scripts/capture_container_resources.py \
+              --phase "$phase" --stage "$stage" \
+              --output "otel-${phase}-resources-${stage}.json" \
+              --expect "de-demo-otel-collector=${collector_state}" \
+              --expect "de-demo-orders-streaming=running" \
+              --expect "de-demo-iceberg-writer=${worker_state}" \
+              --expect "de-demo-iceberg-medallion=${worker_state}"
           }
 
           run_phase() {
             local phase="$1" enabled="$2" outage="$3"
+            local collector_after="running" capture_rc=0 wal_rc=0
+            if [ "$outage" = 1 ]; then collector_after="stopped"; fi
+
+            # No artifact from an earlier phase may survive into this one: once
+            # uploaded, a stale receipt is indistinguishable from a fresh one.
+            rm -f "otel-${phase}-observed.json" "otel-${phase}-receipt.json" \
+                  "otel-${phase}-resources-before.json" \
+                  "otel-${phase}-resources-after.json" \
+                  "otel-${phase}-wal-before.txt" "otel-${phase}-wal-after.txt" \
+                  "otel-${phase}-duration.txt" "otel-${phase}-junit.xml"
+
             sed -i "s/^OTEL_ENABLED=.*/OTEL_ENABLED=${enabled}/" .env
             "${compose[@]}" down --volumes --remove-orphans
             "${compose[@]}" up -d --build --pull always
             uv run --locked python scripts/bootstrap_stack.py --env-file .env --timeout 900
-            capture_stats "otel-${phase}-stats-before.txt"
-            printf '%s\n' "$(wal_bytes)" > "otel-${phase}-wal-before.txt"
+
+            capture_resources "$phase" before running running
+            wal_bytes > "otel-${phase}-wal-before.txt"
+
             "${compose[@]}" stop iceberg-writer iceberg-medallion
             if [ "$outage" = 1 ]; then "${compose[@]}" stop otel-collector; fi
+
+            # E2E_OBSERVED_EVIDENCE_PATH makes the test record the observed
+            # runtime contract from live Trino/Kafka/S3/Postgres reads taken
+            # immediately before it drops the namespace. Nothing outside the test
+            # can take that measurement: once pytest returns, the isolated state
+            # it created has already been torn down.
             set +e
+            E2E_OBSERVED_EVIDENCE_PATH="$PWD/otel-${phase}-observed.json" \
             /usr/bin/time -f '%e' -o "otel-${phase}-duration.txt" \
               uv run --locked pytest tests/e2e/test_lakehouse_e2e.py -m e2e -q \
               --junitxml="otel-${phase}-junit.xml" | tee "otel-${phase}-pytest.log"
             local rc=${PIPESTATUS[0]}
             set -e
-            capture_stats "otel-${phase}-stats-after.txt"
-            printf '%s\n' "$(wal_bytes)" > "otel-${phase}-wal-after.txt"
+
+            # The post-run state is captured even when pytest failed, because it
+            # is part of the diagnosis - but the capture's own failures are kept
+            # and returned rather than discarded. pytest's status is reported
+            # first, as the more specific explanation.
+            capture_resources "$phase" after "$collector_after" stopped || capture_rc=$?
+            wal_bytes > "otel-${phase}-wal-after.txt" || wal_rc=$?
             if [ "$rc" -ne 0 ]; then return "$rc"; fi
-            write_receipt "$phase" "$enabled" "$outage" "otel-${phase}-duration.txt"
+            if [ "$capture_rc" -ne 0 ]; then return "$capture_rc"; fi
+            if [ "$wal_rc" -ne 0 ]; then return "$wal_rc"; fi
+
+            uv run --locked python scripts/build_otel_receipt.py \
+              --phase "$phase" --otel-enabled "$enabled" --collector-outage "$outage" \
+              --observed "otel-${phase}-observed.json" \
+              --duration-file "otel-${phase}-duration.txt" \
+              --wal-before "otel-${phase}-wal-before.txt" \
+              --wal-after "otel-${phase}-wal-after.txt" \
+              --resources-before "otel-${phase}-resources-before.json" \
+              --resources-after "otel-${phase}-resources-after.json" \
+              --output "otel-${phase}-receipt.json"
           }
 
           run_phase off 0 0
@@ -405,19 +414,11 @@ jobs:
             | jq -e '.status == "OK"'
           run_phase outage 1 1
 
-          python - <<'PY'
-          import json
-          from pathlib import Path
-
-          receipts = [json.loads(Path(f"otel-{phase}-receipt.json").read_text()) for phase in ("off", "on", "outage")]
-          hashes = {item["canonical_contract_sha256"] for item in receipts}
-          if len(hashes) != 1:
-              raise SystemExit(f"canonical parity mismatch: {hashes}")
-          durations = {item["phase"]: item["duration_seconds"] for item in receipts}
-          if any(value <= 0 for value in durations.values()):
-              raise SystemExit(f"invalid workload durations: {durations}")
-          print(json.dumps({"canonical_parity": "PASS", "durations": durations, "resource_delta": "RECORDED"}, sort_keys=True))
-          PY
+          # The validator is the only thing permitted to print PASS, and it
+          # prints it only for the properties it recomputed from the receipts.
+          uv run --locked python scripts/validate_otel_acceptance.py \
+            otel-off-receipt.json otel-on-receipt.json otel-outage-receipt.json \
+            --require-git-sha
       - name: Capture OTel acceptance diagnostics
         if: failure()
         run: |
@@ -425,16 +426,47 @@ jobs:
             --profile otel --profile observability ps > otel-compose-ps.txt 2>&1 || true
           docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml \
             --profile otel --profile observability logs --no-color > otel-compose.log 2>&1 || true
+      - name: Assert the acceptance bundle is complete
+        # A wildcard path is not an evidence contract: `otel-*-receipt.json`
+        # matches two files as happily as three, and the upload would still be
+        # green. Each artifact the acceptance argument rests on is named here,
+        # so a phase that produced no evidence fails the run rather than
+        # producing a bundle that merely looks complete.
+        run: |
+          set -euo pipefail
+          for phase in off on outage; do
+            for artifact in \
+              "otel-${phase}-receipt.json" \
+              "otel-${phase}-observed.json" \
+              "otel-${phase}-resources-before.json" \
+              "otel-${phase}-resources-after.json" \
+              "otel-${phase}-wal-before.txt" \
+              "otel-${phase}-wal-after.txt" \
+              "otel-${phase}-duration.txt" \
+              "otel-${phase}-junit.xml" \
+              "otel-${phase}-pytest.log"; do
+              test -s "$artifact" || {
+                echo "missing or empty acceptance artifact: $artifact" >&2
+                exit 1
+              }
+            done
+          done
+          echo "acceptance bundle complete for all three phases"
       - name: Upload OTel acceptance evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ng04-otel-acceptance-evidence
+          # `error` rather than the default `warn`: an empty upload on a failed
+          # run is exactly when the evidence is needed and exactly when its
+          # absence is easiest to miss.
+          if-no-files-found: error
           path: |
             otel-*-receipt.json
+            otel-*-observed.json
+            otel-*-resources-*.json
             otel-*-junit.xml
             otel-*-pytest.log
-            otel-*-stats-*.txt
             otel-*-wal-*.txt
             otel-*-duration.txt
             otel-compose-ps.txt

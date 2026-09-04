@@ -41,8 +41,8 @@ Replace the placeholder values for `AIRFLOW_API_SECRET_KEY`,
 `AIRFLOW_JWT_SECRET`, and `AIRFLOW_DB_PASSWORD` with three independent random
 URL-safe secrets. Also replace `SUPERSET_SECRET_KEY` before starting the
 extended stack (see [CONFIGURATION.md](CONFIGURATION.md)). For the optional
-observability profile, also replace `TEMPO_S3_SECRET_KEY` and
-`GRAFANA_ADMIN_PASSWORD`; set `OTEL_ENABLED=1` when instrumented services
+observability profiles, also replace `TEMPO_S3_SECRET_KEY`,
+`LOKI_S3_SECRET_KEY` and `GRAFANA_ADMIN_PASSWORD`; set `OTEL_ENABLED=1` when instrumented services
 should export traces and logs.
 
 Validate the Compose files:
@@ -65,7 +65,7 @@ On macOS/Linux use `docker compose` directly, e.g.:
 docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml up -d
 ```
 
-### Optional observability profile (NG-0.5)
+### Optional observability profiles (NG-0.5 and NG-0.6)
 
 The core Prometheus path is always retained. Start only the Collector:
 
@@ -82,7 +82,10 @@ docker compose --env-file .\.env -f .\docker-compose.yml -f .\docker-compose.ext
 Check readiness at `http://localhost:13200/ready` and open Grafana at
 `http://localhost:13001` (credentials come from `GRAFANA_ADMIN_PASSWORD`).
 The provisioned Prometheus and Tempo datasource UIDs support same-trace
-exemplar navigation. Loki and trace-to-logs mapping remain outside NG-0.5.
+exemplar navigation. The Loki datasource and trace-to-logs mapping are enabled
+by the NG-0.6 capability in the same two-profile command. Loki is queried at
+`http://localhost:13100`; application stdout and Prometheus remain independent
+fallback/authority paths.
 
 ## First run
 

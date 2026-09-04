@@ -15,3 +15,10 @@ datasources:
         queries:
           - name: Lakehouse duration observations
             query: sum(rate(lakehouse_duration_seconds_count[5m]))
+      tracesToLogsV2:
+        datasourceUid: loki
+        spanStartTimeShift: -2s
+        spanEndTimeShift: 2s
+        filterByTraceID: true
+        filterBySpanID: false
+        tags: [{key: service.name, value: service_name}, {key: service.namespace, value: service_namespace}]

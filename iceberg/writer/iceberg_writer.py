@@ -580,6 +580,8 @@ def main() -> None:
                 )
                 telemetry.log(
                     "writer ingest completed",
+                    event_name="writer.ingest.completed",
+                    severity="INFO",
                     attributes={"lakehouse.rows": arrow_table.num_rows},
                 )
                 # Keep a real sampled OTel context active for the existing
@@ -598,7 +600,12 @@ def main() -> None:
             raise
         except Exception as exc:
             print(f"Ingestion error: {exc}", file=sys.stderr, flush=True)
-            telemetry.log("writer ingest failed")
+            telemetry.log(
+                "writer ingest failed",
+                event_name="writer.ingest.failed",
+                severity="ERROR",
+                attributes={"error.type": type(exc).__name__},
+            )
             if load_id is not None and load_id in pending:
                 committed = committed_load_records(catalog)
                 if load_id in committed:
