@@ -106,17 +106,28 @@ receipt-recording and documentation only, and each one necessarily produces a
 new head with its own runs — writing a receipt into the repository moves the
 thing the receipt describes.
 
-That recursion terminates at the pull request, not in this file. The
-authoritative receipt for the merge candidate is the set of required checks
-GitHub enforces on the final head before merge; this file records the receipt
-for the head that carried the implementation, and names the base it was
-verified against. A reader who needs the merge-time receipt reads pull request
-#8's checks, which cannot be stale by construction.
+That recursion terminates at the pull request, not in this file, because the
+two serve different purposes:
 
-This is the practical reason the requirement is written about the *base* rather
-than about the head. A head SHA in a document ages the moment the document is
-committed; the base a candidate was verified against is what determines whether
-the run means anything at all.
+| | Historical evidence (this file) | Merge-time authority (the pull request) |
+| --- | --- | --- |
+| Records | candidate head SHA, tested base branch, tested base SHA, run ids | final head, current integration state, required checks, branch protection |
+| Answers | what was verified, and against what | whether this may integrate now |
+| Ages | yes — both head and base | no — re-evaluated against `main` as it is |
+
+Both SHAs recorded here go stale. The head ages the moment the document is
+committed, and the recorded base ages too if `main` advances before merge; a
+receipt against `e697f30` says nothing about integrating into a `main` that has
+since moved. Neither is a defect, because this file is an audit trail and not a
+merge gate.
+
+The blocking gate is GitHub's required checks on the final merge candidate,
+which are re-evaluated against `main` as it actually is. What this file
+contributes is the record of which merge was verified — and that is why the
+requirement obliges evidence to name the base at all. Run `33890376252` had a
+perfectly good head SHA; recording its base is what would have shown, without
+opening the pull request, that the run was about a merge into
+`test/dbt-extensive-testing` and therefore could not support adoption.
 
 ## Not claimed
 
