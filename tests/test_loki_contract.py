@@ -10,6 +10,23 @@ def _read(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
 
 
+def _loki_scope_contract(root: Path = ROOT) -> str:
+    """Return the current Loki scope contract across its lifecycle states.
+
+    The standing specification is authoritative after adoption. Before
+    adoption, the active change design is the available contract. Archived
+    change files are historical receipts and are intentionally not selected.
+    """
+
+    standing = root / "openspec/specs/loki-log-backend/spec.md"
+    active = root / "openspec/changes/add-loki-log-backend/design.md"
+    if standing.exists():
+        return standing.read_text(encoding="utf-8")
+    if active.exists():
+        return active.read_text(encoding="utf-8")
+    raise AssertionError("no Loki lifecycle contract found")
+
+
 def test_loki_profile_is_pinned_and_isolated() -> None:
     compose = _read("docker-compose.extended.yml")
     env = _read(".env.example")
@@ -80,11 +97,32 @@ def test_first_party_logging_boundary_requires_structured_identity() -> None:
 
 
 def test_first_party_scope_is_truthful_about_unadapted_surfaces() -> None:
-    design = _read("openspec/changes/add-loki-log-backend/design.md")
+    design = _loki_scope_contract()
     assert "out of" in design.lower() and "first adopted wave" in design.lower()
     assert "Kafka producer" in design
     assert "Spark streaming jobs" in design
     assert "Airflow DAG code" in design
+
+
+def test_loki_scope_contract_prefers_standing_spec_after_adoption(
+    tmp_path: Path,
+) -> None:
+    active = tmp_path / "openspec/changes/add-loki-log-backend/design.md"
+    standing = tmp_path / "openspec/specs/loki-log-backend/spec.md"
+    active.parent.mkdir(parents=True)
+    standing.parent.mkdir(parents=True)
+    active.write_text("active historical design", encoding="utf-8")
+    standing.write_text("standing current contract", encoding="utf-8")
+
+    assert _loki_scope_contract(tmp_path) == "standing current contract"
+
+
+def test_loki_scope_contract_falls_back_to_active_change(tmp_path: Path) -> None:
+    active = tmp_path / "openspec/changes/add-loki-log-backend/design.md"
+    active.parent.mkdir(parents=True)
+    active.write_text("active lifecycle contract", encoding="utf-8")
+
+    assert _loki_scope_contract(tmp_path) == "active lifecycle contract"
 
 
 def test_loki_queue_uses_persistent_collector_storage() -> None:

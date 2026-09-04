@@ -195,3 +195,60 @@ contracts. Core H1 run `33884414502` also completed **SUCCESS** on the same
 SHA with Loki disabled. The new runtime/config receipts supersede the earlier
 M2B exact-SHA receipts for closure; lifecycle remains `ACTIVE / pending` until
 separately authorised adoption/archive.
+
+## Failed closure attempts and the lifecycle-safe test repair
+
+Closure was attempted twice on `feature/ng-0.6-loki` and reverted both times.
+
+The first attempt, `2e1005b`, was reverted as `1013876`. It failed for a real
+reason: capability run `33888257726` and Core CI run `33888257735`, both
+`pull_request` events on head `2e1005b`, ended in **failure**.
+`tests/test_loki_contract.py` read
+`openspec/changes/add-loki-log-backend/design.md` — a path the archive move
+intentionally removes — producing `FileNotFoundError`. The Loki runtime and the
+focused contracts were otherwise green, so the defect was in the test's
+lifecycle assumption, not in the capability.
+
+The repair, carried into this change from `de68270`, makes the test resolve the
+scope contract by lifecycle: the standing specification once adoption has
+happened, the active change design before it. Both states have focused
+coverage. It changes no runtime, Compose, Collector, Grafana, workflow,
+dependency or logging-scope behaviour.
+
+The second attempt, `7d70f28`, was reverted as `f2bfb92`. A third, `9eb4356`,
+was made on the same branch and merged into `test/dbt-extensive-testing` rather
+than `main`.
+
+## Why this closure was re-derived rather than merged
+
+The three previous attempts and their receipts stayed on
+`test/dbt-extensive-testing`, which diverged from `main`: at the point this
+change was opened `main` was 7 commits ahead and 11 behind, with neither an
+ancestor of the other. That line carries the Loki closure but not the adopted
+`development-workflow` capability; merging it into `main` would have removed
+the capability, its archived change, its fitness functions and the workflow
+conversions — 1,887 deletions.
+
+The receipts produced on that line are therefore recorded as history and are
+**not** cited as adoption evidence:
+
+| Run | Event | Head | Why not adoption evidence |
+| --- | --- | --- | --- |
+| `33902240453` H1 | `workflow_dispatch` | `9eb4356` | exact-SHA receipt for a commit not on `main`, whose tree lacks the adopted capability |
+| `33903489346` Loki capability | `workflow_dispatch` | `9eb4356` | same |
+| `33903909875` M5 gates | `workflow_dispatch` | `9eb4356` | same |
+| `33904147775` Core CI | `pull_request` | `9eb4356` | base was `test/dbt-extensive-testing` via closed PR #9, merge SHA `912dc9f` — not the integration target |
+| `33908268598` H1 | `workflow_dispatch` | `d031679` | legacy line, pre-conformance gate definitions |
+
+This is the requirement the `development-workflow` capability states: a receipt
+cited as evidence that a change is ready to integrate must have been produced
+against the branch the change actually integrates into. Every run above is
+genuine and green; none of them answers that question.
+
+Only `de68270`'s test repair was carried. The two closure attempts, their two
+reverts, the redundant `71b1bc3` documentation commit with its revert
+`a3eea07`, and the two merge commits `7f8a814` and `d031679` were dropped. The
+`71b1bc3` sentence was checked rather than assumed redundant: every token the
+repaired test asserts — `Kafka producer`, `Spark streaming jobs`,
+`Airflow DAG code`, `first adopted wave` — is already present in the adopted
+standing specification through other wording.
