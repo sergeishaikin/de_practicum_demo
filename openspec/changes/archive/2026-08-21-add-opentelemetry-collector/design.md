@@ -153,9 +153,23 @@ profile is approximately 0.7 GB while idle; Milestone 2 must measure the
 Collector profile against that floor and record CPU, RSS, queue disk use and
 telemetry throughput.
 
-## Implementation gate
+## Milestone 2 implementation status
 
-Milestone 2 may start only after this artifact set is accepted. It must first
-pin the Collector distribution/image and SDK versions, add dependency locks,
-then implement the opt-in profile and focused tests. The required gates are
-listed in `tasks.md`; any hard stop in the proposal remains a stop condition.
+The opt-in profile and first-party Python export path are implemented within
+the frozen boundary. Writer, medallion and durable-metrics exporter telemetry
+is disabled by default and fail-open when enabled. The producer now injects
+W3C `traceparent` into Kafka headers without changing payload bytes, keys,
+partitions or offsets. No consumer schema or Spark/Airflow version changed.
+
+The Collector uses the pinned Contrib digest, OTLP/gRPC receiver, bounded
+memory/batch processors, redaction processor, `file_storage` extension and
+debug sink. The debug sink is deliberately backend-neutral; no Tempo/Loki or
+other NG item is included. Existing Prometheus targets and PostgreSQL durable
+metrics remain untouched; only Collector self-metrics are added as an opt-in
+scrape target.
+
+The live standalone Collector smoke reached `Everything is ready` and the
+image config validator passed. A full backend-outage/queue-drain test is not
+claimable in NG-0.4 because no telemetry backend is authorised or configured;
+the remaining M2 evidence records this limitation rather than inventing a
+loss/recovery result.

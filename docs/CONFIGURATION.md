@@ -45,6 +45,36 @@
 | `GRAFANA_IMAGE` | Optional | `grafana/grafana:11.2.0` | Grafana image tag. |
 | `GRAFANA_HOST_PORT` | Optional | `13001` | Grafana host port. |
 
+### Optional observability profile (NG-0.5)
+
+These settings are read from `.env` when the `otel` or
+`observability-next` Compose profiles are enabled. The reference
+`.env.example` pins the Collector, Tempo, and MinIO helper images by digest;
+keep real secrets in the untracked `.env` file.
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `OTEL_COLLECTOR_IMAGE` | Required for `otel` | digest-pinned contrib Collector | Collector image. |
+| `OTEL_ENABLED` | Optional | `0` | Set `1` to enable first-party OTLP instrumentation. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Optional | `http://otel-collector:4317` | Internal OTLP/gRPC endpoint. |
+| `OTEL_EXPORTER_OTLP_TIMEOUT` | Optional | `5` | Export timeout in seconds. |
+| `OTEL_SERVICE_NAMESPACE` | Optional | `de-practicum` | Stable resource namespace. |
+| `OTEL_DEPLOYMENT_ENVIRONMENT` | Optional | `local` | Stable deployment environment attribute. |
+| `TEMPO_IMAGE` | Required for `observability-next` | digest-pinned Tempo 3.0.3 | Monolithic Tempo image. |
+| `TEMPO_HOST_PORT` | Optional | `13200` | Host port for Tempo HTTP/query API. |
+| `TEMPO_S3_BUCKET` | Optional | `tempo-traces` | Dedicated trace bucket. |
+| `TEMPO_S3_PREFIX` | Optional | `ng05/` | Dedicated trace object prefix. |
+| `TEMPO_S3_ACCESS_KEY` | Required for `observability-next` | `tempo-demo` | Trace-store access identity; do not reuse warehouse credentials. |
+| `TEMPO_S3_SECRET_KEY` | Required for `observability-next` | placeholder | Secret for the dedicated trace store. |
+| `TEMPO_MINIO_IMAGE` / `TEMPO_MINIO_MC_IMAGE` | Required for `observability-next` | digest-pinned | Dedicated MinIO and initialization helper images. |
+| `GRAFANA_ADMIN_PASSWORD` | Required for Grafana | placeholder | Local Grafana admin password. |
+
+Enablement is explicit: `--profile otel` starts the Collector, while adding
+`--profile observability-next` starts Tempo and its dedicated MinIO store;
+Grafana is part of the extended stack and uses its provisioned Tempo datasource
+when that backend is running. Prometheus continues its direct scrape path in
+either case.
+
 ### Required beyond `.env.example`
 
 | Variable | Required | Description |

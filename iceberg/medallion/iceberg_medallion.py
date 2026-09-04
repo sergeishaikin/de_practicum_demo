@@ -38,6 +38,7 @@ from openlineage.client.event_v2 import RunState
 from common import lineage
 from common import provenance as prov
 from common.ops import Metrics
+from common.telemetry import setup_telemetry
 from common.cutover import validate_runtime_config
 from b2_spike import collapse_delta, resolve_against_current
 
@@ -1934,11 +1935,15 @@ def main() -> None:
     print(f"Iceberg medallion service started (silver mode: {SILVER_MODE})", flush=True)
     catalog = get_catalog()
     metrics = Metrics()
+    telemetry = setup_telemetry("iceberg-medallion")
     while True:
         try:
-            run(catalog, metrics)
+            with telemetry.span("medallion.cycle"):
+                run(catalog, metrics)
+            telemetry.log("medallion cycle completed")
         except Exception as exc:
             print(f"Medallion error: {exc}", file=sys.stderr, flush=True)
+            telemetry.log("medallion cycle failed")
         time.sleep(INTERVAL)
 
 

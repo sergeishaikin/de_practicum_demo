@@ -320,6 +320,11 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       METRICS_ENABLED: "1"
       PROMETHEUS_METRICS_PORT: "9101"
+      OTEL_ENABLED: ${OTEL_ENABLED:-0}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
+      OTEL_EXPORTER_OTLP_TIMEOUT: ${OTEL_EXPORTER_OTLP_TIMEOUT:-5}
+      OTEL_SERVICE_NAMESPACE: ${OTEL_SERVICE_NAMESPACE:-de-practicum}
+      OTEL_DEPLOYMENT_ENVIRONMENT: ${OTEL_DEPLOYMENT_ENVIRONMENT:-local}
       OPENLINEAGE_NAMESPACE: ${OPENLINEAGE_NAMESPACE:-de-practicum}
       OPENLINEAGE_DISABLED: ${OPENLINEAGE_DISABLED:-}
       OPENLINEAGE__TRANSPORT__TYPE: ${OPENLINEAGE_TRANSPORT_TYPE:-file}
@@ -380,6 +385,11 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       METRICS_ENABLED: "1"
       PROMETHEUS_METRICS_PORT: "9102"
+      OTEL_ENABLED: ${OTEL_ENABLED:-0}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
+      OTEL_EXPORTER_OTLP_TIMEOUT: ${OTEL_EXPORTER_OTLP_TIMEOUT:-5}
+      OTEL_SERVICE_NAMESPACE: ${OTEL_SERVICE_NAMESPACE:-de-practicum}
+      OTEL_DEPLOYMENT_ENVIRONMENT: ${OTEL_DEPLOYMENT_ENVIRONMENT:-local}
       QUALITY_VALID_STATUSES: "created,paid,shipped,delivered"
       QUALITY_FAIL_ON_VIOLATIONS: "0"
       OPENLINEAGE_NAMESPACE: ${OPENLINEAGE_NAMESPACE:-de-practicum}
@@ -415,6 +425,11 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       PROMETHEUS_METRICS_PORT: "9104"
       PROMETHEUS_EXPORTER_POLL_SECONDS: "15"
+      OTEL_ENABLED: ${OTEL_ENABLED:-0}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
+      OTEL_EXPORTER_OTLP_TIMEOUT: ${OTEL_EXPORTER_OTLP_TIMEOUT:-5}
+      OTEL_SERVICE_NAMESPACE: ${OTEL_SERVICE_NAMESPACE:-de-practicum}
+      OTEL_DEPLOYMENT_ENVIRONMENT: ${OTEL_DEPLOYMENT_ENVIRONMENT:-local}
     ports:
       - "${OBSERVABILITY_EXPORTER_HOST_PORT:-19104}:9104"
     depends_on:
@@ -438,6 +453,7 @@ services:
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
+      - --enable-feature=exemplar-storage
       - --web.enable-lifecycle
     ports:
       - "${PROMETHEUS_HOST_PORT:-19090}:9090"
@@ -460,6 +476,91 @@ services:
       retries: 12
       start_period: 15s
     restart: unless-stopped
+    networks:
+      - de_demo_net
+
+  otel-collector:
+    profiles: ["otel"]
+    image: ${OTEL_COLLECTOR_IMAGE:?OTEL_COLLECTOR_IMAGE is required when the otel profile is enabled}
+    container_name: de-demo-otel-collector
+    mem_limit: 256m
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./observability/otel/collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+      - de_demo_otel_storage:/var/lib/otelcol
+    healthcheck:
+      test: ["CMD", "/otelcol-contrib", "validate", "--config=/etc/otelcol-contrib/config.yaml"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - de_demo_net
+
+  tempo-minio:
+    profiles: ["observability-next"]
+    image: ${TEMPO_MINIO_IMAGE:?TEMPO_MINIO_IMAGE is required for the Tempo profile}
+    container_name: de-demo-tempo-minio
+    mem_limit: 256m
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${TEMPO_S3_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${TEMPO_S3_SECRET_KEY}
+    volumes:
+      - de_demo_tempo_minio_data:/data
+    networks:
+      - de_demo_net
+
+  tempo-minio-init:
+    profiles: ["observability-next"]
+    image: ${TEMPO_MINIO_MC_IMAGE:?TEMPO_MINIO_MC_IMAGE is required for the Tempo profile}
+    container_name: de-demo-tempo-minio-init
+    mem_limit: 128m
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        until mc alias set tempo http://tempo-minio:9000
+        "$${TEMPO_S3_ACCESS_KEY}" "$${TEMPO_S3_SECRET_KEY}"; do sleep 1; done;
+        mc mb --ignore-existing "tempo/$${TEMPO_S3_BUCKET}";
+        mc ilm rule add --expire-days 2 --prefix "$${TEMPO_S3_PREFIX}"
+        "tempo/$${TEMPO_S3_BUCKET}";
+    environment:
+      TEMPO_S3_ACCESS_KEY: ${TEMPO_S3_ACCESS_KEY}
+      TEMPO_S3_SECRET_KEY: ${TEMPO_S3_SECRET_KEY}
+      TEMPO_S3_BUCKET: ${TEMPO_S3_BUCKET}
+      TEMPO_S3_PREFIX: ${TEMPO_S3_PREFIX}
+    depends_on:
+      tempo-minio:
+        condition: service_started
+    networks:
+      - de_demo_net
+
+  tempo:
+    profiles: ["observability-next"]
+    image: ${TEMPO_IMAGE:?TEMPO_IMAGE is required for the Tempo profile}
+    container_name: de-demo-tempo
+    command:
+      - -config.file=/etc/tempo/tempo.yaml
+      - -config.expand-env=true
+      - -target=all
+    environment:
+      TEMPO_S3_ENDPOINT: tempo-minio:9000
+      TEMPO_S3_BUCKET: ${TEMPO_S3_BUCKET}
+      TEMPO_S3_PREFIX: ${TEMPO_S3_PREFIX}
+      TEMPO_S3_ACCESS_KEY: ${TEMPO_S3_ACCESS_KEY}
+      TEMPO_S3_SECRET_KEY: ${TEMPO_S3_SECRET_KEY}
+    ports:
+      - "${TEMPO_HOST_PORT:-13200}:3200"
+    volumes:
+      - ./observability/tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - de_demo_tempo_data:/var/tempo
+    depends_on:
+      tempo-minio-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    mem_limit: 768m
+    cpus: 1.0
     networks:
       - de_demo_net
 
@@ -727,6 +828,9 @@ volumes:
   # so it must not carry the Compose project-name prefix.
   de_demo_prometheus_data:
   de_demo_grafana_data:
+  de_demo_otel_storage:
+  de_demo_tempo_data:
+  de_demo_tempo_minio_data:
 
 networks:
   de_demo_net:

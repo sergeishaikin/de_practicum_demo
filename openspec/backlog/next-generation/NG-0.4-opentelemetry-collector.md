@@ -1,8 +1,9 @@
 # NG-0.4 — OpenTelemetry Collector and Instrumentation Contract
 
-> **Lifecycle:** ACTIVE
-> **Disposition:** pending
-> **Execution authorization:** `operator:explicit-ng-0.4-milestone-1` granted 2026-08-20. This authorizes recovery, design and preflight only; it does not authorize implementation.
+> **Lifecycle:** DONE
+> **Disposition:** ADOPTED
+> **Historical intent:** This item records the pre-adoption contract; it is historical intent, not current behaviour. Current truth is the standing `openspec/specs/observability-telemetry/spec.md` and the archived `add-opentelemetry-collector` change.
+> **Execution authorization:** `operator:explicit-ng-0.4-milestone-1` granted 2026-08-20; subsequent bounded continuations are recorded in the archived change evidence.
 > **Opens as:** `add-opentelemetry-collector`
 > **Repository:** `sergeishaikin/de_practicum_demo`
 > **Baseline branch used for analysis:** `test/dbt-extensive-testing`
