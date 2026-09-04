@@ -488,6 +488,8 @@ services:
     volumes:
       - ./observability/otel/collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
       - de_demo_otel_storage:/var/lib/otelcol
+    ports:
+      - "${OTEL_COLLECTOR_METRICS_HOST_PORT:-28888}:8888"
     healthcheck:
       test: ["CMD", "/otelcol-contrib", "validate", "--config=/etc/otelcol-contrib/config.yaml"]
       interval: 10s

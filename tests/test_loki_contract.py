@@ -43,9 +43,10 @@ def test_loki_otlp_route_and_explicit_label_allow_list() -> None:
     assert "deployment.environment.name" in config
     assert "service.instance.id" not in config
     assert "service.instance.id" not in config
-    assert "trace_id" not in config.split(
-        "default_resource_attributes_as_index_labels", 1
-    )[1]
+    assert (
+        "trace_id"
+        not in config.split("default_resource_attributes_as_index_labels", 1)[1]
+    )
 
 
 def test_grafana_trace_to_logs_uses_structured_metadata_label() -> None:
@@ -66,3 +67,21 @@ def test_loki_does_not_replace_existing_metric_authority() -> None:
     assert "otlp_grpc/telemetry-backend" in collector
     assert "prometheus:" in collector
     assert "telemetry-backend" in collector
+
+
+def test_first_party_logging_boundary_requires_structured_identity() -> None:
+    telemetry = _read("iceberg/common/telemetry.py")
+    assert "event_name: str" in telemetry
+    assert 'severity: str = "INFO"' in telemetry
+    assert '"event.name"' in telemetry
+    assert '"severity"' in telemetry
+    for marker in ("customer[_-]?email", "payload", "@[^\\s,;]+"):
+        assert marker in telemetry
+
+
+def test_first_party_scope_is_truthful_about_unadapted_surfaces() -> None:
+    design = _read("openspec/changes/add-loki-log-backend/design.md")
+    assert "out of" in design.lower() and "first adopted wave" in design.lower()
+    assert "Kafka producer" in design
+    assert "Spark streaming jobs" in design
+    assert "Airflow DAG code" in design

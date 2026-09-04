@@ -55,16 +55,19 @@ The baseline inventory found these repository-owned emitters:
 |---|---|---|---|
 | Iceberg writer | `iceberg/writer/iceberg_writer.py` (`print`, errors) | PLAIN_TEXT | adapter to schema; preserve stdout |
 | Iceberg medallion | `iceberg/medallion/iceberg_medallion.py` (`print`, errors) | PLAIN_TEXT | adapter; include cycle/load/snapshot context as metadata |
-| Kafka producer | `kafka/producer/orders_producer.py` (`print`, delivery errors) | PLAIN_TEXT | adapter; never log full event/payload |
-| Spark streaming jobs | `spark/jobs/orders_streaming.py` (`print`) | PLAIN_TEXT | bounded first-party events only; Spark/system logs excluded |
-| Airflow DAG code | `dags/lakehouse_maintenance.py` (`print`, traceback) | PLAIN_TEXT | collect repository task events; scheduler/provider logs excluded |
+| Kafka producer | `kafka/producer/orders_producer.py` (`print`, delivery errors) | PLAIN_TEXT | OUT_OF_SCOPE for first adopted wave: producer image does not carry the OTel SDK; delivery callback remains stdout/Prometheus evidence |
+| Spark streaming jobs | `spark/jobs/orders_streaming.py` (`print`) | PLAIN_TEXT | OUT_OF_SCOPE for first adopted wave: Spark driver/executor lifecycle is framework-owned and adding SDK packaging would change the Spark image contract |
+| Airflow DAG code | `dags/lakehouse_maintenance.py` (`print`, traceback) | PLAIN_TEXT | OUT_OF_SCOPE for first adopted wave: scheduler/provider logs are excluded and task image has no approved OTel boundary |
 | Prometheus/telemetry service | `observability/telemetry.py` | STRUCTURED_PARTIAL | retain metrics path; add log records through existing Telemetry boundary |
 | Shared OTel helper | `iceberg/common/telemetry.py` | OTEL_LOG_READY | reuse OTLP logger, add schema/redaction policy |
 | one-shot verification/migration scripts | `scripts/`, verification jobs | OUT_OF_SCOPE by default | collect only explicitly named acceptance events |
 
-Third-party Kafka, Spark, Airflow, Grafana, Tempo, MinIO, Trino and container
-daemon logs are not claimed by the first wave. Their exclusion is a documented
-coverage boundary, not an implicit "all platform logs" claim.
+Kafka delivery callbacks, Spark jobs and Airflow task code are therefore out of
+scope for the first adopted wave for the concrete
+packaging/lifecycle reasons above. Third-party Kafka, Spark, Airflow, Grafana,
+Tempo, MinIO, Trino and container daemon logs are not claimed either. Their
+exclusion is a documented coverage boundary, not an implicit "all platform
+logs" claim.
 
 ## 5. Log record taxonomy
 

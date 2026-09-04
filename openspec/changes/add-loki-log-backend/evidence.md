@@ -116,10 +116,7 @@ allow-list correction.
 
 Retention is configuration-verified (`retention_enabled=true`, 48h,
 Compactor intervals and delete-request store); a literal 48-hour elapsed
-expiry was not observed in this bounded run. Canonical parity was checked by
-keeping canonical MinIO and the Collector healthy during Loki stop/restart;
-the full business workload parity remains a follow-up acceptance detail, not
-an adoption claim.
+expiry was not observed in this bounded run.
 
 Exact implementation-SHA core H1: run `33874679399` **SUCCESS** on
 `fe51bdbda50bd7591e818e670479dc3c2ca0a793`. Both the fresh-volume full
@@ -128,3 +125,33 @@ E2E, dbt semantic contract, Prometheus/Grafana smoke, Collector outage parity,
 and teardown. H1 ran without the Loki profile, proving profile independence.
 The earlier exact-runtime receipt `33872953865` on `55acd9e` is retained as
 historical evidence; the final exact-SHA run supersedes it for closure.
+
+## Milestone 2B closure-blocker receipt
+
+Local live acceptance on the M2B working tree passed the complete bounded
+matrix. The pre-fix probe executed the redaction helpers from runtime SHA
+`fe51bdb` and recorded the expected failure for `customer_email` and the full
+payload marker; the repaired helper rejected bearer, password, API key,
+connection string, PII, payload and sensitive SQL while retaining the event
+name, severity, load ID and trace ID.
+
+The live Grafana surface returned both Loki and Tempo datasource records and
+same-trace proxy results. Storage checks allowed only the Loki bucket and
+denied both canonical MinIO and the Tempo bucket with the same Loki identity.
+Healthy and outage canonical probes returned the identical hash
+`4ae600e920499c39b58c51282d0df41c8d72608c7c2e40ce02cee3a2af055c12`.
+
+During Loki outage the first-party writer still emitted stdout and the
+Collector reported a bounded log queue (capacity 256, observed size 2); after
+restore a new log was queryable. Loki object-store outage left the canonical
+hash unchanged and accepted new logs after storage recovery. Collector stop,
+restart and post-restart ingestion also passed. The measured indexed labels
+were `deployment_environment_name`, `service_name` and `service_namespace`,
+each cardinality 1; the query latency sample/p95 was 31ms and the Loki
+object-store measurement was 140 bytes for the bounded fixture. Resource
+sample: Loki 62.8MiB, Loki MinIO 229.5MiB, Collector 78.2MiB.
+
+The adopted structured emitters are the writer, medallion and observability
+exporter. Kafka, Spark and Airflow surfaces remain explicitly out of scope for
+this first wave as documented in `design.md`; their framework/image contracts
+were not changed.

@@ -6,6 +6,11 @@
 
 The first-party collection scope SHALL emit deterministic OpenTelemetry log
 records with timestamp, severity, service identity, event name and safe body.
+The first adopted wave covers the Iceberg writer, Iceberg medallion and
+repository-owned observability exporter. Kafka delivery callbacks, Spark
+driver/executor logs and Airflow scheduler/provider task logs are explicitly
+out of scope until a separately authorised packaging and lifecycle contract is
+approved.
 
 #### Scenario: Machine-readable record
 

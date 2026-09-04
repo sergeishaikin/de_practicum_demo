@@ -30,6 +30,8 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version-file: ".python-version"
@@ -83,10 +85,33 @@ jobs:
           LOKI_S3_ACCESS_KEY: loki-demo
           LOKI_S3_SECRET_KEY: ng06-loki-ci-secret
           LOKI_S3_BUCKET: loki-logs
+          TEMPO_S3_BUCKET: tempo-traces
+          NG06_GRAFANA_URL: http://localhost:13001
+          GRAFANA_ADMIN_PASSWORD: ng06-grafana-ci-secret
           NG06_LOKI_URL: http://localhost:13100
         run: |
           uv run --locked pytest -q tests/test_loki_contract.py tests/test_tempo_contract.py tests/test_otel_contract.py
-          uv run --locked python tests/loki_acceptance.py
+          uv run --locked python tests/loki_acceptance.py | tee ng06-loki-acceptance.log
+          for receipt in \
+            redaction_pre_fix=FAIL_EXPECTED \
+            grafana_loki_query=true \
+            grafana_tempo_query=true \
+            storage_negative=DENIED \
+            storage_tempo_negative=DENIED \
+            canonical_parity=true \
+            loki_outage_business_success=true \
+            post_restore_ingestion=true \
+            object_store_outage_canonical_unchanged=true \
+            object_store_restore_ingestion=true \
+            collector_failure_business_success=true \
+            collector_restart_ingestion=true \
+            collector_wal_bytes_before= \
+            collector_wal_bytes_after= \
+            indexed_labels= \
+            label_cardinality= \
+            resource_sample=; do
+            grep -q "$receipt" ng06-loki-acceptance.log
+          done
       - name: Loki-specific outage and recovery
         run: |
           docker stop de-demo-loki
@@ -111,6 +136,7 @@ jobs:
           path: |
             ng06-loki-capability.log
             ng06-grafana.log
+            ng06-loki-acceptance.log
       - name: Cleanup capability services
         if: always()
         run: |

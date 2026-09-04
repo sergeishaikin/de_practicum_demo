@@ -83,8 +83,17 @@ def main() -> None:
         try:
             with telemetry.span("observability.collect"):
                 collect()
+            telemetry.log(
+                "observability collection completed",
+                event_name="observability.collect.completed",
+            )
         except Exception:
             EXPORTER_UP.set(0)
+            telemetry.log(
+                "observability collection failed",
+                event_name="observability.collect.failed",
+                severity="ERROR",
+            )
         time.sleep(POLL_SECONDS)
 
 

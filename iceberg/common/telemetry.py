@@ -21,11 +21,16 @@ OTEL_NAMESPACE = os.getenv("OTEL_SERVICE_NAMESPACE", "de-practicum")
 OTEL_ENVIRONMENT = os.getenv("OTEL_DEPLOYMENT_ENVIRONMENT", "local")
 
 _DENIED_KEYS = re.compile(
-    r"(?i)(password|secret|authorization|token|api[_-]?key|connection|string)"
+    r"(?i)(password|secret|authorization|token|api[_-]?key|connection|string|"
+    r"customer[_-]?email|email|pii|payload)"
 )
 _DENIED_VALUES = (
     re.compile(r"(?i)bearer\s+[a-z0-9._~-]+"),
     re.compile(r"(?i)select\s+customer_email\s+from\s+orders"),
+    re.compile(r"(?i)customer[._-]?email\s*[:=]\s*[^\s,;]+"),
+    re.compile(r"(?i)[^\s,;]+@[^\s,;]+\.[a-z]{2,}"),
+    re.compile(r"(?i)full[-_ ]?payload[-_ ]?marker"),
+    re.compile(r"(?i)do[-_ ]?not[-_ ]?store"),
 )
 
 
@@ -143,11 +148,27 @@ class Telemetry:
                 except Exception:  # pragma: no cover - defensive shutdown path
                     LOGGER.exception("OpenTelemetry shutdown failed; continuing")
 
-    def log(self, body: str, *, attributes: dict[str, Any] | None = None) -> None:
+    def log(
+        self,
+        body: str,
+        *,
+        event_name: str,
+        severity: str = "INFO",
+        attributes: dict[str, Any] | None = None,
+    ) -> None:
+        """Emit one bounded structured record while preserving fail-open semantics.
+
+        ``event_name`` and ``severity`` are required at the call boundary so
+        first-party records cannot silently fall back to prose-only logs.
+        Resource attributes provide service identity and the SDK supplies the
+        timestamp; event metadata is attached as structured attributes.
+        """
         if not self.enabled:
             return
         try:
             safe_attributes = _safe_attributes(attributes or {})
+            safe_attributes.setdefault("event.name", _safe_value(event_name))
+            safe_attributes.setdefault("severity", _safe_value(severity.upper()))
             try:
                 from opentelemetry import trace
 
