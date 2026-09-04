@@ -263,6 +263,44 @@ services:
         condition: service_completed_successfully
     networks: [metadata_net, de_demo_net]
 
+  # dbt owns every relation in `staging` and `marts`, so on a clean database none
+  # of them exist until something materialises them. `dbt docs generate` writes a
+  # catalog entry only for a relation that physically exists, and
+  # `assert_dbt_artifacts.py` requires catalog columns - so without this step the
+  # guard fails and the catalog would be silently incomplete.
+  #
+  # This is the only metadata service that writes to the warehouse. It uses the
+  # `app` identity precisely so that `metadata_reader` can stay read-only; do not
+  # merge it into `metadata-dbt-warehouse`.
+  metadata-dbt-warehouse-build:
+    <<: *metadata-profile
+    user: "0:0"
+    build:
+      context: .
+      dockerfile: airflow.Dockerfile
+    image: de-practicum-demo-airflow:0.1.0
+    container_name: de-metadata-dbt-warehouse-build
+    mem_limit: 768m
+    entrypoint: ["/bin/bash", "-lc"]
+    command:
+      - >-
+        mkdir -p /tmp/dbt-logs && /home/airflow/.local/bin/dbt --log-path /tmp/dbt-logs run
+        --project-dir /opt/metadata-dbt/warehouse --profiles-dir /opt/metadata-profile
+        --target-path /tmp/dbt-build-target
+    environment:
+      DBT_POSTGRES_HOST: de-demo-postgres
+      DBT_POSTGRES_PORT: "5432"
+      DBT_POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      DBT_POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      DBT_POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+    volumes:
+      - ./dbt/warehouse:/opt/metadata-dbt/warehouse:ro
+      - ./dbt/warehouse/profiles.yml.example:/opt/metadata-profile/profiles.yml:ro
+    depends_on:
+      de-demo-postgres:
+        condition: service_healthy
+    networks: [de_demo_net]
+
   metadata-dbt-warehouse:
     <<: *metadata-profile
     user: "0:0"
@@ -281,7 +319,10 @@ services:
         --profiles-dir /opt/metadata-profile --target-path /opt/metadata-artifacts/warehouse
         --no-compile
         && python /opt/metadata/scripts/assert_dbt_artifacts.py
-        --target-dir /opt/metadata-artifacts/warehouse --expected-model v_sales_daily
+        --target-dir /opt/metadata-artifacts/warehouse
+        --expected-model stg_core__orders --expected-model stg_core__order_items
+        --expected-model stg_staging__orders --expected-model stg_staging__order_items
+        --expected-model v_sales_daily
         --expected-source orders
     environment:
       DBT_POSTGRES_HOST: de-demo-postgres
@@ -295,6 +336,8 @@ services:
       - ./dbt/warehouse/profiles.yml.example:/opt/metadata-profile/profiles.yml:ro
       - metadata_dbt_artifacts:/opt/metadata-artifacts
     depends_on:
+      metadata-dbt-warehouse-build:
+        condition: service_completed_successfully
       metadata-source-reader:
         condition: service_completed_successfully
       de-demo-postgres:

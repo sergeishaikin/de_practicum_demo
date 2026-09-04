@@ -139,10 +139,11 @@ jobs:
             -f docker-compose.metadata.yml \
             --profile metadata up -d --build \
             metadata-postgres metadata-opensearch metadata-migrate metadata-server \
-            metadata-ingestion metadata-source-reader metadata-dbt-warehouse \
-            metadata-dbt-semantic metadata-lineage-topic
+            metadata-ingestion metadata-source-reader metadata-dbt-warehouse-build \
+            metadata-dbt-warehouse metadata-dbt-semantic metadata-lineage-topic
           for container in \
             de-metadata-source-reader \
+            de-metadata-dbt-warehouse-build \
             de-metadata-dbt-warehouse \
             de-metadata-dbt-semantic; do
             status=$(docker wait "$container")

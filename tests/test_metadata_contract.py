@@ -69,6 +69,19 @@ def test_connector_credentials_are_reader_identities() -> None:
     assert "GRANT UPDATE" not in sql
     assert "GRANT DELETE" not in sql
 
+    # Every schema the catalog must index, in the grants *and* in the default
+    # privileges. Without the second half, a dbt view created later by `app`
+    # is invisible to the reader and the catalog is silently incomplete - which
+    # is exactly what happened when the dbt staging layer was added and only the
+    # three original schemas were listed.
+    schema_list = "core, stg, staging, marts"
+    assert sql.count(schema_list) == 5, (
+        "all five schema lists must name every readable schema: "
+        f"found {sql.count(schema_list)}"
+    )
+    assert f"GRANT USAGE ON SCHEMA {schema_list}" in sql
+    assert f"ALTER DEFAULT PRIVILEGES FOR ROLE app IN SCHEMA {schema_list}" in sql
+
 
 def test_openlineage_transport_and_consumer_are_reproducible() -> None:
     compose = (ROOT / "docker-compose.metadata.yml").read_text()
