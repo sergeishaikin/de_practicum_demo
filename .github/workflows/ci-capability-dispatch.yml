@@ -1,0 +1,66 @@
+name: Capability dispatch
+
+# Invocation semantics for the acceptance capability gates.
+#
+# This workflow exists so that an exact-SHA receipt can be produced by
+# composition rather than by opening a pull request that nobody intends to
+# merge. It owns the target contract; the capability workflows it calls own the
+# verification and gain no inputs from it.
+#
+# It has no `pull_request` trigger by design. A capability gate self-references
+# its own path so that editing the gate runs the gate; that is right for a gate
+# and absurd for a dispatcher, which would re-run whatever it dispatches on
+# every edit to itself. This file's validation is the always-running unit test
+# job in `ci-pr.yml`, whose fitness functions parse it on every pull request.
+
+on:
+  workflow_dispatch:
+    inputs:
+      capability:
+        description: Capability gate to invoke
+        required: true
+        type: choice
+        options:
+          - ng05-tempo
+          - ng06-loki
+      expected_sha:
+        description: Full 40-character commit SHA the operator intends to verify
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    name: Verify the dispatched ref resolves to the intended SHA
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Assert the resolved commit is the one the operator named
+        env:
+          EXPECTED: ${{ inputs.expected_sha }}
+          RESOLVED: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$EXPECTED" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "::error::expected_sha must be a full 40-character lowercase hex SHA, got '$EXPECTED'"
+            exit 1
+          fi
+          if [ "$EXPECTED" != "$RESOLVED" ]; then
+            echo "::error::dispatched ref resolved to $RESOLVED but the operator expected $EXPECTED"
+            exit 1
+          fi
+          echo "operator intent and resolved ref agree: $RESOLVED"
+
+  ng05-tempo:
+    name: NG-0.5 Tempo capability (called)
+    needs: preflight
+    if: inputs.capability == 'ng05-tempo'
+    uses: ./.github/workflows/ci-ng05-tempo.yml
+
+  ng06-loki:
+    name: NG-0.6 Loki capability (called)
+    needs: preflight
+    if: inputs.capability == 'ng06-loki'
+    uses: ./.github/workflows/ci-ng06-loki.yml

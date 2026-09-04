@@ -139,3 +139,72 @@ opening the pull request, that the run was about a merge into
   two rules are xfailed rather than passing.
 - No branch has been deleted.
 - No NG-0.6 artifact has been read into or written from this change.
+
+## Milestone 2 — workflow conformance
+
+Pull request #10, head `b6bcc38`, base `main` at `8521a08`, merged as `3f41692`.
+
+All twelve jobs across seven workflows passed. The set that ran is itself the
+evidence for the self-reference fix: `H1 clean reproducible stack`
+(`33905344104`, 13m8s and 12m20s), `NG-0.5 Tempo capability` (`33905344081`,
+1m52s) and `NG-0.6 Loki capability` (`33905344092`, 3m44s) executed **because
+their own definitions changed**. Before this change, editing those three files
+triggered nothing, and they are precisely the three workflows carrying
+acceptance claims.
+
+Also green: `CI` (`33905344057`), `M5 architecture gates` (`33905344074`),
+`Metadata profile` (`33905344087`, 11m35s), `S1 dbt semantic lineage`
+(`33905344064`).
+
+## Milestone 2 — repository settings
+
+Applied 2026-09-04 and read back from the API rather than assumed.
+
+| Setting | Before | After |
+| --- | --- | --- |
+| `allow_merge_commit` | `true` | `false` |
+| `allow_rebase_merge` | `true` | `false` |
+| `allow_squash_merge` | `true` | `true` |
+| `delete_branch_on_merge` | `false` | `true` |
+| `main` protected | `false` | `true` |
+| `required_status_checks.strict` | — | `true` |
+| `enforce_admins` | — | `true` |
+| `allow_force_pushes` | — | `false` |
+| `allow_deletions` | — | `false` |
+| `required_conversation_resolution` | — | `true` |
+| `required_approving_review_count` | — | `0` |
+
+Required contexts, deliberately limited to the four jobs that run on every pull
+request:
+
+```
+Lint + compose validation
+Unit tests + coverage
+Warehouse dbt contract + artifacts
+Airflow DAG validation
+```
+
+Path-filtered gates are **not** required checks. A required context that never
+reports leaves a pull request permanently unmergeable, so requiring
+`M5 architecture gates` or `H1 clean reproducible stack` would deadlock any
+change that does not touch their paths. Requiring them needs the aggregating
+`if: always()` gate job, which belongs to the impact-router change.
+
+## Milestone 2 — negative cases against live protection
+
+Executed against `main` at `3f4169245bb6a34873383ad244e53913d689a1d1`, from a
+detached worktree, by the repository owner — who is an admin, which is what
+makes `enforce_admins: true` observable rather than asserted.
+
+| Case | Command | Exit | Server response |
+| --- | --- | --- | --- |
+| Direct push | `git push origin HEAD:main` | `1` | `GH006: Protected branch update failed` — "Changes must be made through a pull request", "4 of 4 required status checks are expected" |
+| Force push | `git push --force origin HEAD:main` | `1` | `GH006: Protected branch update failed` |
+| Branch deletion | `git push origin :main` | `1` | "refusing to delete the current branch: refs/heads/main" |
+
+`main` remained at `3f41692` throughout.
+
+One honest distinction: the deletion refusal cites the default-branch rule, not
+the protection rule. `allow_deletions: false` is set and read back, but the
+default-branch guard answers first, so this receipt proves deletion is refused
+without isolating which of the two mechanisms refused it.
