@@ -70,12 +70,34 @@ uv run --locked pytest -q         603 passed, 1 skipped, 81 deselected, 2 xfaile
 
 ## Milestone 1 — CI receipts
 
-Recorded after the pull request is opened, against base `main`. Each entry
-records head SHA, base branch, base SHA, workflow name and run id, per the
-requirement this change introduces.
+Pull request #8. Each entry records head SHA, base branch, base SHA, workflow
+name, run id and conclusion, in the shape this change's receipt requirement
+demands — the base is recorded so that a reader can tell which merge was
+verified without reconstructing the pull request.
 
-<!-- Pending: no CI receipt is claimed for this change until the pull request
-     has run against base `main`. -->
+| Field | Value |
+| --- | --- |
+| Pull request | #8 |
+| Head SHA | `03416c6c050008f96d0b936af1d371b8f11d2680` |
+| Base branch | `main` |
+| Base SHA | `e697f30525ada3b909b49f1cf7c7f699cce69851` |
+
+| Workflow | Event | Run id | Conclusion |
+| --- | --- | --- | --- |
+| CI | `pull_request` | `33901538965` | success |
+| M5 architecture gates | `pull_request` | `33901538879` | success |
+
+All five required checks passed on that head against that base: Lint + compose
+validation (31s), Unit tests + coverage (33s), Warehouse dbt contract +
+artifacts (1m20s), PR M3/M4 recovery and cutover gates (2m0s), Airflow DAG
+validation (3m53s). `main` was at `e697f30` when the runs executed and is
+unchanged at the time of recording, so the verified merge candidate is the one
+that would integrate.
+
+The unit test job ran the two strict xfails without an `XPASS`, which is the
+observable confirmation that the branch-name and `workflow_call` rules are
+still violated in CI as well as locally — the violation is a property of the
+repository, not of the local checkout.
 
 ## Not claimed
 

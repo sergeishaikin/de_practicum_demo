@@ -21,7 +21,7 @@
       changed to satisfy them.
 - [x] Run the completion gate: `ruff check .`, `black --check .`, `mypy`,
       `pytest`.
-- [ ] Open the pull request against `main`, and record head SHA, base branch,
+- [x] Open the pull request against `main`, and record head SHA, base branch,
       base SHA and every required check's run id.
 
 ## Milestone 2 — conformance (requires its own authorisation)
