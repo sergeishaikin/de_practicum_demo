@@ -18,6 +18,10 @@ Airflow scheduler/provider task logs, and third-party/container-wide logs are
 out of scope until separately authorised. Stdout SHALL remain available as a
 fallback.
 
+For lifecycle and review purposes, the excluded surfaces are explicitly named
+as the Kafka producer, Spark streaming jobs, and Airflow DAG code; they remain
+outside the first adopted wave.
+
 #### Scenario: Machine-readable record
 
 - **WHEN** an in-scope service emits an operational event
