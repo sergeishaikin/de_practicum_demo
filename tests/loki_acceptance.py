@@ -196,6 +196,18 @@ def http_json(url: str, *, auth: tuple[str, str] | None = None) -> dict:
         return json.loads(response.read().decode())
 
 
+def wait_json(url: str, *, auth: tuple[str, str], timeout: float = 90) -> dict:
+    deadline = time.monotonic() + timeout
+    last_error: Exception | None = None
+    while time.monotonic() < deadline:
+        try:
+            return http_json(url, auth=auth)
+        except Exception as exc:  # Grafana/Tempo may race startup and ring join.
+            last_error = exc
+            time.sleep(2)
+    raise TimeoutError(f"timed out waiting for Grafana proxy {url}: {last_error}")
+
+
 def grafana_correlation(trace_id: str) -> None:
     auth = ("admin", GRAFANA_PASSWORD)
     if http_json(f"{GRAFANA_URL}/api/health", auth=auth).get("database") != "ok":
@@ -216,7 +228,7 @@ def grafana_correlation(trace_id: str) -> None:
     )
     if not loki_proxy.get("data", {}).get("result"):
         raise AssertionError("Grafana Loki proxy returned no correlated log")
-    tempo_proxy = http_json(
+    tempo_proxy = wait_json(
         f"{GRAFANA_URL}/api/datasources/proxy/uid/tempo/api/traces/{trace_id}",
         auth=auth,
     )
@@ -338,6 +350,39 @@ def collector_wal_bytes() -> int:
     return int(result.stdout.split()[0])
 
 
+def wait_collector() -> None:
+    deadline = time.monotonic() + 90
+    while time.monotonic() < deadline:
+        status = docker(
+            "inspect",
+            "-f",
+            "{{.State.Health.Status}}",
+            "de-demo-otel-collector",
+            check=False,
+        ).strip()
+        if status == "healthy":
+            return
+        time.sleep(2)
+    raise TimeoutError("Collector did not recover")
+
+
+def queue_observation(metrics: str) -> tuple[int, int, int, int]:
+    import re as _re
+
+    def value(pattern: str) -> int:
+        match = _re.search(
+            pattern + r"[^\n]*\s([0-9]+(?:\.[0-9]+)?)\s*$", metrics, _re.MULTILINE
+        )
+        return int(float(match.group(1))) if match else 0
+
+    return (
+        value(r"otelcol_exporter_queue_capacity\{data_type=\"logs\""),
+        value(r"otelcol_exporter_queue_size\{data_type=\"logs\""),
+        value(r"otelcol_exporter_enqueue_failed_log_records\{"),
+        value(r"otelcol_exporter_send_failed_log_records\{"),
+    )
+
+
 def resource_receipt() -> None:
     stats = docker_result(
         "stats",
@@ -376,7 +421,7 @@ def labels_receipt(loki_url: str, trace_id: str, log_count: int) -> None:
         + ",".join(f"{label}={cardinality[label]}" for label in indexed)
     )
     print(f"logql_latency_ms={latency_ms:.2f}")
-    print(f"logql_p95_latency_ms={latency_ms:.2f}")
+    print(f"logql_latency_sample_ms={latency_ms:.2f}")
     print(f"loki_object_store_bytes={object_store_bytes()}")
     print(f"ingested_logs={log_count}")
     print(
@@ -473,14 +518,28 @@ def main() -> int:
     # Canonical work must remain independent of Loki. Exercise it while Loki
     # is down, retain stdout from a first-party writer, and compare hashes.
     docker("stop", "de-demo-loki")
-    start_writer(count=256)
+    outage_trace = start_writer(count=256)
+    time.sleep(3)
     outage_logs = docker("logs", WRITER, check=False)
     if "TRACE_ID=" not in outage_logs:
         raise AssertionError("first-party stdout disappeared during Loki outage")
     outage_metrics = collector_metrics()
+    pending_wal = collector_wal_bytes()
+    if pending_wal <= wal_before:
+        raise AssertionError("Collector file_storage did not grow during Loki outage")
+    docker("kill", "--signal", "KILL", "de-demo-otel-collector")
+    docker("start", "de-demo-otel-collector")
+    wait_collector()
     canonical_outage = canonical_probe(True)
     docker("start", "de-demo-loki")
     wait_http(f"{loki_url}/ready", timeout=90)
+    time.sleep(5)
+    if not loki_query(
+        loki_url, f'{{service_name="loki-acceptance"}} | trace_id="{outage_trace}"'
+    ):
+        raise AssertionError(
+            "persistent log queue did not recover after Collector restart"
+        )
     restored_trace = start_writer()
     time.sleep(4)
     if not loki_query(
@@ -494,7 +553,31 @@ def main() -> int:
     print("canonical_parity=true")
     print("loki_outage_business_success=true")
     print("loki_outage_metrics=" + failure_metric_lines(outage_metrics))
+    print(f"collector_wal_bytes_pending={pending_wal}")
+    print("wal_restart_recovery=true")
     print(f"post_restore_ingestion=true trace_id={restored_trace}")
+
+    # Drive a deterministic near-capacity condition while Loki is unavailable.
+    docker("stop", "de-demo-loki")
+    start_writer(count=40000)
+    time.sleep(5)
+    saturation_metrics = collector_metrics()
+    capacity, queue_size, enqueue_failed, send_failed = queue_observation(
+        saturation_metrics
+    )
+    if (
+        capacity != 256
+        or queue_size > capacity
+        or (queue_size == 0 and enqueue_failed == 0 and send_failed == 0)
+    ):
+        raise AssertionError("bounded Loki queue pressure was not observed")
+    print(f"queue_capacity={capacity}")
+    print(f"queue_size={queue_size}")
+    print(f"enqueue_failed={enqueue_failed}")
+    print(f"send_failed={send_failed}")
+    docker("start", "de-demo-loki")
+    wait_http(f"{loki_url}/ready", timeout=90)
+    time.sleep(10)
 
     # Isolate the Loki object store while keeping the application path alive.
     docker("stop", "de-demo-loki-minio")

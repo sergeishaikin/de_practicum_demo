@@ -114,7 +114,10 @@ output-only assertion is insufficient.
 ## 8. Failure, queue and restart semantics
 
 Loki outage, Collector outage, object-store outage, queue saturation and
-Collector restart follow NG-0.4's bounded queue/WAL and fail-open semantics:
+Collector restart follow NG-0.4's bounded queue/WAL and fail-open semantics.
+The Loki exporter explicitly binds `sending_queue.storage: file_storage` to the
+existing `/var/lib/otelcol` volume, so pending log batches survive a hard
+Collector restart while Loki is unavailable:
 business processing, stdout and the Prometheus metrics path continue; drops
 are observable and bounded. A Loki outage must never make a Kafka consumer,
 Spark job, Airflow task or Iceberg commit fail solely due to log export.
@@ -124,7 +127,8 @@ Collector, and proves canonical output is unchanged.
 ## 9. Resources and CI
 
 M2 measures Loki/Collector RSS and CPU, log bytes/sec, retained bytes, dropped
-records, label cardinality, and p95 LogQL latency under the local demo workload.
+records, label cardinality, and bounded LogQL latency samples under the local
+demo workload. A p95 is reported only when a multi-sample series is executed.
 No production capacity claim is made from this probe. Loki capability CI is a
 separate opt-in workflow; core H1 remains Loki-free and must stay green without
 either observability profile. The capability workflow records exact SHA, image

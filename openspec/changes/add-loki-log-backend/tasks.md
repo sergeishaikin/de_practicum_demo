@@ -35,3 +35,12 @@
 - [x] Execute log-path Collector failure, bounded queue and restart evidence.
 - [x] Record indexed-label/cardinality, object-store, latency and resource receipts.
 - [x] Run exact-SHA capability CI and Loki-free H1; keep lifecycle ACTIVE/pending.
+
+## Milestone 2C — persistent queue / WAL closure (authorised)
+
+- [x] Bind the Loki exporter queue to the existing `file_storage` extension.
+- [x] Validate Collector v0.157.0 configuration and volume ownership.
+- [x] Demonstrate WAL growth, hard Collector restart and post-restore recovery.
+- [x] Exercise bounded near-capacity queue pressure with canonical work intact.
+- [x] Rename the single LogQL latency receipt honestly (no fake p95 claim).
+- [ ] Run new exact-SHA capability CI and Loki-free H1; keep lifecycle ACTIVE/pending.

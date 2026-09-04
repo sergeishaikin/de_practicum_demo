@@ -80,6 +80,9 @@ retention that cannot overlap Iceberg or Tempo data.
 
 Collector, Loki, object-store, queue-saturation and restart failures SHALL NOT
 block canonical business processing, stdout or Prometheus metrics.
+The Loki export queue SHALL use the existing Collector `file_storage`
+extension and bounded `/var/lib/otelcol` volume so pending log batches have an
+explicit persistent-queue recovery contract.
 
 #### Scenario: Backend outage
 

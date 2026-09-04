@@ -85,3 +85,10 @@ def test_first_party_scope_is_truthful_about_unadapted_surfaces() -> None:
     assert "Kafka producer" in design
     assert "Spark streaming jobs" in design
     assert "Airflow DAG code" in design
+
+
+def test_loki_queue_uses_persistent_collector_storage() -> None:
+    collector = _read("observability/otel/collector-config.yaml")
+    loki_block = collector.split("otlphttp/loki:", 1)[1].split("service:", 1)[0]
+    assert "sending_queue:" in loki_block
+    assert "storage: file_storage" in loki_block

@@ -27,7 +27,7 @@ on:
 jobs:
   capability:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
@@ -100,11 +100,16 @@ jobs:
             storage_tempo_negative=DENIED \
             canonical_parity=true \
             loki_outage_business_success=true \
+            wal_restart_recovery=true \
             post_restore_ingestion=true \
             object_store_outage_canonical_unchanged=true \
             object_store_restore_ingestion=true \
             collector_failure_business_success=true \
             collector_restart_ingestion=true \
+            queue_capacity= \
+            queue_size= \
+            enqueue_failed= \
+            send_failed= \
             collector_wal_bytes_before= \
             collector_wal_bytes_after= \
             indexed_labels= \

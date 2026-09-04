@@ -59,6 +59,7 @@ exporters:
       enabled: true
       num_consumers: 1
       queue_size: 256
+      storage: file_storage
     retry_on_failure:
       enabled: true
       initial_interval: 1s

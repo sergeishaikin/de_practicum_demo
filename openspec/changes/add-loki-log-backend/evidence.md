@@ -147,8 +147,9 @@ restore a new log was queryable. Loki object-store outage left the canonical
 hash unchanged and accepted new logs after storage recovery. Collector stop,
 restart and post-restart ingestion also passed. The measured indexed labels
 were `deployment_environment_name`, `service_name` and `service_namespace`,
-each cardinality 1; the query latency sample/p95 was 31ms and the Loki
-object-store measurement was 140 bytes for the bounded fixture. Resource
+each cardinality 1; the single query latency sample was 31ms (not a p95
+statistic) and the Loki object-store measurement was 140 bytes for the bounded
+fixture. Resource
 sample: Loki 62.8MiB, Loki MinIO 229.5MiB, Collector 78.2MiB.
 
 The adopted structured emitters are the writer, medallion and observability
@@ -172,3 +173,16 @@ optional Loki profile.
 
 These receipts close the M2B acceptance blockers but do not authorise archive,
 adoption or lifecycle transition. NG-0.6 remains `ACTIVE / pending`.
+
+## Milestone 2C receipt
+
+After binding `otlphttp/loki.sending_queue.storage` to the existing
+`file_storage` extension, Collector v0.157.0 configuration validation passed.
+The live M2C harness measured Collector WAL storage growth from 36,864 bytes to
+528,384 bytes while Loki was unavailable, then hard-killed and restarted the
+Collector before restoring Loki. The outage trace was queryable after restore,
+proving persistent queue recovery. A deterministic 40,000-record burst while
+Loki was down observed queue capacity 256 and queue size 176 (bounded; no
+overflow counter was required because the near-capacity condition was met),
+while canonical work remained successful. The latency receipt is explicitly a
+single sample (`logql_latency_sample_ms`), not p95.

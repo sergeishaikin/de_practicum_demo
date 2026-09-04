@@ -496,9 +496,25 @@ services:
       timeout: 5s
       retries: 6
       start_period: 10s
+    depends_on:
+      otel-storage-init:
+        condition: service_completed_successfully
     restart: unless-stopped
     networks:
       - de_demo_net
+
+  otel-storage-init:
+    profiles: ["otel"]
+    image: ${OTEL_STORAGE_INIT_IMAGE:-busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662}
+    container_name: de-demo-otel-storage-init
+    mem_limit: 16m
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["mkdir -p /var/lib/otelcol && chown -R 10001:10001 /var/lib/otelcol"]
+    volumes:
+      - de_demo_otel_storage:/var/lib/otelcol
+    restart: "no"
+
 
   tempo-minio:
     profiles: ["observability-next"]
