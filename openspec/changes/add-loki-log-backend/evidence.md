@@ -95,6 +95,18 @@ backlog validator                                   PASS (14 items)
 git diff --check                                    PASS
 ```
 
-Remote capability CI has not yet run for the implementation SHA; the workflow
-is present and will execute on the pushed branch. Core H1 remains independent
-and the exact baseline H1 receipt is `33869184341` SUCCESS on `07b475f`.
+Remote capability CI: run `33872665149` **SUCCESS** on exact implementation SHA
+`095f057d143628b4b397a38386584441cc61b338`. It executed pinned-image/config
+validation, clean Loki/Tempo/Collector startup, Grafana datasource provisioning,
+static contracts, persisted acceptance and Loki/object-store outage recovery.
+The first automatic run `33872446511` failed only because its Grafana API probe
+omitted authentication; that probe was corrected in `095f057` and the manual
+run passed. Core H1 remains independent; exact baseline H1 receipt is
+`33869184341` SUCCESS on `07b475f`.
+
+Retention is configuration-verified (`retention_enabled=true`, 48h,
+Compactor intervals and delete-request store); a literal 48-hour elapsed
+expiry was not observed in this bounded run. Canonical parity was checked by
+keeping canonical MinIO and the Collector healthy during Loki stop/restart;
+the full business workload parity remains a follow-up acceptance detail, not
+an adoption claim.
