@@ -174,7 +174,8 @@ dbt staging models and the four `marts.v_*` views. It is tested at the levels
 below. Each level answers a different question. This is the *what and how to run it*; the rationale for each layer — and for what is deliberately **not**
 tested — lives in
 [W1 — Warehouse dbt ownership](warehouse/W1-dbt-ownership.md#testing-layers),
-which is the source of truth.
+which is the source of truth. The four warehouse documents are indexed in
+[docs/warehouse/](warehouse/README.md).
 
 | Layer | Question it answers | Where |
 |---|---|---|

@@ -376,6 +376,8 @@ no scheduling event. The successful `core.orders` event automatically starts
 the unchanged payment reconciliation, publishes mart Assets, and writes the
 audit. `marts.pipeline_runs.run_id` remains the downstream DagRun primary key;
 nullable `ingestion_run_id` records the native Asset event source DagRun.
+Ownership, execution, mutation and architecture contracts for the warehouse dbt
+project are indexed in [docs/warehouse/](docs/warehouse/README.md).
 
 Run the exact one-shot proof only against a healthy stack:
 

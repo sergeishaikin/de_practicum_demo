@@ -38,7 +38,7 @@ would.
 | Project | Adapter | Sources | Models | Consumers declared |
 |---|---|---|---|---|
 | `lakehouse_semantic` (`dbt/`) | dbt-trino | `bronze.orders`, `silver.orders_clean`, `gold.orders_daily_metrics` | `current_orders`, `daily_order_metrics` (views) | `exposures:` -> Superset dashboard |
-| `warehouse_transform` (`dbt/warehouse/`) | dbt-postgres | `stg.*` (4), `core.orders`, `core.order_items` | 4 mart views | `exposures:` -> demo quality report, SQL quality gates |
+| `warehouse_transform` (`dbt/warehouse/`) | dbt-postgres | `stg.*` (4), `core.orders`, `core.order_items` | 4 dbt staging views (`staging.stg_*`) + 4 mart views | `exposures:` -> demo quality report, SQL quality gates |
 
 `dbt docs generate` produces `manifest.json`, `catalog.json` and `index.html`
 under each project's `target/`. The warehouse artefacts are validated at

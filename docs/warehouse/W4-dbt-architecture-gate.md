@@ -92,23 +92,30 @@ measurement. Do not change the model design only to increase the score.
 
 Two `source-childs` warnings remain. Keep both.
 
-**`staging.order_payments`.** The rule counts downstream models, and this source
-has no downstream model. But `tests/payment_reconciliation.sql` reads the source
-directly, and a singular test is not a model. The warning describes the graph
-correctly and supports the wrong conclusion:
+`source-childs` reads the dbt model graph only. It does not see a consumer that
+lives outside that graph, and both sources have one:
+
+| Source | Consumers | Downstream dbt model |
+|---|---|---|
+| `staging.order_payments` | the Airflow core rebuild; a dbt singular test | none |
+| `staging.customers` | the Airflow core rebuild; the freshness contract | none |
+
+`db/pipeline_sql/10_rebuild_core.sql` reads `stg.order_payments` to aggregate the
+payment columns, and joins `stg.customers` to attach `customer_state`. That file
+is Airflow-owned SQL, so no dbt model depends on either source. The warning
+describes the dbt graph correctly and supports the wrong conclusion:
 
 ```text
-no downstream model  ≠  unused source
+no downstream dbt model  ≠  unused source
 ```
 
-If you delete the declaration, `tests/payment_reconciliation.sql` fails to
-compile. Keep the declaration. The warning is an accepted limit of the rule, not
-a suppression.
+**`staging.order_payments`.** `tests/payment_reconciliation.sql` also reads the
+source directly, and a singular test is not a model. If you delete the
+declaration, that test fails to compile. Keep the declaration.
 
-**`staging.customers`.** This source has no dbt consumer today. Keep the
-declaration. The four `stg.*` tables are one ingestion contract: the freshness
-gate in [W1](W1-dbt-ownership.md) asserts thresholds on all four tables, and the
-repository contracts require all four declarations.
+**`staging.customers`.** The four `stg.*` tables are one ingestion contract: the
+freshness gate in [W1](W1-dbt-ownership.md) asserts thresholds on all four
+tables, and the repository contracts require all four declarations.
 
 Do not add `rules.dbt-doctor/source-childs=off`. The rule is useful elsewhere.
 Two explained warnings cost less than the loss of the rule. Do not create an

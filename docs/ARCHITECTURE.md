@@ -79,6 +79,7 @@ those dbt staging models with `ref()`. Two layers here have the name "staging"
 and they are different layers: `stg.*` is the Airflow CSV arrival point, and
 `staging.*` holds the dbt staging models. CI enforces this rule on every pull
 request — see [W4 — dbt architecture gate](warehouse/W4-dbt-architecture-gate.md).
+The warehouse documents are indexed in [docs/warehouse/](warehouse/README.md).
 
 ## Key abstractions
 

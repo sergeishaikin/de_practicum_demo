@@ -129,6 +129,13 @@ Run additional checks according to the changed surface:
   behavior contract with
   `uv run --locked pytest tests/features/test_airflow_workflow_behavior.py -m "bdd and airflow"`,
   and perform a short scheduler, triggerer, and DAG-processor health smoke.
+- `dbt/warehouse` model or source changes: regenerate the manifest
+  (`dbt parse` after deleting `target/manifest.json`), run the pinned dbt Doctor
+  architecture gate, and run `uv run --locked pytest tests/test_warehouse_dbt.py`.
+  Run `dbt build` as well when model SQL changed and the stack is available. The
+  commands are in [docs/TESTING.md](docs/TESTING.md#warehouse-dbt); the gate and
+  its accepted exceptions are in
+  [docs/warehouse/W4-dbt-architecture-gate.md](docs/warehouse/W4-dbt-architecture-gate.md).
 - Dependency input changes: regenerate the existing committed lock files with
   the repository lock script and verify the resulting diff.
 - Streaming, schema, recovery, or other stateful changes: run the relevant
