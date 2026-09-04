@@ -4,8 +4,9 @@
 Project de_practicum_demo_overview {
   database_type: 'PostgreSQL'
   Note: '''
-  Short diagram for the public demo: staging tables are loaded from CSV,
-  core tables are rebuilt by Airflow, marts expose the result and checks.
+  Short diagram for the public demo: stg tables are loaded from CSV, core tables
+  are rebuilt by Airflow, dbt staging models project them, and marts expose the
+  result and checks. `staging.*` and `marts.v_*` are owned by dbt/warehouse.
   '''
 }
 
@@ -76,6 +77,18 @@ Table core.order_items {
   Note: 'Clean item grain: one row per order item.'
 }
 
+Table staging.stg_core__order_items {
+  order_id varchar
+  order_item_id int
+  order_purchase_date date
+  customer_state varchar
+  price numeric(12,2)
+  freight_value numeric(12,2)
+  ingest_date date
+
+  Note: 'dbt staging model over core.order_items. Column projection only.'
+}
+
 Table marts.v_sales_daily {
   sales_date date
   orders_cnt bigint
@@ -106,4 +119,5 @@ Table marts.pipeline_runs {
 Ref: stg.order_items.order_id > stg.orders.order_id
 Ref: stg.order_payments.order_id > stg.orders.order_id
 Ref: core.order_items.order_id > core.orders.order_id
-Ref: marts.v_sales_daily.sales_date > core.order_items.order_purchase_date
+Ref: staging.stg_core__order_items.order_id > core.order_items.order_id
+Ref: marts.v_sales_daily.sales_date > staging.stg_core__order_items.order_purchase_date

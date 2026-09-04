@@ -62,7 +62,7 @@ dbt 1.12.2 (the documented vendor range is older).
 
 | Source | Identity | Minimum/proven permission | Authority |
 | --- | --- | --- | --- |
-| PostgreSQL warehouse | `metadata_reader` | CONNECT, schema USAGE, SELECT on `core`, `stg`, `marts`; no CREATE/DML | PostgreSQL/dbt for execution; OpenMetadata reads |
+| PostgreSQL warehouse | `metadata_reader` | CONNECT, schema USAGE, SELECT on `core`, `stg`, `staging`, `marts`; no CREATE/DML | PostgreSQL/dbt for execution; OpenMetadata reads |
 | Airflow API | `METADATA_AIRFLOW_USER` | Existing local REST read path; Simple Auth has no restricted role | Airflow for DAG/run metadata |
 | Kafka | local PLAINTEXT broker | Topic metadata/read path; no business-topic mutation | Kafka connector for topic metadata |
 | Trino/Iceberg | `metadata_reader` | Metadata/query path only | Trino for physical entity identity |
