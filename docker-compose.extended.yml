@@ -483,6 +483,7 @@ services:
     profiles: ["otel"]
     image: ${OTEL_COLLECTOR_IMAGE:?OTEL_COLLECTOR_IMAGE is required when the otel profile is enabled}
     container_name: de-demo-otel-collector
+    mem_limit: 256m
     command: ["--config=/etc/otelcol-contrib/config.yaml"]
     volumes:
       - ./observability/otel/collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
@@ -501,6 +502,7 @@ services:
     profiles: ["observability-next"]
     image: ${TEMPO_MINIO_IMAGE:?TEMPO_MINIO_IMAGE is required for the Tempo profile}
     container_name: de-demo-tempo-minio
+    mem_limit: 256m
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${TEMPO_S3_ACCESS_KEY}
@@ -514,6 +516,7 @@ services:
     profiles: ["observability-next"]
     image: ${TEMPO_MINIO_MC_IMAGE:?TEMPO_MINIO_MC_IMAGE is required for the Tempo profile}
     container_name: de-demo-tempo-minio-init
+    mem_limit: 128m
     entrypoint: ["/bin/sh", "-c"]
     command:
       - >-
