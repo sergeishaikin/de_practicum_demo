@@ -89,10 +89,17 @@
       present behaviour, and until this milestone lands the repository
       knowingly violates it.
 - [ ] Add the deferred evidence-shape fitness function: evidence citing a
-      `pull_request` run records its base branch and base SHA. Deferred from
-      Milestone 1 deliberately — the receipt format it would check is settled
-      by the Milestone 2 lifecycle proof, and a checker written against an
-      unsettled format would assert on prose rather than on a contract.
+      `pull_request` run records its base branch and base SHA. **Blocked on
+      NG-0.6, not on effort.** The receipt format is now settled by this
+      change's own Milestone 2 records, but the only other evidence file on
+      `main` that cites `pull_request` runs is
+      `openspec/changes/add-loki-log-backend/evidence.md`, which records no
+      base at all — it is the motivating defect, and it is frozen. A checker
+      written today would either fail on a file this change is fenced out of
+      touching, or carry a named exemption for it. An exemption list that
+      exists to excuse the one file the rule was written for is worse than no
+      checker: it encodes the defect as permitted. This lands after NG-0.6
+      resolves and its evidence is re-anchored.
 
 ## Deferred to the impact-router change
 
