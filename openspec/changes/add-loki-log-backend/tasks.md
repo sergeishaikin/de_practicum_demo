@@ -34,4 +34,4 @@
 - [x] Execute canonical healthy/outage parity and Loki/object-store recovery.
 - [x] Execute log-path Collector failure, bounded queue and restart evidence.
 - [x] Record indexed-label/cardinality, object-store, latency and resource receipts.
-- [ ] Run exact-SHA capability CI and Loki-free H1; keep lifecycle ACTIVE/pending.
+- [x] Run exact-SHA capability CI and Loki-free H1; keep lifecycle ACTIVE/pending.

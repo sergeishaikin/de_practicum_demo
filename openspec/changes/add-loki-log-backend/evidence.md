@@ -155,3 +155,20 @@ The adopted structured emitters are the writer, medallion and observability
 exporter. Kafka, Spark and Airflow surfaces remain explicitly out of scope for
 this first wave as documented in `design.md`; their framework/image contracts
 were not changed.
+
+## Exact M2B remote receipts
+
+Capability CI run `33878459285` completed **SUCCESS** on exact implementation
+SHA `ff7e6313869e70284bfe951f8a616d344298f1b7`. Its machine-checked acceptance
+log included the pre-fix redaction failure demonstration, Grafana Loki/Tempo
+proxy queries, both storage DENY checks, canonical healthy/outage hash parity,
+Loki and object-store recovery, Collector restart, queue/WAL and resource
+receipts.
+
+Core H1 run `33878504266` completed **SUCCESS** on the same exact SHA. Both the
+fresh-volume full verification and the NG-0.4 OTel-owned clean phases passed;
+H1 remained Loki-disabled, so the canonical workload does not depend on the
+optional Loki profile.
+
+These receipts close the M2B acceptance blockers but do not authorise archive,
+adoption or lifecycle transition. NG-0.6 remains `ACTIVE / pending`.
