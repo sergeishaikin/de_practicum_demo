@@ -1,5 +1,9 @@
 # Milestone 1 evidence
 
+> Historical status notice: sections below preserve lifecycle state at each
+> milestone capture. The **Final adoption and archive** section is authoritative
+> for the concluded NG-0.5 state.
+
 Captured 2026-09-03 on `feature/ng-0.5-tempo` after M1R reconciliation, with
 the repaired exemplar prerequisite and adopted CI receipt in ancestry at
 `5644c49`.
@@ -139,7 +143,7 @@ tempo_ready=true; traceql_match=true; prometheus_exemplar_match=true
 `.github/workflows/ci-ng05-tempo.yml` is a separate capability workflow. It
 renders and verifies the pinned Tempo config, starts only the optional Tempo /
 Collector capability plus a disposable Prometheus authority, runs both
-acceptance harnesses and uploads diagnostics. Core H1 CI does not depend on the
+acceptance harnesses and captures/uploads diagnostics on failure. Core H1 CI does not depend on the
 profile. This receipt is not an archive or DONE transition.
 
 The latest executed capability receipt is run [33807398167](https://github.com/sergeishaikin/de_practicum_demo/actions/runs/33807398167),

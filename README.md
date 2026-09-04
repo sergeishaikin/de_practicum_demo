@@ -59,6 +59,14 @@ Spark Structured Streaming (Spark 4.2)
 Iceberg writer (PyIceberg -> REST Catalog)
 ```
 
+### Optional observability plane
+
+The adopted NG-0.5 profile is opt-in. First-party traces and logs destined for
+Tempo flow over OTLP to the OpenTelemetry Collector and then to Tempo. Existing
+application Prometheus metrics remain directly scraped by Prometheus; Grafana
+links bounded Prometheus exemplars to the same Tempo trace. This profile does
+not replace the existing Prometheus/Grafana path and does not provision Loki.
+
 ## Components and URLs
 
 | Component | Purpose | Host access |
@@ -78,6 +86,10 @@ Iceberg writer (PyIceberg -> REST Catalog)
 | Kafka | Event-streaming broker | `localhost:19092` |
 | Kafka UI | Kafka administration | `http://localhost:18090` |
 | Metabase | Analytics and dashboards | `http://localhost:13000` |
+| Prometheus | Directly scraped application metrics | `http://localhost:19090` |
+| Grafana | Prometheus/Tempo correlation UI (Tempo datasource is optional) | `http://localhost:13001` |
+| OpenTelemetry Collector | OTLP receiver and bounded telemetry queue (optional profile) | `http://localhost:13133` |
+| Tempo | Trace query API (optional profile) | `http://localhost:13200` |
 
 ## Requirements
 
@@ -106,7 +118,9 @@ Copy-Item .env.example .env
 Replace the placeholder values for `AIRFLOW_API_SECRET_KEY`,
 `AIRFLOW_JWT_SECRET`, and `AIRFLOW_DB_PASSWORD` with three independent random
 URL-safe secrets. The extended stack also requires a real
-`SUPERSET_SECRET_KEY`.
+`SUPERSET_SECRET_KEY`. The optional observability profile additionally needs
+`TEMPO_S3_SECRET_KEY` and `GRAFANA_ADMIN_PASSWORD` set to non-placeholder
+values.
 
 Validate Compose:
 

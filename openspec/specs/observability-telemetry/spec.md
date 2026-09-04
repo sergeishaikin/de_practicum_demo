@@ -98,10 +98,12 @@ diagnostics when sampling is introduced.
 
 ### Requirement: Backend routing and metric authority are locked
 
-Applications SHALL send telemetry only to the Collector OTLP boundary. A
-backend exporter SHALL be inserted in Collector configuration behind the
-named `telemetry-backend` slot; application configuration SHALL NOT name a
-Tempo, Loki or vendor endpoint. Existing PostgreSQL durable metrics and
+Applications SHALL send traces and logs destined for a configured backend to
+the Collector OTLP boundary. Existing Prometheus application metrics SHALL
+remain directly scraped and authoritative. A backend exporter SHALL be
+inserted in Collector configuration behind the named `telemetry-backend` slot;
+application configuration SHALL NOT name a Tempo, Loki or vendor endpoint.
+Existing PostgreSQL durable metrics and
 Prometheus application metrics remain authoritative for business and pipeline
 operations. Collector self-metrics SHALL be used only for Collector health,
 queue, retry and drop diagnostics.

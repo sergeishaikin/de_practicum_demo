@@ -10,9 +10,10 @@ Prometheus/PostgreSQL metric authority.
 
 ### Requirement: Collector-only routing and isolated storage
 
-Applications SHALL export telemetry only to the Collector OTLP boundary. The
-Collector SHALL route traces through the named `telemetry-backend` exporter
-slot; application configuration SHALL NOT name Tempo directly. Tempo SHALL
+Applications SHALL send traces destined for Tempo through the Collector OTLP
+boundary. Existing Prometheus application metrics SHALL remain directly
+scraped. The Collector SHALL route traces through the named
+`telemetry-backend` exporter slot; application configuration SHALL NOT name Tempo directly. Tempo SHALL
 write to a dedicated trace bucket/prefix with credentials that cannot write the
 Iceberg warehouse, and trace cleanup SHALL NOT match the canonical warehouse
 prefix.
@@ -41,9 +42,10 @@ limits SHALL remain bounded and observable under outage pressure.
 
 Tempo SHALL support stable trace search/TraceQL identity and Grafana queryability.
 Grafana SHALL expose the provisioned Tempo datasource and trace-to-metrics
-navigation to the existing Prometheus datasource. A Prometheus exemplar MAY
-point to the same Tempo trace ID; exemplar metadata SHALL NOT become a metric
-series label or span-derived metric authority.
+navigation to the existing Prometheus datasource. When an existing application
+metric emits a bounded `trace_id` exemplar, that exemplar SHALL resolve through
+Grafana to the same Tempo trace ID. Exemplar metadata SHALL NOT become a
+metric series label or span-derived metric authority.
 
 #### Scenario: Exemplar navigation is correlated
 
@@ -82,8 +84,10 @@ canonical processing SHALL remain authoritative during the outage.
 
 Prometheus application metrics and PostgreSQL durable metrics remain the
 authoritative operational and business metric paths. Metrics-generator and
-spanmetrics are disabled. Trace-to-logs configuration is preparation only;
-Loki and any NG-0.6 behavior SHALL require a separate authorised change.
+spanmetrics are disabled. Trace-to-logs compatibility SHALL remain a prepared
+design boundary only; no runtime traces-to-logs mapping is provisioned until
+separately authorised NG-0.6. Loki and any NG-0.6 behavior SHALL require a
+separate authorised change.
 
 #### Scenario: A log backend is proposed
 
