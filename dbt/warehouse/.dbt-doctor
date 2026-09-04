@@ -1,0 +1,5 @@
+preset=default
+fail_on=error
+
+rules.dbt-doctor/marts-prefix=off
+rules.dbt-doctor/exposure-parents-materializations=off

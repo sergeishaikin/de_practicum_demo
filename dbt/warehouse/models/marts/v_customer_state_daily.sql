@@ -6,5 +6,5 @@ select
   count(distinct order_id) as orders_cnt,
   count(*) as items_cnt,
   sum(price)::numeric(12, 2) as gross_sales
-from {{ source('core', 'order_items') }}
+from {{ ref('stg_core__order_items') }}
 group by order_purchase_date, customer_state

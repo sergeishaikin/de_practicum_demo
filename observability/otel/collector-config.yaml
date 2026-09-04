@@ -1,0 +1,78 @@
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+  file_storage:
+    directory: /var/lib/otelcol
+    create_directory: true
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+    spike_limit_mib: 64
+  batch:
+    timeout: 1s
+    send_batch_size: 128
+  redaction:
+    allow_all_keys: true
+    blocked_key_patterns:
+      - "(?i).*password.*"
+      - "(?i).*secret.*"
+      - "(?i).*authorization.*"
+      - "(?i).*token.*"
+      - "(?i).*api[_-]?key.*"
+    blocked_values:
+      - "(?i)bearer\\s+[a-z0-9._~-]+"
+      - "(?i)select\\s+customer_email\\s+from\\s+orders"
+    summary: silent
+    db_sanitizer:
+      sql:
+        enabled: true
+        attributes: ["db.statement", "db.query"]
+
+exporters:
+  debug:
+    verbosity: basic
+  # Named NG-0.4 insertion slot; NG-0.5 selects Tempo behind this boundary.
+  otlp_grpc/telemetry-backend:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+    sending_queue:
+      enabled: true
+      num_consumers: 1
+      queue_size: 256
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 5s
+      max_elapsed_time: 30s
+
+service:
+  telemetry:
+    metrics:
+      level: basic
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
+                without_type_suffix: true
+                without_units: true
+  extensions: [health_check, file_storage]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, redaction, batch]
+      exporters: [debug, otlp_grpc/telemetry-backend]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, redaction, batch]
+      exporters: [debug]

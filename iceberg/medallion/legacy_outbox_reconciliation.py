@@ -53,7 +53,15 @@ from medallion.legacy_business_version_migration import (  # noqa: E402
 from b2_spike import resolve_against_current  # noqa: E402
 
 MIGRATION_NAME = "S1.2"
-SCHEMA_VERSION = 1
+# 2: the receipt reports B2 projection validity instead of failing to generate
+# when the projection is not computable.
+SCHEMA_VERSION = 2
+
+B2_PROJECTION_BLOCKED_BY_LEGACY_NULLS = (
+    "Bronze contains rows without business_version; historical migration must "
+    "complete before B2 reconciliation can be proven"
+)
+UNPROVEN_PROJECTION_REASON = "b2_projection_unproven"
 
 
 def _canonical_value(value):
@@ -73,14 +81,6 @@ def _canonical_row(row: dict, *, normalize_legacy: bool = False) -> tuple:
     if normalize_legacy and "business_version" not in row:
         values.append(("business_version", LEGACY_VERSION))
     return tuple(values)
-
-
-def _payload_key(row: dict) -> tuple:
-    return tuple(
-        (name, _canonical_value(value))
-        for name, value in sorted(row.items())
-        if name != "business_version"
-    )
 
 
 def _row_id(row: dict) -> str | None:
@@ -315,6 +315,61 @@ def _table_rows(table) -> list[dict]:
     return table.scan().to_arrow().to_pylist()
 
 
+def _b2_projection_evidence(
+    bronze_rows: list[dict], silver, null_bronze_rows: int
+) -> tuple[bool, bool, str | None]:
+    """Prove ``Silver == B2 projection``, or explain why it cannot be proven.
+
+    An unmigrated or FF-14-conflicting Bronze image cannot be projected at all.
+    That is exactly the diagnostic state this receipt exists to describe, so the
+    failure is captured as evidence instead of aborting the read-only run — but
+    an uncomputable projection can never read as proof, so equality stays False.
+    """
+
+    try:
+        expected_silver = b2_projection(pa.Table.from_pylist(bronze_rows))
+    except ValueError as exc:
+        return (
+            False,
+            False,
+            (
+                B2_PROJECTION_BLOCKED_BY_LEGACY_NULLS
+                if null_bronze_rows
+                else f"B2 projection is not computable: {exc}"
+            ),
+        )
+    return True, _same_rows(silver.scan().to_arrow(), expected_silver), None
+
+
+def _withdraw_unproven_cleanup(result: dict) -> None:
+    """Withdraw every cleanup candidate when the B2 projection is unproven.
+
+    ``SAFE_STALE`` asserts that a manifest is provably redundant. Without a
+    computable projection there is no such proof, so the receipt keeps reporting
+    its evidence while proposing nothing for deletion. Before the receipt could
+    describe an unprojectable lake at all this was enforced by the run simply
+    crashing; turning that crash into evidence must not turn a hard stop into a
+    cleanup approval.
+    """
+
+    for item in result["dispositions"]:
+        if item["status"] != "SAFE_STALE":
+            continue
+        item["status"] = "BLOCKED"
+        item["disposition_reasons"] = sorted(
+            set(item["disposition_reasons"]) | {UNPROVEN_PROJECTION_REASON}
+        )
+        item["blocked_reasons"] = sorted(
+            set(item["blocked_reasons"]) | {UNPROVEN_PROJECTION_REASON}
+        )
+    statuses = Counter(item["status"] for item in result["dispositions"])
+    result["safe_stale"] = statuses["SAFE_STALE"]
+    result["blocked"] = statuses["BLOCKED"]
+    result["cleanup_set"] = []
+    result["cleanup_set_digest"] = cleanup_set_digest([])
+    result["blocked_reasons"] = _reason_counts(result["dispositions"])
+
+
 def reconcile_inflight_noop(catalog, fs, load_id: str) -> dict:
     """Acknowledge an already-materialized no-op without deleting its manifest.
 
@@ -366,7 +421,13 @@ def reconcile_inflight_noop(catalog, fs, load_id: str) -> dict:
         normalized_rows.append(normalized)
 
     current_ids = sorted({str(row["order_id"]) for row in normalized_rows})
-    current = silver.scan(row_filter=In("order_id", current_ids)).to_arrow().to_pylist()
+    current = (
+        silver.scan(
+            row_filter=In("order_id", current_ids)  # type: ignore[misc,call-arg,arg-type]
+        )
+        .to_arrow()
+        .to_pylist()
+    )
     resolved = resolve_against_current(current, normalized_rows)
     if resolved:
         raise RuntimeError(
@@ -403,7 +464,11 @@ def build_live_receipt(catalog, fs) -> dict:
     silver = catalog.load_table(f"{SILVER_NAMESPACE}.{SILVER_TABLE}")
     bronze_rows = _table_rows(bronze)
     silver_rows = _table_rows(silver)
-    expected_silver = b2_projection(pa.Table.from_pylist(bronze_rows))
+    null_bronze_rows = sum(row.get("business_version") is None for row in bronze_rows)
+    null_silver_rows = sum(row.get("business_version") is None for row in silver_rows)
+    projection_valid, silver_equals_projection, projection_error = (
+        _b2_projection_evidence(bronze_rows, silver, null_bronze_rows)
+    )
     migration_snapshots = snapshot_evidence(bronze)
     boundary = migration_boundary(migration_snapshots)
     snapshots_by_load_id: defaultdict[str, list[SnapshotEvidence]] = defaultdict(list)
@@ -432,8 +497,6 @@ def build_live_receipt(catalog, fs) -> dict:
         boundary,
         progress,
     )
-    null_bronze_rows = sum(row.get("business_version") is None for row in bronze_rows)
-    null_silver_rows = sum(row.get("business_version") is None for row in silver_rows)
     result.update(
         {
             "migration": MIGRATION_NAME,
@@ -460,9 +523,9 @@ def build_live_receipt(catalog, fs) -> dict:
             "authoritative_silver_rows": len(silver_rows),
             "silver_unique_order_ids": len({row.get("order_id") for row in silver_rows})
             == len(silver_rows),
-            "silver_equals_b2_projection": _same_rows(
-                silver.scan().to_arrow(), expected_silver
-            ),
+            "silver_equals_b2_projection": silver_equals_projection,
+            "b2_projection_valid": projection_valid,
+            "b2_projection_error": projection_error,
             "inflight_progress_count": len(progress.get("work", {})),
             "inflight_progress_load_ids": sorted(
                 str(load_id) for load_id in progress.get("work", {})
@@ -470,6 +533,8 @@ def build_live_receipt(catalog, fs) -> dict:
             "generated_at": datetime.now(timezone.utc).isoformat(),
         }
     )
+    if not projection_valid:
+        _withdraw_unproven_cleanup(result)
     return result
 
 

@@ -35,6 +35,22 @@ with layer_snapshot as (
   from core.order_items
   union all
   select
+    'staging',
+    'stg_core__order_items',
+    min(order_purchase_date),
+    max(order_purchase_date),
+    count(*)
+  from staging.stg_core__order_items
+  union all
+  select
+    'staging',
+    'stg_staging__order_items',
+    null::date,
+    null::date,
+    count(*)
+  from staging.stg_staging__order_items
+  union all
+  select
     'marts',
     'v_sales_daily',
     min(sales_date),
@@ -61,6 +77,7 @@ order by
   case layer_name
     when 'stg' then 1
     when 'core' then 2
-    when 'marts' then 3
+    when 'staging' then 3
+    when 'marts' then 4
   end,
   object_name;

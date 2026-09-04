@@ -1,0 +1,31 @@
+version: 2
+
+# Descriptions only. The column-level tests stay on the sources in
+# `models/sources.yml`, where the DDL nullability they assert is declared; a
+# dbt staging model is a column projection, so repeating them here would add
+# build time and no new failure mode.
+#
+# These descriptions are not decoration. `run_ingestion.py` sets
+# `dbtUpdateDescriptions=True`, so OpenMetadata takes the catalog description of
+# each relation from this file.
+
+models:
+  - name: stg_core__orders
+    description: >
+      dbt staging model for core.orders. Contains a column projection only.
+      Read by v_order_items_wide for the order header columns.
+
+  - name: stg_core__order_items
+    description: >
+      dbt staging model for core.order_items. Contains a column projection only.
+      Read by every mart model that aggregates money or counts items.
+
+  - name: stg_staging__orders
+    description: >
+      dbt staging model for stg.orders. Contains a column projection only.
+      Read by v_reconcile_sales_daily for the source side of the reconciliation.
+
+  - name: stg_staging__order_items
+    description: >
+      dbt staging model for stg.order_items. Contains a column projection only.
+      Read by v_reconcile_sales_daily for the source side of the reconciliation.

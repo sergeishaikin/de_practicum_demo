@@ -1,0 +1,35 @@
+{
+  "serverVersion": "1.13.3",
+  "inputDataset": {
+    "namespace": "s3://de-practicum",
+    "name": "acceptance-20260820171302/orders_raw",
+    "fullPath": "s3://de-practicum/acceptance-20260820171302/orders_raw"
+  },
+  "container": {
+    "type": "container",
+    "fullyQualifiedName": "landing_object_store.de-practicum.p_acceptance-20260820171302_x2f_orders__raw",
+    "id": "d160b55c-ce1d-468e-bd59-9cc08b9807e7",
+    "deleted": false,
+    "displayName": "acceptance-20260820171302/orders_raw",
+    "prefix": "/acceptance-20260820171302/orders_raw",
+    "fullPath": "s3://de-practicum/acceptance-20260820171302/orders_raw"
+  },
+  "bronzeTable": {
+    "type": "table",
+    "fullyQualifiedName": "lakehouse_trino.iceberg.bronze.orders",
+    "id": "e46d66f9-f890-4ffb-9f67-4e77b9b8a858"
+  },
+  "edge": {
+    "fromEntity": "d160b55c-ce1d-468e-bd59-9cc08b9807e7",
+    "toEntity": "e46d66f9-f890-4ffb-9f67-4e77b9b8a858",
+    "lineageDetails": {
+      "source": "OpenLineage",
+      "description": "OpenLineage-derived compatibility representation; job=iceberg-writer.landing-to-bronze; runId=2f38572d-9b8b-556b-92d5-bb0208365f44; input=s3://de-practicum/acceptance-20260820171302/orders_raw"
+    }
+  },
+  "apiChecks": [
+    "GET /api/v1/containers/name/landing_object_store.de-practicum.p_acceptance-20260820171302_x2f_orders__raw",
+    "GET /api/v1/lineage/container/name/landing_object_store.de-practicum.p_acceptance-20260820171302_x2f_orders__raw",
+    "GET /api/v1/lineage/table/name/lakehouse_trino.iceberg.bronze.orders"
+  ]
+}

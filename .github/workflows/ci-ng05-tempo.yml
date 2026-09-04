@@ -1,0 +1,135 @@
+name: NG-0.5 Tempo capability
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/ng-0.5-tempo]
+    paths:
+      - ".env.example"
+      - "docker-compose*.yml"
+      - "observability/otel/**"
+      - "observability/tempo/**"
+      - "observability/grafana/provisioning/**"
+      - "tests/test_tempo_contract.py"
+      - "tests/tempo_acceptance.py"
+      - "tests/otel_acceptance.py"
+  pull_request:
+    paths:
+      - ".env.example"
+      - "docker-compose*.yml"
+      - "observability/otel/**"
+      - "observability/tempo/**"
+      - "observability/grafana/provisioning/**"
+      - "tests/test_tempo_contract.py"
+      - "tests/tempo_acceptance.py"
+      - "tests/otel_acceptance.py"
+
+jobs:
+  capability:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: ".python-version"
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.5"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Install host verification dependencies
+        run: uv sync --locked
+      - name: Build disposable first-party acceptance image
+        run: docker build --tag de-practicum-demo-iceberg:0.11.1-h1 ./iceberg
+      - name: Render and verify pinned Tempo configuration
+        run: |
+          cp .env.example .env
+          sed -i 's/^TEMPO_S3_SECRET_KEY=.*/TEMPO_S3_SECRET_KEY=ng05-tempo-ci-secret/' .env
+          docker network create de_demo_net || true
+          docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml --profile observability-next --profile otel config --quiet
+          set -a; source .env; set +a
+          docker run --rm --env TEMPO_S3_ENDPOINT=tempo-minio:9000 \
+            --env TEMPO_S3_BUCKET="$TEMPO_S3_BUCKET" \
+            --env TEMPO_S3_PREFIX="$TEMPO_S3_PREFIX" \
+            --env TEMPO_S3_ACCESS_KEY="$TEMPO_S3_ACCESS_KEY" \
+            --env TEMPO_S3_SECRET_KEY="$TEMPO_S3_SECRET_KEY" \
+            -v "$PWD/observability/tempo/tempo.yaml:/etc/tempo.yaml:ro" \
+            "$TEMPO_IMAGE" --config.file=/etc/tempo.yaml --config.expand-env=true --config.verify=true
+      - name: Start optional Tempo and Collector
+        run: |
+          docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml \
+            --profile observability-next --profile otel up -d tempo-minio tempo-minio-init tempo otel-collector
+          for i in $(seq 1 45); do
+            curl -fsS http://localhost:13200/ready && break || sleep 1
+          done
+          for i in $(seq 1 45); do
+            test "$(docker inspect -f '{{.State.Health.Status}}' de-demo-otel-collector)" = healthy && break || sleep 1
+          done
+          test "$(docker inspect -f '{{.State.Health.Status}}' de-demo-otel-collector)" = healthy
+      - name: Start disposable Prometheus scrape authority
+        run: |
+          set -a; source .env; set +a
+          docker volume create ng05-ci-prom-data
+          docker run -d --name ng05-ci-prometheus --network de_demo_net --network-alias prometheus \
+            -p 19090:9090 -v "$PWD/observability/prometheus:/etc/prometheus:ro" \
+            -v ng05-ci-prom-data:/prometheus "$PROMETHEUS_IMAGE" \
+            --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/prometheus --enable-feature=exemplar-storage
+          for i in $(seq 1 30); do curl -fsS http://localhost:19090/-/ready && break || sleep 1; done
+      - name: Start disposable Grafana correlation surface
+        run: |
+          set -a; source .env; set +a
+          docker run -d --name ng05-ci-grafana --network de_demo_net \
+            --network-alias grafana -p 13001:3000 \
+            -e GF_SECURITY_ADMIN_PASSWORD=ng05-grafana-ci-secret \
+            -v "$PWD/observability/grafana/provisioning:/etc/grafana/provisioning:ro" \
+            -v "$PWD/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro" \
+            "$GRAFANA_IMAGE"
+          for i in $(seq 1 45); do curl -fsS http://localhost:13001/api/health && break || sleep 1; done
+      - name: Static contracts and bounded live acceptance
+        env:
+          NG05_PROMETHEUS_URL: http://localhost:19090
+          NG05_GRAFANA_URL: http://localhost:13001
+          NG05_GRAFANA_PASSWORD: ng05-grafana-ci-secret
+          TEMPO_S3_ACCESS_KEY: tempo-demo
+          TEMPO_S3_SECRET_KEY: ng05-tempo-ci-secret
+        run: |
+          uv run --locked pytest -q tests/test_tempo_contract.py tests/test_otel_contract.py
+          uv run --locked python tests/tempo_acceptance.py
+      - name: Tempo-specific restart and object-store outage probes
+        run: |
+          docker stop de-demo-tempo
+          if curl -fsS http://localhost:13200/ready; then
+            echo "Tempo remained ready while stopped" >&2
+            exit 1
+          fi
+          docker start de-demo-tempo
+          for i in $(seq 1 45); do curl -fsS http://localhost:13200/ready && break || sleep 1; done
+          curl -fsS http://localhost:13200/ready
+          docker stop de-demo-tempo-minio
+          sleep 3
+          test "$(docker inspect -f '{{.State.Status}}' de-demo-tempo-minio)" = exited
+          test "$(docker inspect -f '{{.State.Status}}' de-demo-tempo)" = running
+          docker start de-demo-tempo-minio
+          for i in $(seq 1 45); do curl -fsS http://localhost:13200/ready && break || sleep 1; done
+          curl -fsS http://localhost:13200/ready
+      - name: Capture capability diagnostics
+        if: failure()
+        run: |
+          docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml logs --no-color tempo tempo-minio otel-collector > ng05-tempo-capability.log 2>&1 || true
+          docker logs ng05-ci-prometheus > ng05-prometheus.log 2>&1 || true
+      - name: Upload capability diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ng05-tempo-capability
+          path: |
+            ng05-tempo-capability.log
+            ng05-prometheus.log
+      - name: Cleanup capability services
+        if: always()
+        run: |
+          docker rm -f ng05-ci-prometheus ng05-ci-grafana ng05-tempo-acceptance-writer || true
+          docker volume rm ng05-ci-prom-data || true
+          docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml \
+            --profile observability-next --profile otel down --remove-orphans

@@ -59,6 +59,19 @@ Spark Structured Streaming (Spark 4.2)
 Iceberg writer (PyIceberg -> REST Catalog)
 ```
 
+### Optional observability plane
+
+The adopted NG-0.5 profile is opt-in. First-party traces and logs flow over
+OTLP to the OpenTelemetry Collector. Traces are routed through
+`telemetry-backend` to Tempo; logs remain Collector-only until NG-0.6 provides
+a separately authorised log backend. Existing application Prometheus metrics
+remain directly scraped by Prometheus; Grafana links bounded Prometheus
+exemplars to the same Tempo trace. This profile does not replace the existing
+Prometheus/Grafana path.
+
+The complete NG-0.5 trace capability requires both `--profile otel` and
+`--profile observability-next`.
+
 ## Components and URLs
 
 | Component | Purpose | Host access |
@@ -78,6 +91,10 @@ Iceberg writer (PyIceberg -> REST Catalog)
 | Kafka | Event-streaming broker | `localhost:19092` |
 | Kafka UI | Kafka administration | `http://localhost:18090` |
 | Metabase | Analytics and dashboards | `http://localhost:13000` |
+| Prometheus | Directly scraped application metrics | `http://localhost:19090` |
+| Grafana | Prometheus/Tempo correlation UI (Tempo backend is optional) | `http://localhost:13001` |
+| OpenTelemetry Collector | OTLP receiver and bounded telemetry queue | internal only (`otel-collector:13133` health) |
+| Tempo | Trace query API (optional profile) | `http://localhost:13200` |
 
 ## Requirements
 
@@ -106,7 +123,9 @@ Copy-Item .env.example .env
 Replace the placeholder values for `AIRFLOW_API_SECRET_KEY`,
 `AIRFLOW_JWT_SECRET`, and `AIRFLOW_DB_PASSWORD` with three independent random
 URL-safe secrets. The extended stack also requires a real
-`SUPERSET_SECRET_KEY`.
+`SUPERSET_SECRET_KEY`. The optional observability profile additionally needs
+`TEMPO_S3_SECRET_KEY` and `GRAFANA_ADMIN_PASSWORD` set to non-placeholder
+values.
 
 Validate Compose:
 
@@ -115,6 +134,7 @@ docker compose `
   --env-file .\.env `
   -f .\docker-compose.yml `
   -f .\docker-compose.extended.yml `
+  --profile "*" `
   config
 ```
 
@@ -140,6 +160,51 @@ Build and start:
 .\stack.ps1 logs -Service spark-worker -Tail 500
 .\stack.ps1 logs -Service spark-worker -NoFollow
 ```
+
+## Resource profiles
+
+`stack.ps1 up` starts the core pipeline only. Interactive tools, BI, and
+observability are opt-in so that the normal development graph stays within a
+12 GB WSL budget:
+
+| Profile | Services |
+|---|---|
+| default | PostgreSQL, Airflow, MinIO, Spark master/worker, Kafka, Iceberg, Trino, producer, streaming job |
+| `tools` | Spark Connect, JupyterLab, Kafka UI |
+| `bi` | Metabase, Superset, Superset MCP |
+| `observability` | runtime exporter, Prometheus, Grafana |
+| `metadata` | OpenMetadata server, ingestion worker, PostgreSQL, OpenSearch, and bounded bootstrap jobs |
+
+Add one optional profile to the running core stack:
+
+```powershell
+$composeArgs = @(
+  "--env-file", ".env",
+  "-f", "docker-compose.yml",
+  "-f", "docker-compose.extended.yml"
+)
+
+docker compose @composeArgs --profile tools up -d --wait
+docker compose @composeArgs --profile bi up -d --wait
+docker compose @composeArgs --profile observability up -d --wait
+```
+
+Metadata keeps its separate configuration layer:
+
+```powershell
+docker compose `
+  --env-file .env `
+  -f docker-compose.yml `
+  -f docker-compose.extended.yml `
+  -f docker-compose.metadata.yml `
+  --profile metadata `
+  up -d --wait
+```
+
+The committed limits are safety ceilings, not reservations. Enabling every
+profile together still exceeds a 12 GB WSL allocation. See
+[`docs/LOCAL-ENVIRONMENT.md`](docs/LOCAL-ENVIRONMENT.md) for the measured
+per-service budget.
 
 ## Jupyter authentication
 
@@ -181,7 +246,7 @@ The lakehouse uses an Iceberg REST catalog backed by MinIO:
 - Warehouse: `s3://de-practicum/warehouse`
 - Writer: `iceberg-writer` service runs `iceberg/writer/iceberg_writer.py`, which polls the landing bucket (`s3://de-practicum/streaming/orders_raw`) and appends new Parquet files into `bronze.orders` via PyIceberg. Ingested file paths are tracked in the `de_demo_iceberg_writer_state` volume.
 - Medallion: `iceberg-medallion` service runs `iceberg/medallion/iceberg_medallion.py`, which rebuilds `silver.orders_clean` (deduplicated by `order_id`, highest `business_version` wins) and `gold.orders_daily_metrics` (per-day, per-country, per-status aggregates) from bronze every 60 seconds.
-- Metrics: writer and medallion write an observability row per cycle to `marts.lakehouse_metrics` in PostgreSQL (see *Observability metrics* below).
+- Metrics: the writer contributes a single observability row per batch and the medallion contributes a row per phase plus a `cycle` envelope row to `marts.lakehouse_metrics` in PostgreSQL (see *Observability metrics* below).
 - Maintenance: the Airflow DAG `lakehouse_maintenance` runs snapshot expiry, orphan-file cleanup, and compaction through Trino (see *Iceberg maintenance* below).
 - Trino: `http://localhost:18082` with the `iceberg` catalog. `trino/etc/catalog/iceberg.properties` is generated at container startup from `iceberg.properties.template` using `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` (see `trino/etc/start-trino.sh`), so credentials are never hardcoded in the repo.
 
@@ -228,7 +293,9 @@ Violation counts are logged and written to `marts.lakehouse_metrics.quality_viol
 
 ### Observability metrics
 
-Every writer batch and medallion cycle inserts one row into `marts.lakehouse_metrics` (schema auto-created, best-effort):
+Each writer batch inserts a single row into `marts.lakehouse_metrics` (schema auto-created, best-effort). A medallion **cycle** inserts several: one row for each phase it executed, plus a `cycle` row written last. Every row of one cycle carries the same `cycle_id`, and `phase` says which kind of row it is — the closed set is `b2`, `shadow`, `gold` and `cycle`.
+
+The `cycle` row is the envelope, and `silver_duration_ms` / `gold_duration_ms` keep their inclusive meaning there. Phase durations are mutually non-overlapping, but they sum to *at most* the cycle duration rather than exactly to it: the incremental writer's own state-load preamble — loading progress, listing the outbox, reading the completion ledger — runs before `run_b2` starts its timer and is deliberately attributed to no phase.
 
 | Column | Meaning |
 |---|---|
@@ -245,15 +312,51 @@ Every writer batch and medallion cycle inserts one row into `marts.lakehouse_met
 | `files_removed` / `files_added` | Data files replaced by the committed B2 overwrite |
 | `bytes_removed` / `bytes_added` | Bytes replaced by the committed B2 overwrite |
 | `snapshot_delta` | Silver snapshots committed by the B2 cycle |
+| `cycle_id` | Identifier shared by every row of one medallion cycle; `NULL` on rows written before this phase |
+| `phase` | Which row this is: `b2`, `shadow`, `gold` or `cycle` |
+| `bronze_snapshot_id` | Bronze snapshot the cycle read (the pinned boundary when one was pinned) |
+| `silver_snapshot_id` | Persisted Silver snapshot the cycle produced or read |
+| `gold_snapshot_id` | Gold snapshot after the cycle, whether it was rewritten or left in place |
+| `shadow_skipped` | Shadow comparison was enabled but a durable certificate already covered this state |
+| `gold_skipped` | Gold was left in place because its provenance already names the current persisted Silver snapshot |
 
 Disable with `METRICS_ENABLED=0`. Query the table from PostgreSQL (`localhost:15432`, database `dwh`) or build dashboards in Metabase or Superset:
 
 ```sql
 select source, status, count(*), round(avg(duration_ms)) as avg_ms
 from marts.lakehouse_metrics
+where phase = 'cycle' or phase is null
 group by 1, 2
 order by 1, 2;
 ```
+
+The `where` clause is what keeps the numbers honest: without it a single medallion cycle is counted two to four times, once per phase row. `phase is null` keeps the rows written before this phase, which have no phase to filter on.
+
+#### Reading rows written before this phase
+
+Rows with `cycle_id IS NULL` predate phase separation and have to be inferred, because `run_b2` and the outer cycle both wrote `source="medallion"` and the outer `silver_duration_ms` already contained the nested B2 duration. The rule is **status-qualified**:
+
+| `status` | `gold_duration_ms` | Classified as | What the row is |
+|---|---|---|---|
+| `success` | `> 0` | `cycle` | an outer cycle |
+| `success` | `0` | `b2` | a nested B2 phase |
+| `shadow_failed` | never set | `cycle` | an outer cycle that aborted before Gold |
+| `failed` | any | `nested` | a nested phase for which no outer record exists |
+
+The naive form of this rule — "`gold_duration_ms = 0` means a nested phase" — misclassifies `shadow_failed`, which is the safety-critical row: the cycle raises before Gold runs, so that field is never set, yet the row describes an outer cycle that aborted, not a nested phase.
+
+A `failed` row is classified `nested` rather than `b2` deliberately. It may come from the incremental write or from an aborted legacy cycle under `QUALITY_FAIL_ON_VIOLATIONS=1`, and nothing in the row distinguishes the two; what both origins share is that no outer record exists for that cycle. `classify_metric_row` in `iceberg/common/ops.py` is the executable form of this table — use it rather than re-deriving the rule, so prose and code cannot drift apart.
+
+**Provenance of the rule, stated plainly:** the two `success` branches are grounded in recorded data, but the `shadow_failed` and `failed` branches were **derived by reading the emission sites in `iceberg/medallion/iceberg_medallion.py`, not observed in recorded data** — every one of the ten rows in `artifacts/b2-rollout/06-o1-window.json` has `status: success`.
+
+#### Work the cycle can skip
+
+Both skips are memoisation, never a partial result, and every failure to establish the fact results in doing the full work:
+
+- **Gold** is rebuilt in full whenever persisted Silver moves, and left in place when the current Gold snapshot's `source-silver-snapshot-id` already names the current persisted Silver snapshot. An absent, unparsable or superseded provenance rebuilds. A Trino maintenance rewrite of Gold (`optimize`, `expire_snapshots`) drops that property, which deliberately costs exactly one extra rebuild. See the D-4 amendment in [ADR-0001](docs/adr/0001-incremental-silver-and-gold.md).
+- **The shadow comparison** is skipped when a durable certificate covers the current Bronze snapshot, the current persisted Silver snapshot, the runtime identity and the projection contract. The certified pair is re-checked after the incremental writer runs, because both can move mid-cycle; if they have, the cycle either performs the real comparison or, when the fast path had already skipped the Bronze pin, fails closed before Gold and publishes nothing.
+
+At a 60 second interval the medallion now writes roughly two to four rows per cycle where it previously wrote two, so recorded growth of about 970 rows/day scales accordingly. Retention for this table was not decided in this phase.
 
 ### Iceberg maintenance
 
@@ -292,6 +395,8 @@ no scheduling event. The successful `core.orders` event automatically starts
 the unchanged payment reconciliation, publishes mart Assets, and writes the
 audit. `marts.pipeline_runs.run_id` remains the downstream DagRun primary key;
 nullable `ingestion_run_id` records the native Asset event source DagRun.
+Ownership, execution, mutation and architecture contracts for the warehouse dbt
+project are indexed in [docs/warehouse/](docs/warehouse/README.md).
 
 Run the exact one-shot proof only against a healthy stack:
 
@@ -438,6 +543,7 @@ docker compose `
   --env-file .\.env `
   -f .\docker-compose.yml `
   -f .\docker-compose.extended.yml `
+  --profile "*" `
   config --services
 ```
 

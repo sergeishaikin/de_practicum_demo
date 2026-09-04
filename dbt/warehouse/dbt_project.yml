@@ -13,6 +13,11 @@ clean-targets: [target, dbt_packages]
 
 models:
   warehouse_transform:
+    staging:
+      +schema: staging
+      +materialized: view
+      +tags: [domain:orders, layer:staging, owner:dbt]
+
     marts:
       +schema: marts
       +materialized: view

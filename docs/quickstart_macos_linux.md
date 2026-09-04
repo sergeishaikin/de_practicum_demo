@@ -39,7 +39,7 @@ If `docker info` fails, correct the Docker error before you continue.
 ## 3. Clone the repository
 
 ```bash
-git clone https://github.com/dim4eg91/de_practicum_demo.git de_practicum_demo
+git clone https://github.com/sergeishaikin/de_practicum_demo.git de_practicum_demo
 cd de_practicum_demo
 ```
 

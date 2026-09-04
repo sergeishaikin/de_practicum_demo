@@ -5,7 +5,7 @@ param(
 $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $RepoRoot
-$DockerArgs = @("compose", "--env-file", ".env", "-f", "docker-compose.yml", "-f", "docker-compose.extended.yml", "build")
+$DockerArgs = @("compose", "--env-file", ".env", "-f", "docker-compose.yml", "-f", "docker-compose.extended.yml", "--profile", "*", "build")
 if ($NoCache) { $DockerArgs += "--no-cache" }
 if ($Service) { $DockerArgs += $Service }
 Write-Host "Building local data platform images..." -ForegroundColor Cyan

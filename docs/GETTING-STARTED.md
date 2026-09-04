@@ -20,7 +20,7 @@ macOS/Linux, then confirm that `uv --version` reports `uv 0.12.5`.
 ## Installation steps
 
 ```bash
-git clone https://github.com/dim4eg91/de_practicum_demo.git
+git clone https://github.com/sergeishaikin/de_practicum_demo.git
 cd de_practicum_demo
 uv sync --locked
 ```
@@ -40,7 +40,10 @@ cp .env.example .env
 Replace the placeholder values for `AIRFLOW_API_SECRET_KEY`,
 `AIRFLOW_JWT_SECRET`, and `AIRFLOW_DB_PASSWORD` with three independent random
 URL-safe secrets. Also replace `SUPERSET_SECRET_KEY` before starting the
-extended stack (see [CONFIGURATION.md](CONFIGURATION.md)).
+extended stack (see [CONFIGURATION.md](CONFIGURATION.md)). For the optional
+observability profile, also replace `TEMPO_S3_SECRET_KEY` and
+`GRAFANA_ADMIN_PASSWORD`; set `OTEL_ENABLED=1` when instrumented services
+should export traces and logs.
 
 Validate the Compose files:
 
@@ -62,6 +65,25 @@ On macOS/Linux use `docker compose` directly, e.g.:
 docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml up -d
 ```
 
+### Optional observability profile (NG-0.5)
+
+The core Prometheus path is always retained. Start only the Collector:
+
+```powershell
+docker compose --env-file .\.env -f .\docker-compose.yml -f .\docker-compose.extended.yml --profile otel up -d
+```
+
+Start Collector plus the adopted Tempo backend and dedicated trace store:
+
+```powershell
+docker compose --env-file .\.env -f .\docker-compose.yml -f .\docker-compose.extended.yml --profile otel --profile observability-next up -d
+```
+
+Check readiness at `http://localhost:13200/ready` and open Grafana at
+`http://localhost:13001` (credentials come from `GRAFANA_ADMIN_PASSWORD`).
+The provisioned Prometheus and Tempo datasource UIDs support same-trace
+exemplar navigation. Loki and trace-to-logs mapping remain outside NG-0.5.
+
 ## First run
 
 After `stack.ps1 up` finishes, the platform is ready when `stack.ps1 status` shows the containers as running/healthy.
@@ -78,6 +100,9 @@ Open the main UIs:
 | Spark Master UI | `http://localhost:18080` |
 | Metabase | `http://localhost:13000` |
 | Superset | `http://localhost:18088` |
+| Prometheus | `http://localhost:19090` |
+| Grafana | `http://localhost:13001` (Tempo datasource when profile is enabled) |
+| Tempo (optional) | `http://localhost:13200` |
 
 Verify the end-to-end pipeline once data has flowed (a minute or two after startup):
 

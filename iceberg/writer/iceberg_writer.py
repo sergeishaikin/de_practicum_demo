@@ -20,6 +20,7 @@ from pyiceberg.partitioning import PartitionField, PartitionSpec
 from pyiceberg.schema import Schema
 from pyiceberg.transforms import DayTransform
 from pyiceberg.types import (
+    IcebergType,
     DateType,
     DoubleType,
     IntegerType,
@@ -29,7 +30,12 @@ from pyiceberg.types import (
     TimestampType,
 )
 
+from openlineage.client.event_v2 import RunState
+
+from common import lineage
+from common import provenance as prov
 from common.ops import Metrics
+from common.telemetry import setup_telemetry
 
 CATALOG_URI = os.getenv("ICEBERG_CATALOG_URI", "http://iceberg-rest:8181")
 WAREHOUSE = os.getenv("ICEBERG_WAREHOUSE", "s3://de-practicum/warehouse")
@@ -53,6 +59,13 @@ SIMULATE_CRASH_AFTER_COMMIT = os.getenv("SIMULATE_CRASH_AFTER_COMMIT", "0") == "
 SIMULATE_CRASH_BEFORE_COMMIT = os.getenv("SIMULATE_CRASH_BEFORE_COMMIT", "0") == "1"
 
 LOAD_ID_KEY = "load-id"
+
+# The one edge this service performs: it reads Parquet the streaming job left in
+# the landing prefix and appends it to Bronze. It never reads Kafka, so it never
+# claims that edge - see `docs/LINEAGE.md`.
+LINEAGE_JOB = "iceberg-writer.landing-to-bronze"
+LANDING_DATASET = lineage.object_store_dataset(BUCKET, LANDING_PREFIX)
+BRONZE_DATASET = lineage.iceberg_dataset(CATALOG_URI, TABLE_IDENTIFIER)
 
 TABLE_SCHEMA = Schema(
     NestedField(1, "order_id", StringType(), required=False),
@@ -198,7 +211,12 @@ def _normalize_spark_path(path: str) -> str:
 def _read_spark_commit_log(fs: S3FileSystem, path: str) -> set[str]:
     """Read one Spark FileStreamSink metadata log and return added files."""
 
-    raw = fs.open_input_file(path).read().decode("utf-8")
+    # Sequential, not random access: `open_input_file` sizes itself from a HEAD
+    # taken at open and returns that many bytes even when the body since became
+    # shorter, exposing uninitialised memory as the tail. See _read_json in the
+    # medallion for the captured evidence.
+    with fs.open_input_stream(path) as source:
+        raw = source.read().decode("utf-8")
     lines = [line.strip() for line in raw.splitlines() if line.strip()]
     if not lines or lines[0] != "v1":
         raise ValueError(f"Unsupported or invalid Spark commit log: {path}")
@@ -261,7 +279,7 @@ def list_new_files(fs: S3FileSystem, done: set[str]) -> list[FileInfo]:
     return new_files
 
 
-def read_batch(fs: S3FileSystem, files: list[FileInfo]) -> object:
+def read_batch(fs: S3FileSystem, files: list[FileInfo]) -> pa.Table:
     paths = [info.path for info in files]
     hive_partitioning = ds.partitioning(
         pa.schema([pa.field("event_date", pa.date32())]),
@@ -323,7 +341,7 @@ def ensure_table(catalog: RestCatalog) -> None:
         return
     existing_columns = set(schema_fn().column_names)
     update = update_schema_fn()
-    missing = []
+    missing: list[tuple[str, IcebergType, str]] = []
     if "business_version" not in existing_columns:
         missing.append(
             (
@@ -377,6 +395,20 @@ def committed_load_records(catalog: RestCatalog) -> dict[str, dict[str, Any]]:
     return committed
 
 
+def snapshot_for_load(table, load_id: str) -> int | None:
+    """The snapshot this load's append produced.
+
+    Scans metadata already in memory rather than re-inspecting the table, so
+    naming the snapshot on the lineage event costs no extra catalog I/O. The
+    `load-id` summary stamp is the join, exactly as in the provenance receipt.
+    """
+    for snapshot in getattr(table.metadata, "snapshots", []) or []:
+        summary = getattr(snapshot, "summary", None)
+        if summary and summary.additional_properties.get(LOAD_ID_KEY) == load_id:
+            return getattr(snapshot, "snapshot_id", None)
+    return None
+
+
 def committed_load_ids(catalog: RestCatalog) -> set[str]:
     """Compatibility view used by existing writer callers and tests."""
 
@@ -419,6 +451,47 @@ def recover_pending(
     save_state(done, pending)
 
 
+def emit_ingest_lineage(emitter: lineage.LineageEmitter, load_id: str, table) -> bool:
+    """Record the landing-to-Bronze edge this append performed.
+
+    Declares the two identifiers this boundary genuinely lacks rather than
+    filling them: the writer is a long-running service, so no Airflow run
+    launched this work, and no tracing backend exists until NG-0.4.
+    """
+    values: dict[str, object] = {
+        prov.LOAD_ID: load_id,
+        prov.ICEBERG_TABLE: TABLE_IDENTIFIER,
+    }
+    unknown = {
+        prov.DAG_RUN_ID: "the writer is a continuous service, not an Airflow task",
+        prov.TRACE_ID: "no tracing backend exists yet; NG-0.4 introduces one",
+    }
+    try:
+        snapshot_id = snapshot_for_load(table, load_id)
+    except Exception as exc:
+        print(
+            f"Lineage snapshot read failed ({TABLE_IDENTIFIER}): "
+            f"{type(exc).__name__}: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
+        snapshot_id = None
+    if snapshot_id is not None:
+        values[prov.ICEBERG_SNAPSHOT_ID] = snapshot_id
+    else:
+        unknown[prov.ICEBERG_SNAPSHOT_ID] = (
+            "the snapshot carrying this load-id could not be read back"
+        )
+    envelope = prov.ProvenanceEnvelope(values=values, unknown=unknown)
+    return emitter.emit(
+        run_id=lineage.run_id_for(load_id),
+        event_type=RunState.COMPLETE,
+        inputs=[LANDING_DATASET],
+        outputs=[BRONZE_DATASET],
+        envelope=envelope,
+    )
+
+
 def main() -> None:
     print(f"Iceberg writer started: {TABLE_IDENTIFIER}", flush=True)
     print(f"Watching s3://{BUCKET}/{LANDING_PREFIX}", flush=True)
@@ -427,6 +500,9 @@ def main() -> None:
     fs = get_fs()
     catalog = get_catalog()
     metrics = Metrics()
+    telemetry = setup_telemetry("iceberg-writer")
+    lineage.register_edge_owner(BRONZE_DATASET, LINEAGE_JOB)
+    emitter = lineage.LineageEmitter(LINEAGE_JOB)
 
     recover_pending(done, pending, catalog, fs)
 
@@ -448,28 +524,34 @@ def main() -> None:
                     )
                     os._exit(2)
 
-                arrow_table = read_batch(fs, new_files)
+                with telemetry.span(
+                    "writer.ingest",
+                    {"lakehouse.files": len(new_files)},
+                ):
+                    arrow_table = read_batch(fs, new_files)
                 ensure_table(catalog)
                 table = catalog.load_table(TABLE_IDENTIFIER)
                 before_data_files = table_data_files(table)
                 started = time.monotonic()
-                for attempt in range(1, MAX_APPEND_ATTEMPTS + 1):
-                    try:
-                        table.append(
-                            arrow_table,
-                            snapshot_properties={LOAD_ID_KEY: load_id},
-                        )
-                        break
-                    except CommitFailedException as exc:
-                        if attempt == MAX_APPEND_ATTEMPTS:
-                            raise
-                        print(
-                            f"Commit conflict (attempt {attempt}/{MAX_APPEND_ATTEMPTS}): "
-                            f"{exc}; reloading table and retrying",
-                            flush=True,
-                        )
-                        time.sleep(1)
-                        table = catalog.load_table(TABLE_IDENTIFIER)
+                with telemetry.span("writer.bronze_append") as append_span:
+                    for attempt in range(1, MAX_APPEND_ATTEMPTS + 1):
+                        try:
+                            table.append(
+                                arrow_table,
+                                snapshot_properties={LOAD_ID_KEY: load_id},
+                            )
+                            break
+                        except CommitFailedException as exc:
+                            if attempt == MAX_APPEND_ATTEMPTS:
+                                raise
+                            append_span.set_attribute("lakehouse.retry", attempt)
+                            print(
+                                f"Commit conflict (attempt {attempt}/{MAX_APPEND_ATTEMPTS}): "
+                                f"{exc}; reloading table and retrying",
+                                flush=True,
+                            )
+                            time.sleep(1)
+                            table = catalog.load_table(TABLE_IDENTIFIER)
                 duration_ms = int((time.monotonic() - started) * 1000)
 
                 after_data_files = table_data_files(table)
@@ -496,18 +578,27 @@ def main() -> None:
                     f"from {len(new_files)} new files (load {load_id[:8]})",
                     flush=True,
                 )
-                metrics.record(
-                    source="writer",
-                    status="success",
-                    load_id=load_id,
-                    rows_processed=arrow_table.num_rows,
-                    files_processed=len(new_files),
-                    duration_ms=duration_ms,
+                telemetry.log(
+                    "writer ingest completed",
+                    attributes={"lakehouse.rows": arrow_table.num_rows},
                 )
+                # Keep a real sampled OTel context active for the existing
+                # duration observation so the exemplar points at this trace.
+                with telemetry.span("writer.metrics", {"lakehouse.load_id": load_id}):
+                    metrics.record(
+                        source="writer",
+                        status="success",
+                        load_id=load_id,
+                        rows_processed=arrow_table.num_rows,
+                        files_processed=len(new_files),
+                        duration_ms=duration_ms,
+                    )
+                emit_ingest_lineage(emitter, load_id, table)
         except SystemExit:
             raise
         except Exception as exc:
             print(f"Ingestion error: {exc}", file=sys.stderr, flush=True)
+            telemetry.log("writer ingest failed")
             if load_id is not None and load_id in pending:
                 committed = committed_load_records(catalog)
                 if load_id in committed:
@@ -522,12 +613,13 @@ def main() -> None:
                 file_count = len(pending[load_id])
                 del pending[load_id]
                 save_state(done, pending)
-                metrics.record(
-                    source="writer",
-                    status="error",
-                    load_id=load_id,
-                    files_processed=file_count,
-                )
+                with telemetry.span("writer.metrics", {"lakehouse.load_id": load_id}):
+                    metrics.record(
+                        source="writer",
+                        status="error",
+                        load_id=load_id,
+                        files_processed=file_count,
+                    )
         time.sleep(POLL_INTERVAL)
 
 

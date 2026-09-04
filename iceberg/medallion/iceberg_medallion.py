@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 import time
+import uuid
 import json
 import math
 import hashlib
@@ -32,7 +33,12 @@ from pyiceberg.types import (
     TimestampType,
 )
 
+from openlineage.client.event_v2 import RunState
+
+from common import lineage
+from common import provenance as prov
 from common.ops import Metrics
+from common.telemetry import setup_telemetry
 from common.cutover import validate_runtime_config
 from b2_spike import collapse_delta, resolve_against_current
 
@@ -63,6 +69,10 @@ MEDALLION_COMPLETION_LEDGER_PREFIX = os.getenv(
     "MEDALLION_COMPLETION_LEDGER_PREFIX",
     "streaming/medallion/completion-ledger",
 )
+MEDALLION_SHADOW_RECEIPT_PATH = os.getenv(
+    "MEDALLION_SHADOW_RECEIPT_PATH",
+    "streaming/medallion/shadow-certification.json",
+)
 MAX_COMPLETED_PROGRESS = int(os.getenv("MAX_COMPLETED_PROGRESS", "100"))
 SIMULATE_B2_CRASH_BEFORE_COMMIT = (
     os.getenv("SIMULATE_B2_CRASH_BEFORE_COMMIT", "0") == "1"
@@ -70,7 +80,21 @@ SIMULATE_B2_CRASH_BEFORE_COMMIT = (
 SIMULATE_B2_CRASH_AFTER_COMMIT = os.getenv("SIMULATE_B2_CRASH_AFTER_COMMIT", "0") == "1"
 
 SILVER_WORK_ID_KEY = "silver-work-id"
+# Stamped on every Gold commit that was built from persisted Silver: the
+# identity of the Silver snapshot that produced the Gold state.  Same idiom as
+# `SILVER_WORK_ID_KEY` and the writer's `load-id` -- the catalog carries the
+# provenance, so no sidecar file can disagree with the table.
+GOLD_SOURCE_SILVER_SNAPSHOT_KEY = "source-silver-snapshot-id"
 PROGRESS_VERSION = 1
+# Bumped whenever the stored receipt's shape changes.  A receipt written by any
+# other version reads as absent, which means "run the comparison".
+SHADOW_RECEIPT_VERSION = 1
+
+# The first token of the one stdout line a completed cycle prints.  It is the
+# integration harness's liveness signal, so the line's shape is a contract, not
+# a log message: see `CycleOutcome` for the vocabulary and
+# `tests/support/medallion_harness.py:parse_cycle_marker` for the reader.
+CYCLE_COMPLETE_MARKER = "cycle-complete"
 
 RUNTIME_CONFIG = {
     "SILVER_MODE": SILVER_MODE,
@@ -166,7 +190,27 @@ def _progress_path() -> str:
 
 
 def _read_json(fs: S3FileSystem, path: str) -> dict:
-    with fs.open_input_file(path) as source:
+    """Read a small JSON object sequentially, never by its advertised size.
+
+    `open_input_file` is random access: it takes the object's length from a HEAD
+    at open and applies that length to the body it later fetches. These objects
+    are overwritten in place and they shrink - completing a work item replaces a
+    `work` entry holding full object paths with a compact `completed` one - so a
+    read issued across that overwrite is sized from the larger predecessor and
+    served the smaller successor. PyArrow returns the whole over-sized buffer,
+    and the tail is process memory that was never written.
+
+    Observed in CI on 2026-08-19: a 236-byte document returned as 521 bytes whose
+    last 285 were heap pointers and stray literals, while a second read and a
+    sequential read of the same object both returned the intact 236 bytes with an
+    identical digest. Evidence in the archived change
+    `diagnose-medallion-progress-read-corruption`.
+
+    `open_input_stream` reads the body to EOF, so it cannot be sized by a stale
+    HEAD. Same bytes, same parse, same failure on a genuinely bad object.
+    """
+
+    with fs.open_input_stream(path) as source:
         return json.loads(source.read().decode("utf-8"))
 
 
@@ -208,6 +252,72 @@ def save_progress(fs: S3FileSystem, progress: dict) -> None:
     raw = json.dumps(progress, sort_keys=True, separators=(",", ":")).encode("utf-8")
     with fs.open_output_stream(_progress_path()) as output:
         output.write(raw)
+
+
+def _shadow_receipt_path() -> str:
+    return _storage_path(MEDALLION_SHADOW_RECEIPT_PATH)
+
+
+def load_shadow_receipt(fs: S3FileSystem) -> dict | None:
+    """Read the shadow certification receipt, or ``None`` if it cannot be trusted.
+
+    Deliberately asymmetric with the neighbouring ``load_completion_ledger``,
+    which *raises* on an unusable receipt.  That asymmetry is a decision, not an
+    inconsistency: an ambiguous completion receipt is two contradictory claims
+    about one load id -- a correctness fork worth stopping the service for --
+    whereas an unusable shadow certificate only means "not certified".  So every
+    failure here degrades to ``None``, which the caller reads as "run the
+    comparison".  Failing toward doing the work is the only safe direction, since
+    the thing being skipped is a correctness gate.
+
+    Absent, unreadable, malformed and wrong-version receipts are all the same
+    answer.  Nothing is trusted partially: a receipt is either a well-formed
+    object of the expected version or it is not a receipt.
+    """
+
+    path = _shadow_receipt_path()
+    try:
+        receipt = _read_json(fs, path)
+    except FileNotFoundError:
+        return None
+    except Exception as exc:
+        # Identifiers and the failure only: a receipt read must never be able to
+        # widen what a diagnostic discloses.
+        print(
+            f"Shadow certification receipt unreadable ({path}): "
+            f"{type(exc).__name__}",
+            file=sys.stderr,
+            flush=True,
+        )
+        return None
+    if not isinstance(receipt, dict):
+        return None
+    if receipt.get("version") != SHADOW_RECEIPT_VERSION:
+        return None
+    return receipt
+
+
+def save_shadow_receipt(fs: S3FileSystem, receipt: dict) -> None:
+    """Certify a passing comparison durably, best-effort.
+
+    Swallow-and-continue in the style of ``Metrics.record``, and **only** on the
+    write side: a receipt that never lands costs exactly one redundant
+    comparison next cycle, whereas a read failure treated as success would skip
+    a correctness gate.  Those two contracts are opposite, which is why they are
+    two functions.
+    """
+
+    try:
+        raw = json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        with fs.open_output_stream(_shadow_receipt_path()) as output:
+            output.write(raw)
+    except Exception as exc:
+        print(
+            f"Shadow certification receipt not persisted for cycle "
+            f"{receipt.get('cycle_id')}: {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
 
 
 def _completion_ledger_base_path() -> str:
@@ -442,18 +552,25 @@ def _snapshot_write_cost(snapshot) -> tuple[int, int, int, int]:
 
 
 def run_b2(
-    catalog: RestCatalog, metrics: Metrics, fs: S3FileSystem | None = None
-) -> None:
+    catalog: RestCatalog,
+    metrics: Metrics,
+    fs: S3FileSystem | None = None,
+    *,
+    cycle_id: str | None = None,
+) -> B2Outcome | None:
     """Process committed Bronze outbox work with the B2 Silver projection."""
 
     fs = fs or get_fs()
+    # Generated here when called directly, so the existing direct-call unit tests
+    # keep working unchanged; _run_m4 always supplies the enclosing cycle's id.
+    cycle_id = cycle_id or uuid.uuid4().hex
     bronze_id = f"{BRONZE_NAMESPACE}.{BRONZE_TABLE}"
     silver_id = f"{SILVER_NAMESPACE}.{SILVER_TABLE}"
     try:
         bronze = catalog.load_table(bronze_id)
     except NoSuchTableError:
         print("Bronze table not available yet; skipping B2 cycle", flush=True)
-        return
+        return None
 
     ensure_table(catalog, silver_id, SILVER_SCHEMA, SILVER_PARTITION_SPEC)
     silver = catalog.load_table(silver_id)
@@ -518,7 +635,9 @@ def run_b2(
         keys = sorted({row["order_id"] for row in incoming})
         keys_processed += len(keys)
         if keys:
-            current_scan = silver.scan(row_filter=In("order_id", keys))
+            current_scan = silver.scan(
+                row_filter=In("order_id", keys)  # type: ignore[misc,call-arg,arg-type]
+            )
             planned_files, planned_bytes = _planned_scan_cost(current_scan)
             files_planned += planned_files
             bytes_planned += planned_bytes
@@ -561,8 +680,11 @@ def run_b2(
             )
             silver.overwrite(
                 _rows_to_silver(resolved),
-                overwrite_filter=In(
-                    "order_id", sorted({row["order_id"] for row in resolved})
+                overwrite_filter=In(  # type: ignore[misc,call-arg]
+                    "order_id",  # type: ignore[arg-type]
+                    sorted(  # type: ignore[arg-type]
+                        {row["order_id"] for row in resolved}
+                    ),
                 ),
                 snapshot_properties={
                     SILVER_WORK_ID_KEY: load_id,
@@ -599,20 +721,20 @@ def run_b2(
         processed += 1
         files_processed += len(record["bronze_data_files"])
 
-    metrics.record(
-        source="medallion",
-        status="success",
+    duration_ms = int((time.monotonic() - started) * 1000)
+    work_available = sum(
+        record["load_id"] not in progress["completed"] for record in records
+    )
+    outcome = B2Outcome(
+        duration_ms=duration_ms,
         silver_rows=processed,
         files_processed=files_processed,
         keys_processed=keys_processed,
         lower_versions_ignored=lower_versions_ignored,
         ff14_conflicts=ff14_conflicts,
-        work_available=sum(
-            record["load_id"] not in progress["completed"] for record in records
-        ),
+        work_available=work_available,
         work_in_flight=len(progress["work"]),
         work_completed=len(progress["completed"]),
-        silver_duration_ms=int((time.monotonic() - started) * 1000),
         files_planned=files_planned,
         bytes_planned=bytes_planned,
         files_removed=files_removed,
@@ -620,8 +742,35 @@ def run_b2(
         bytes_removed=bytes_removed,
         bytes_added=bytes_added,
         snapshot_delta=snapshot_delta,
-        duration_ms=int((time.monotonic() - started) * 1000),
+        silver_snapshot_id=_snapshot_id(silver),
     )
+    # `silver_duration_ms` is deliberately absent: it keeps its inclusive
+    # whole-cycle meaning and is populated only on the `cycle` record, so
+    # historical rows stay byte-for-byte interpretable.
+    metrics.record(
+        source="medallion",
+        status="success",
+        phase="b2",
+        cycle_id=cycle_id,
+        silver_rows=outcome.silver_rows,
+        files_processed=outcome.files_processed,
+        keys_processed=outcome.keys_processed,
+        lower_versions_ignored=outcome.lower_versions_ignored,
+        ff14_conflicts=outcome.ff14_conflicts,
+        work_available=outcome.work_available,
+        work_in_flight=outcome.work_in_flight,
+        work_completed=outcome.work_completed,
+        files_planned=outcome.files_planned,
+        bytes_planned=outcome.bytes_planned,
+        files_removed=outcome.files_removed,
+        files_added=outcome.files_added,
+        bytes_removed=outcome.bytes_removed,
+        bytes_added=outcome.bytes_added,
+        snapshot_delta=outcome.snapshot_delta,
+        silver_snapshot_id=outcome.silver_snapshot_id,
+        duration_ms=outcome.duration_ms,
+    )
+    return outcome
 
 
 def ensure_table(
@@ -792,6 +941,117 @@ SHADOW_EXCLUDED_COLUMNS = (
     "kafka_offset",
 )
 
+# Hand-bumped whenever `compare_business_state` changes what it *means* by
+# equality -- a different duplicate-resolution rule, a new mismatch class, a
+# changed null/NaN convention.  It is half of the projection identity because a
+# hand-maintained constant on its own is a silent-staleness hazard: a contract
+# change nobody remembered to bump would keep certifying comparisons made under
+# the old contract.  The digest below is the other half, and it moves on its own.
+SHADOW_CONTRACT_VERSION = 1
+
+
+def _shadow_projection_identity() -> str:
+    """Identity of *what* a shadow comparison checks.
+
+    Two halves, because neither is sufficient alone.  The `sha256` digest covers
+    the column classification -- the most likely real change -- and invalidates
+    every outstanding certificate automatically the moment a column is added,
+    removed or reclassified.  `SHADOW_CONTRACT_VERSION` covers the semantic
+    changes the column tuples cannot see.  The two tuples are rendered with a
+    separator between them so that moving a column from one to the other is a
+    different string, not the same multiset.
+    """
+
+    canonical = "|".join(
+        ("business",)
+        + SHADOW_BUSINESS_COLUMNS
+        + ("excluded",)
+        + SHADOW_EXCLUDED_COLUMNS
+    )
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return f"contract={SHADOW_CONTRACT_VERSION};columns={digest}"
+
+
+def _runtime_identity(selected_mode: str) -> str:
+    """Identity of the runtime a certificate was produced under.
+
+    The *effective* mode rather than `SILVER_MODE`, because `run()` accepts an
+    explicit mode; plus the two rollout switches that decide which projections
+    exist at all and whether they are compared.  A certificate produced in the
+    `shadow` stage therefore cannot authorise a skip in `cutover`, where the
+    comparison's conclusion is what puts the incremental state in front of
+    consumers.
+    """
+
+    return (
+        f"mode={selected_mode};gold_source={GOLD_SOURCE};"
+        f"shadow_compare={'1' if SHADOW_COMPARE_ENABLED else '0'}"
+    )
+
+
+def shadow_receipt_is_valid(
+    receipt: dict | None,
+    *,
+    bronze_snapshot_id: int | None,
+    silver_snapshot_id: int | None,
+    runtime_identity: str,
+    projection_identity: str,
+) -> bool:
+    """True only when this receipt certifies exactly the state about to be skipped.
+
+    Pure, so the fast-path decision can be specified without a filesystem.  A
+    skipped comparison is a skipped correctness gate, so this answers `True` only
+    when the previous comparison passed *and* all four identities match; every
+    other input -- including no receipt at all -- answers `False` and the caller
+    does the work.
+
+    A `None` current snapshot id never matches, not even a stored `null`.
+    `_snapshot_id` legitimately returns `None` for a table with no snapshots, and
+    `None == None` must never certify an empty or unknown lake.
+    """
+
+    if not isinstance(receipt, dict):
+        return False
+    if bronze_snapshot_id is None or silver_snapshot_id is None:
+        return False
+    if receipt.get("result") != "equal":
+        return False
+    return (
+        receipt.get("bronze_snapshot_id") == bronze_snapshot_id
+        and receipt.get("silver_snapshot_id") == silver_snapshot_id
+        and receipt.get("runtime_identity") == runtime_identity
+        and receipt.get("projection_identity") == projection_identity
+    )
+
+
+@dataclass(frozen=True)
+class B2Outcome:
+    """The physical cost one ``run_b2`` pass measured, rolled up for the caller.
+
+    ``_run_m4`` copies these onto the ``cycle`` record so the Prometheus gauges
+    carry the incremental writer's real numbers.  Before 04-02 the outer record
+    published them as zeros, resetting the nested record's gauges seconds after
+    they were measured.
+    """
+
+    duration_ms: int
+    silver_rows: int
+    files_processed: int
+    keys_processed: int
+    lower_versions_ignored: int
+    ff14_conflicts: int
+    work_available: int
+    work_in_flight: int
+    work_completed: int
+    files_planned: int
+    bytes_planned: int
+    files_removed: int
+    files_added: int
+    bytes_removed: int
+    bytes_added: int
+    snapshot_delta: int
+    silver_snapshot_id: int | None
+
 
 @dataclass(frozen=True)
 class BronzeBoundary:
@@ -799,6 +1059,39 @@ class BronzeBoundary:
 
     rows: pa.Table
     snapshot_id: int | None
+
+
+@dataclass(frozen=True)
+class CycleOutcome:
+    """What one *completed* cycle decided, rendered as the stdout marker.
+
+    Only a cycle that ran to the end produces one.  A cycle that returned early
+    (no Bronze table) or aborted (a shadow mismatch, a fatal quality violation)
+    returns ``None`` and stays silent, because "no marker" is precisely how the
+    integration harness learns that a deployment did not complete.
+
+    The vocabulary is fixed here for the rest of the phase, since
+    ``tests/support/medallion_harness.py`` parses the rendered line:
+
+    * ``gold`` — ``"rebuilt"`` when Gold was overwritten, ``"skipped"`` when the
+      cycle decided Gold was already current.  Both are reachable since GLD-01:
+      ``"skipped"`` means the current Gold snapshot already records the persisted
+      Silver snapshot this cycle would have rebuilt Gold from.
+    * ``shadow`` — ``"compared"`` when the two Silver projections were checked,
+      ``"skipped"`` when the comparison was deliberately not run for this cycle,
+      ``"disabled"`` when ``SHADOW_COMPARE`` is off.  Both are reachable since
+      SHD-01: ``"skipped"`` means a durable certificate still names this cycle's
+      Bronze snapshot, Silver snapshot, runtime and projection contract, so the
+      comparison's conclusion is already known.
+
+    ``duration_ms`` is the same number the ``cycle`` metrics record carries, so
+    a log line and a metrics row about the same cycle never disagree.
+    """
+
+    cycle_id: str
+    gold: str
+    shadow: str
+    duration_ms: int
 
 
 def _shadow_value(value):
@@ -938,6 +1231,44 @@ def _snapshot_id(table) -> int | None:
     return getattr(metadata, "current_snapshot_id", None)
 
 
+def _bronze_snapshot_id(catalog: RestCatalog) -> int | None:
+    """The current Bronze snapshot id, read from table metadata -- never a scan.
+
+    This is what makes the fast path cheap: the decision to skip a full Bronze
+    scan must not itself cost a full Bronze scan.  ``None`` for a table that does
+    not exist yet or has never been committed to, and ``None`` certifies nothing,
+    so an unknown Bronze always means do the work.
+    """
+
+    try:
+        return _snapshot_id(catalog.load_table(f"{BRONZE_NAMESPACE}.{BRONZE_TABLE}"))
+    except NoSuchTableError:
+        return None
+
+
+def _silver_snapshot_id(catalog: RestCatalog) -> int | None:
+    """The current persisted-Silver snapshot id, metadata only -- never a scan.
+
+    Read *before* the incremental writer runs, because the certificate gates the
+    Bronze pin and the pin has to happen before the writer.  It is deliberately
+    not the id returned by ``_read_persisted_silver``: that one is read after the
+    writer, is what Gold is built from and what the receipt certifies, and using
+    it here would either move the pin after the writer -- making shadow evidence
+    race with ingestion -- or move the persisted-Silver read before it, leaving
+    Gold a cycle stale.  Both are contracts this phase already fixed.
+
+    Reading it early is safe in the direction that matters: a writer pass can
+    only move Silver when it finds committed outbox work, and committed outbox
+    work implies a Bronze append, which moves the Bronze snapshot id and
+    invalidates the certificate on its own.
+    """
+
+    try:
+        return _snapshot_id(catalog.load_table(f"{SILVER_NAMESPACE}.{SILVER_TABLE}"))
+    except NoSuchTableError:
+        return None
+
+
 def _pin_bronze_boundary(catalog: RestCatalog) -> BronzeBoundary | None:
     bronze_id = f"{BRONZE_NAMESPACE}.{BRONZE_TABLE}"
     try:
@@ -955,7 +1286,9 @@ def _load_bronze_df(catalog: RestCatalog) -> pa.Table | None:
     return boundary.rows if boundary is not None else None
 
 
-def _legacy_silver_cycle(catalog: RestCatalog, metrics: Metrics) -> dict | None:
+def _legacy_silver_cycle(
+    catalog: RestCatalog, metrics: Metrics, *, cycle_id: str | None = None
+) -> dict | None:
     silver_id = f"{SILVER_NAMESPACE}.{SILVER_TABLE}"
     bronze_df = _load_bronze_df(catalog)
     if bronze_df is None:
@@ -979,11 +1312,13 @@ def _legacy_silver_cycle(catalog: RestCatalog, metrics: Metrics) -> dict | None:
             metrics.record(
                 source="medallion",
                 status="failed",
+                phase="cycle",
+                cycle_id=cycle_id,
                 bronze_rows=bronze_df.num_rows,
                 quality_violations=violations_total,
                 duration_ms=int((time.monotonic() - started) * 1000),
             )
-            return
+            return None
 
     silver_df = build_silver(bronze_df)
     ensure_table(catalog, silver_id, SILVER_SCHEMA, SILVER_PARTITION_SPEC)
@@ -1003,82 +1338,277 @@ def _legacy_silver_cycle(catalog: RestCatalog, metrics: Metrics) -> dict | None:
     }
 
 
-def _write_gold(catalog: RestCatalog, gold_df: pa.Table) -> None:
+def _gold_provenance(gold) -> int | None:
+    """Return the persisted Silver snapshot id the **current** Gold state records.
+
+    Read from ``gold.current_snapshot()`` and from nothing else.  Walking the
+    table's whole snapshot history for the most recent property-bearing snapshot
+    would be fail-open: an expired or superseded snapshot could vouch for a Gold state that
+    something else has since replaced.  Trino maintenance is exactly that case --
+    ``dags/lakehouse_maintenance.py`` lists ``("gold", "orders_daily_metrics")`` in
+    ``MAINTENANCE_TABLES``, and ``optimize`` / ``expire_snapshots`` rewrite Gold's
+    files while knowing nothing about this property.  Reading only the current
+    snapshot makes such a rewrite invalidate provenance automatically: it reads as
+    absent and the medallion rebuilds Gold once.  That is the security-relevant
+    property of this change.
+
+    ``None`` means "cannot certify", and is returned for a table with no current
+    snapshot, a snapshot without the property, and a property whose value does not
+    parse as an integer.  Snapshot-property values are strings written by whoever
+    last committed, so they are parsed defensively rather than trusted.
+    """
+
+    current_snapshot = getattr(gold, "current_snapshot", None)
+    if not callable(current_snapshot):
+        return None
+    snapshot = current_snapshot()
+    if snapshot is None:
+        return None
+    summary = getattr(snapshot, "summary", None)
+    properties = getattr(summary, "additional_properties", None) or {}
+    raw = properties.get(GOLD_SOURCE_SILVER_SNAPSHOT_KEY)
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _write_gold(
+    catalog: RestCatalog,
+    gold_df: pa.Table,
+    *,
+    source_silver_snapshot_id: int | None,
+) -> tuple[bool, int | None]:
+    """Rebuild Gold unless the current Gold state was already built from this Silver.
+
+    Returns ``(written, gold_snapshot_id)``.  This is memoization, not
+    incrementalisation: when the write happens it is the same full, exactly
+    verifiable rebuild D-4 requires.  What is elided is a rebuild whose result is
+    provably identical to the Gold state already in the catalog.
+
+    ``source_silver_snapshot_id`` is the whole mode switch, which is why nothing in
+    here branches on ``GOLD_SOURCE``.  A caller with no persisted-Silver basis --
+    the legacy Gold source, whose input is an in-memory rebuild derived from Bronze
+    -- passes ``None``, and therefore always writes and never stamps.  ``None``
+    also never matches ``_gold_provenance``: ``None == None`` must not certify Gold
+    against an empty lake.
+    """
+
     gold_id = f"{GOLD_NAMESPACE}.{GOLD_TABLE}"
     ensure_table(catalog, gold_id, GOLD_SCHEMA, PartitionSpec())
     gold = catalog.load_table(gold_id)
-    gold.overwrite(gold_df)
+
+    if (
+        source_silver_snapshot_id is not None
+        and source_silver_snapshot_id == _gold_provenance(gold)
+    ):
+        # Deliberately no "stamp-only" empty overwrite to refresh provenance: a
+        # full overwrite's APPEND half is not elided for an empty frame, so it
+        # would write a snapshot anyway -- defeating the skip and growing the
+        # history the maintenance DAG then has to compact.
+        print(
+            f"Gold {gold_id}: already built from persisted Silver snapshot "
+            f"{source_silver_snapshot_id}; rebuild skipped",
+            flush=True,
+        )
+        return False, _snapshot_id(gold)
+
+    if source_silver_snapshot_id is None:
+        gold.overwrite(gold_df)
+    else:
+        gold.overwrite(
+            gold_df,
+            snapshot_properties={
+                GOLD_SOURCE_SILVER_SNAPSHOT_KEY: str(source_silver_snapshot_id)
+            },
+        )
     print(
         f"Gold {gold_id}: overwritten with {gold_df.num_rows} daily metrics",
         flush=True,
     )
+    return True, _snapshot_id(gold)
 
 
-def _read_persisted_silver(catalog: RestCatalog) -> pa.Table:
+def _read_persisted_silver(catalog: RestCatalog) -> tuple[pa.Table, int | None]:
     silver_id = f"{SILVER_NAMESPACE}.{SILVER_TABLE}"
     silver = catalog.load_table(silver_id)
-    return silver.scan().to_arrow()
+    return silver.scan().to_arrow(), _snapshot_id(silver)
 
 
-def _run_legacy(catalog: RestCatalog, metrics: Metrics) -> None:
-    cycle = _legacy_silver_cycle(catalog, metrics)
+def _run_legacy(
+    catalog: RestCatalog, metrics: Metrics, *, cycle_id: str | None = None
+) -> CycleOutcome | None:
+    cycle_id = cycle_id or uuid.uuid4().hex
+    cycle = _legacy_silver_cycle(catalog, metrics, cycle_id=cycle_id)
     if cycle is None:
-        return
+        # No Bronze, or a fatal quality violation: no cycle completed, so the
+        # caller must not announce one.
+        return None
 
     gold_started = time.monotonic()
     gold_df = build_gold(cycle["silver_df"])
-    _write_gold(catalog, gold_df)
-    gold_duration_ms = int((time.monotonic() - gold_started) * 1000)
+    # The legacy Gold input is the in-memory rebuild derived from Bronze, not
+    # persisted Silver, so a persisted-Silver provenance stamp would not describe
+    # it: this path passes no basis, always writes and never stamps.
+    gold_written, gold_snapshot_id = _write_gold(
+        catalog, gold_df, source_silver_snapshot_id=None
+    )
+    ended = time.monotonic()
+    duration_ms = int((ended - cycle["started"]) * 1000)
 
+    # The legacy path is one undivided phase: it emits exactly one record, and
+    # `silver_duration_ms` / `gold_duration_ms` keep today's inclusive meaning.
     metrics.record(
         source="medallion",
         status="success",
+        phase="cycle",
+        cycle_id=cycle_id,
         bronze_rows=cycle["bronze_df"].num_rows,
         silver_rows=cycle["silver_df"].num_rows,
         gold_rows=gold_df.num_rows,
         duplicates_removed=(cycle["bronze_df"].num_rows - cycle["silver_df"].num_rows),
         quality_violations=cycle["violations_total"],
-        duration_ms=int((time.monotonic() - cycle["started"]) * 1000),
+        duration_ms=duration_ms,
         silver_duration_ms=int((gold_started - cycle["started"]) * 1000),
-        gold_duration_ms=gold_duration_ms,
+        gold_duration_ms=int((ended - gold_started) * 1000),
+        gold_snapshot_id=gold_snapshot_id,
+        gold_skipped=not gold_written,
+    )
+    # The legacy rollout state is (legacy, legacy, SHADOW_COMPARE=0), so this
+    # path never compares projections and always overwrites Gold.  What
+    # `_write_gold` did is reported rather than asserted, so the marker can never
+    # claim a rebuild the write path did not perform.
+    return CycleOutcome(
+        cycle_id=cycle_id,
+        gold="rebuilt" if gold_written else "skipped",
+        shadow="disabled",
+        duration_ms=duration_ms,
     )
 
 
-def _run_m4(catalog: RestCatalog, metrics: Metrics, selected_mode: str) -> None:
+def _run_m4(
+    catalog: RestCatalog,
+    metrics: Metrics,
+    selected_mode: str,
+    *,
+    cycle_id: str | None = None,
+    fs: S3FileSystem | None = None,
+) -> CycleOutcome | None:
     if GOLD_SOURCE not in {"legacy", "persisted_silver"}:
         raise ValueError(f"Unsupported GOLD_SOURCE: {GOLD_SOURCE}")
 
+    cycle_id = cycle_id or uuid.uuid4().hex
     started = time.monotonic()
     legacy_silver_df: pa.Table | None = None
     bronze_df: pa.Table | None = None
     violations_total = 0
+    outcome: B2Outcome | None = None
+    b2_window = 0.0
+
+    # Under GOLD_SOURCE=legacy the legacy projection is Gold's *input*, so the
+    # Bronze pin and the rebuild are required work rather than validation work
+    # and no certificate can authorise skipping them.  Skipping them there would
+    # break the cycle, not optimise it.
+    needs_legacy_projection = GOLD_SOURCE == "legacy"
+
+    # Both reads are table metadata only, so the decision to skip a full Bronze
+    # scan costs no scan of its own.
+    bronze_snapshot_id = _bronze_snapshot_id(catalog)
+    runtime_identity = _runtime_identity(selected_mode)
+    projection_identity = _shadow_projection_identity()
+    # The pair the certificate is judged against.  `bronze_snapshot_id` is
+    # reassigned below when a boundary is pinned, so the certified pair is kept
+    # separately: it is what the post-writer revalidation compares to.
+    certified_bronze_snapshot_id = bronze_snapshot_id
+    certified_silver_snapshot_id: int | None = None
+    shadow_certified = False
+    if SHADOW_COMPARE_ENABLED:
+        certified_silver_snapshot_id = _silver_snapshot_id(catalog)
+        # The filesystem is touched only once both ids are known.  That is the
+        # same fail-safe rule as everywhere else in this phase, and it is also
+        # what keeps every in-memory double network-free: a double with no
+        # snapshots has no ids, so no S3FileSystem is ever constructed for it.
+        if bronze_snapshot_id is not None and certified_silver_snapshot_id is not None:
+            shadow_certified = shadow_receipt_is_valid(
+                load_shadow_receipt(fs if fs is not None else get_fs()),
+                bronze_snapshot_id=bronze_snapshot_id,
+                silver_snapshot_id=certified_silver_snapshot_id,
+                runtime_identity=runtime_identity,
+                projection_identity=projection_identity,
+            )
 
     if selected_mode == "b2":
         # Pin Bronze before B2 runs.  Both the legacy candidate and the B2
         # result must describe this same logical source boundary; a later live
         # Bronze scan would make shadow evidence race with ingestion.
-        bronze_boundary = None
-        if GOLD_SOURCE == "legacy" or SHADOW_COMPARE_ENABLED:
-            bronze_boundary = _pin_bronze_boundary(catalog)
-            bronze_df = bronze_boundary.rows if bronze_boundary is not None else None
-        run_b2(catalog, metrics)
+        pin_bronze = GOLD_SOURCE == "legacy" or SHADOW_COMPARE_ENABLED
+        if shadow_certified and not needs_legacy_projection:
+            pin_bronze = False
+        bronze_boundary = _pin_bronze_boundary(catalog) if pin_bronze else None
+        if bronze_boundary is not None:
+            bronze_df = bronze_boundary.rows
+            bronze_snapshot_id = bronze_boundary.snapshot_id
+        b2_start = time.monotonic()
+        outcome = run_b2(catalog, metrics, fs, cycle_id=cycle_id)
+        b2_window = time.monotonic() - b2_start
         if bronze_boundary is not None:
             legacy_silver_df = build_silver(bronze_boundary.rows)
     else:
-        cycle = _legacy_silver_cycle(catalog, metrics)
+        cycle = _legacy_silver_cycle(catalog, metrics, cycle_id=cycle_id)
         if cycle is None:
-            return
+            # No cycle completed, so no marker: see `CycleOutcome`.
+            return None
         bronze_df = cycle["bronze_df"]
         legacy_silver_df = cycle["silver_df"]
         violations_total = cycle["violations_total"]
 
-    persisted_silver_df = _read_persisted_silver(catalog)
-    if SHADOW_COMPARE_ENABLED:
+    # Unconditional, and deliberately so -- a recorded decision against research
+    # Open Question 4, which asked whether the fast path should elide this read
+    # too.  It feeds Gold at cutover, so coupling it to the Gold skip would
+    # entangle SHD-01 and GLD-01 into one conditional and make each harder to
+    # test alone; and the `shadow` phase duration now measures it directly, so a
+    # later decision to elide it can be made on evidence instead of guesswork.
+    persisted_silver_df, silver_snapshot_id = _read_persisted_silver(catalog)
+
+    if shadow_certified:
+        # The certificate was judged against metadata read *before* the
+        # incremental writer ran, because the decision gates the Bronze pin and
+        # the pin has to precede the writer.  That leaves a window: Bronze is
+        # appended by a separate live process, and B2 itself can move Silver, so
+        # the certified pair can stop describing the state Gold is about to be
+        # published from.  Re-read both ids now -- table metadata only, never a
+        # scan, and deliberately not a second Bronze boundary, which would be a
+        # post-writer pin masquerading as a pre-writer one.
+        current_bronze_snapshot_id = _bronze_snapshot_id(catalog)
+        if (
+            current_bronze_snapshot_id != certified_bronze_snapshot_id
+            or silver_snapshot_id != certified_silver_snapshot_id
+        ):
+            shadow_certified = False
+            if legacy_silver_df is None:
+                # Nothing to compare against: the fast path skipped the pin, so
+                # the only safe outcome is to publish nothing.  Like a mismatch,
+                # this raise leaves `run()` without a `CycleOutcome`, so no
+                # cycle-complete marker is printed.  The next cycle pins Bronze
+                # and revalidates from scratch, because a stale certificate can
+                # never certify the state that replaced it.
+                raise ValueError(
+                    "Shadow certificate went stale during the cycle: bronze "
+                    f"{certified_bronze_snapshot_id} -> {current_bronze_snapshot_id}, "
+                    f"silver {certified_silver_snapshot_id} -> {silver_snapshot_id}; "
+                    "no legacy projection was built, so Gold is not published"
+                )
+
+    shadow_compared = False
+    if SHADOW_COMPARE_ENABLED and not shadow_certified:
         if legacy_silver_df is None:
             raise RuntimeError(
                 "Shadow comparison requires a legacy business projection"
             )
         comparison = compare_business_state(legacy_silver_df, persisted_silver_df)
+        shadow_compared = True
         if not comparison["equal"]:
             diagnostic = json.dumps(
                 comparison["mismatches"], sort_keys=True, default=str
@@ -1086,16 +1616,76 @@ def _run_m4(catalog: RestCatalog, metrics: Metrics, selected_mode: str) -> None:
             print(
                 f"Shadow comparison mismatch: {diagnostic}", file=sys.stderr, flush=True
             )
+            # phase="cycle": this is an outer cycle that aborted before Gold,
+            # not a nested phase that happened to fail.
             metrics.record(
                 source="medallion",
                 status="shadow_failed",
+                phase="cycle",
+                cycle_id=cycle_id,
                 shadow_comparisons=1,
                 shadow_mismatches=len(comparison["mismatches"]),
+                bronze_snapshot_id=bronze_snapshot_id,
+                silver_snapshot_id=silver_snapshot_id,
                 duration_ms=int((time.monotonic() - started) * 1000),
             )
+            # This raise leaves `run()` without a `CycleOutcome`, so no
+            # cycle-complete marker is printed.  That is the contract, not an
+            # oversight: the integration harness reads the absence of a marker
+            # as "this deployment did not complete a cycle".
             raise ValueError(f"Shadow comparison failed: {diagnostic}")
 
+        if bronze_snapshot_id is not None and silver_snapshot_id is not None:
+            # Best-effort: a certificate that never lands costs exactly one
+            # redundant comparison.  The ids written are the ones this
+            # comparison actually validated -- the pinned Bronze boundary and
+            # the persisted Silver that was compared against it.
+            save_shadow_receipt(
+                fs if fs is not None else get_fs(),
+                {
+                    "version": SHADOW_RECEIPT_VERSION,
+                    "bronze_snapshot_id": bronze_snapshot_id,
+                    "silver_snapshot_id": silver_snapshot_id,
+                    "runtime_identity": runtime_identity,
+                    "projection_identity": projection_identity,
+                    "result": "equal",
+                    "compared_keys": comparison["compared_keys"],
+                    "certified_at": datetime.now(timezone.utc).isoformat(),
+                    "cycle_id": cycle_id,
+                },
+            )
+
+    # Enabled but not run means the certificate authorised the skip; disabled
+    # means there was never a comparison to skip.
+    shadow_skipped = SHADOW_COMPARE_ENABLED and not shadow_compared
+
     gold_started = time.monotonic()
+
+    # The shadow segment is everything before Gold that was not the incremental
+    # writer own window: the pinned Bronze scan, the legacy rebuild, the
+    # persisted-Silver read and the comparison.  Because run_b2 starts its
+    # internal timer only after it loads progress, the outbox listing and the
+    # completion ledger, b2 + shadow + gold is *less than or equal to* the
+    # cycle; the residual is the writer state-load preamble and is deliberately
+    # attributed to no phase.  Under selected_mode == "legacy" there is no b2
+    # record and the legacy Silver build falls inside this segment - that branch
+    # is unreachable under any accepted rollout state, since
+    # RUNTIME_ROLLOUT_MATRIX admits SILVER_MODE=legacy only as
+    # ("legacy", "legacy", "0"), which run() routes to _run_legacy.  It is a
+    # test-only artefact, not an operational claim.
+    metrics.record(
+        source="medallion",
+        status="success",
+        phase="shadow",
+        cycle_id=cycle_id,
+        shadow_comparisons=int(shadow_compared),
+        shadow_skipped=shadow_skipped,
+        shadow_mismatches=0,
+        bronze_snapshot_id=bronze_snapshot_id,
+        silver_snapshot_id=silver_snapshot_id,
+        duration_ms=int(((gold_started - started) - b2_window) * 1000),
+    )
+
     if GOLD_SOURCE == "legacy":
         if legacy_silver_df is None:
             raise RuntimeError("GOLD_SOURCE=legacy requires a legacy Silver projection")
@@ -1104,11 +1694,40 @@ def _run_m4(catalog: RestCatalog, metrics: Metrics, selected_mode: str) -> None:
         gold_input = persisted_silver_df
 
     gold_df = build_gold(gold_input)
-    _write_gold(catalog, gold_df)
-    gold_duration_ms = int((time.monotonic() - gold_started) * 1000)
+    # Only the persisted-Silver Gold source has a persisted-Silver basis to
+    # certify against.  Under GOLD_SOURCE=legacy the Gold input is the in-memory
+    # legacy rebuild, so no basis is passed and Gold is written every cycle
+    # exactly as before.
+    gold_written, gold_snapshot_id = _write_gold(
+        catalog,
+        gold_df,
+        source_silver_snapshot_id=(
+            silver_snapshot_id if GOLD_SOURCE == "persisted_silver" else None
+        ),
+    )
+    ended = time.monotonic()
+    gold_duration_ms = int((ended - gold_started) * 1000)
+    cycle_duration_ms = int((ended - started) * 1000)
+
     metrics.record(
         source="medallion",
         status="success",
+        phase="gold",
+        cycle_id=cycle_id,
+        gold_rows=gold_df.num_rows,
+        silver_snapshot_id=silver_snapshot_id,
+        gold_snapshot_id=gold_snapshot_id,
+        gold_skipped=not gold_written,
+        duration_ms=gold_duration_ms,
+    )
+
+    # A None outcome means "no physical cost measured", never a crashed cycle:
+    # run_b2 returns None when Bronze is absent, and several suites stub it.
+    metrics.record(
+        source="medallion",
+        status="success",
+        phase="cycle",
+        cycle_id=cycle_id,
         bronze_rows=bronze_df.num_rows if bronze_df is not None else None,
         silver_rows=gold_input.num_rows,
         gold_rows=gold_df.num_rows,
@@ -1118,41 +1737,213 @@ def _run_m4(catalog: RestCatalog, metrics: Metrics, selected_mode: str) -> None:
             else None
         ),
         quality_violations=violations_total,
-        duration_ms=int((time.monotonic() - started) * 1000),
-        shadow_comparisons=int(SHADOW_COMPARE_ENABLED),
+        duration_ms=cycle_duration_ms,
+        shadow_comparisons=int(shadow_compared),
+        shadow_skipped=shadow_skipped,
         shadow_mismatches=0,
         silver_duration_ms=int((gold_started - started) * 1000),
         gold_duration_ms=gold_duration_ms,
+        bronze_snapshot_id=bronze_snapshot_id,
+        silver_snapshot_id=silver_snapshot_id,
+        gold_snapshot_id=gold_snapshot_id,
+        gold_skipped=not gold_written,
+        keys_processed=outcome.keys_processed if outcome else 0,
+        lower_versions_ignored=outcome.lower_versions_ignored if outcome else 0,
+        ff14_conflicts=outcome.ff14_conflicts if outcome else 0,
+        work_available=outcome.work_available if outcome else 0,
+        work_in_flight=outcome.work_in_flight if outcome else 0,
+        work_completed=outcome.work_completed if outcome else 0,
+        files_planned=outcome.files_planned if outcome else 0,
+        bytes_planned=outcome.bytes_planned if outcome else 0,
+        files_removed=outcome.files_removed if outcome else 0,
+        files_added=outcome.files_added if outcome else 0,
+        bytes_removed=outcome.bytes_removed if outcome else 0,
+        bytes_added=outcome.bytes_added if outcome else 0,
+        snapshot_delta=outcome.snapshot_delta if outcome else 0,
     )
+
+    if not SHADOW_COMPARE_ENABLED:
+        shadow_state = "disabled"
+    else:
+        shadow_state = "skipped" if shadow_skipped else "compared"
+    return CycleOutcome(
+        cycle_id=cycle_id,
+        gold="rebuilt" if gold_written else "skipped",
+        shadow=shadow_state,
+        duration_ms=cycle_duration_ms,
+    )
+
+
+LINEAGE_SILVER_JOB = "iceberg-medallion.bronze-to-silver"
+LINEAGE_GOLD_JOB = "iceberg-medallion.silver-to-gold"
+
+_EMITTERS: dict[str, lineage.LineageEmitter] = {}
+
+
+def _lineage_emitter(job_name: str) -> lineage.LineageEmitter:
+    if job_name not in _EMITTERS:
+        _EMITTERS[job_name] = lineage.LineageEmitter(job_name)
+    return _EMITTERS[job_name]
+
+
+def _lineage_datasets() -> (
+    tuple[lineage.DatasetRef, lineage.DatasetRef, lineage.DatasetRef]
+):
+    return (
+        lineage.iceberg_dataset(CATALOG_URI, f"{BRONZE_NAMESPACE}.{BRONZE_TABLE}"),
+        lineage.iceberg_dataset(CATALOG_URI, f"{SILVER_NAMESPACE}.{SILVER_TABLE}"),
+        lineage.iceberg_dataset(CATALOG_URI, f"{GOLD_NAMESPACE}.{GOLD_TABLE}"),
+    )
+
+
+def register_lineage_edges() -> None:
+    """Claim this service's output datasets, at startup.
+
+    Deliberately not called from the cycle: a duplicate claim is a design error
+    that must stop the service before it processes anything, and a check that
+    can raise has no business on the data path.
+    """
+    _, silver, gold = _lineage_datasets()
+    lineage.register_edge_owner(silver, LINEAGE_SILVER_JOB)
+    lineage.register_edge_owner(gold, LINEAGE_GOLD_JOB)
+
+
+def _gold_snapshot_id(catalog: RestCatalog) -> int | None:
+    try:
+        return _snapshot_id(catalog.load_table(f"{GOLD_NAMESPACE}.{GOLD_TABLE}"))
+    except NoSuchTableError:
+        return None
+
+
+def _snapshot_for_lineage(read, catalog: RestCatalog, table_name: str) -> int | None:
+    """A snapshot id for a lineage facet, or ``None`` if it cannot be read.
+
+    The existing snapshot helpers absorb a missing table but not an unreachable
+    catalog. Lineage must not turn a metadata hiccup into a failed cycle, so
+    here every failure degrades to an absent identifier - which the envelope
+    then records with a reason rather than omitting.
+    """
+    try:
+        return read(catalog)
+    except Exception as exc:
+        print(
+            f"Lineage snapshot read failed ({table_name}): "
+            f"{type(exc).__name__}: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
+        return None
+
+
+def emit_cycle_lineage(catalog: RestCatalog, cycle_id: str) -> int:
+    """Record the two edges a completed medallion cycle performed.
+
+    Two events rather than one, because Bronze-to-Silver and Silver-to-Gold are
+    separately observable transformations and collapsing them would hide which
+    one moved. Returns how many were delivered, so a caller can assert on it.
+
+    Snapshot ids come from table metadata, never a scan: naming the state a
+    cycle produced must not cost more than the cycle did.
+    """
+    bronze, silver, gold = _lineage_datasets()
+
+    absent = {
+        prov.DAG_RUN_ID: "the medallion is a continuous service, not an Airflow task",
+        prov.TRACE_ID: "no tracing backend exists yet; NG-0.4 introduces one",
+    }
+    bronze_id = _snapshot_for_lineage(_bronze_snapshot_id, catalog, bronze.name)
+    silver_id = _snapshot_for_lineage(_silver_snapshot_id, catalog, silver.name)
+    gold_id = _snapshot_for_lineage(_gold_snapshot_id, catalog, gold.name)
+
+    delivered = 0
+    for job, source, target, source_id, target_id in (
+        (LINEAGE_SILVER_JOB, bronze, silver, bronze_id, silver_id),
+        (LINEAGE_GOLD_JOB, silver, gold, silver_id, gold_id),
+    ):
+        values: dict[str, object] = {
+            prov.CYCLE_ID: cycle_id,
+            prov.ICEBERG_TABLE: target.name,
+        }
+        unknown = dict(absent)
+        # The state written and the state read are separate concerns, and each
+        # is declared absent on its own terms rather than silently omitted.
+        if target_id is not None:
+            values[prov.ICEBERG_SNAPSHOT_ID] = target_id
+        else:
+            unknown[prov.ICEBERG_SNAPSHOT_ID] = (
+                f"{target.name} has no committed snapshot yet"
+            )
+        if source_id is not None:
+            values[prov.ICEBERG_SOURCE_SNAPSHOT_ID] = source_id
+        else:
+            unknown[prov.ICEBERG_SOURCE_SNAPSHOT_ID] = (
+                f"{source.name} has no committed snapshot yet"
+            )
+        envelope = prov.ProvenanceEnvelope(values=values, unknown=unknown)
+        if _lineage_emitter(job).emit(
+            run_id=lineage.run_id_for(f"{cycle_id}/{job}"),
+            event_type=RunState.COMPLETE,
+            inputs=[source],
+            outputs=[target],
+            envelope=envelope,
+        ):
+            delivered += 1
+    return delivered
 
 
 def run(
     catalog: RestCatalog,
     metrics: Metrics,
     mode: str | None = None,
+    *,
+    cycle_id: str | None = None,
+    fs: S3FileSystem | None = None,
 ) -> None:
     selected_mode = (mode or SILVER_MODE).lower()
-    if selected_mode == "b2":
-        _run_m4(catalog, metrics, selected_mode)
-        return
-    if selected_mode != "legacy":
+    cycle_id = cycle_id or uuid.uuid4().hex
+    if selected_mode not in {"b2", "legacy"}:
         raise ValueError(f"Unsupported SILVER_MODE: {selected_mode}")
-    if GOLD_SOURCE == "legacy" and not SHADOW_COMPARE_ENABLED:
-        _run_legacy(catalog, metrics)
+    if (
+        selected_mode == "legacy"
+        and GOLD_SOURCE == "legacy"
+        and not SHADOW_COMPARE_ENABLED
+    ):
+        cycle = _run_legacy(catalog, metrics, cycle_id=cycle_id)
     else:
-        _run_m4(catalog, metrics, selected_mode)
+        cycle = _run_m4(catalog, metrics, selected_mode, cycle_id=cycle_id, fs=fs)
+
+    if cycle is None:
+        # An early return or an abort. Staying silent is the signal.
+        return
+    # Lineage for a cycle that actually completed. Placed after the abort check
+    # so an aborted cycle never emits an edge it did not perform, and before the
+    # liveness marker only because emission cannot fail the caller either way.
+    emit_cycle_lineage(catalog, cycle.cycle_id)
+    # The one site that emits the liveness marker.  stdout, unconditional and
+    # flushed: a liveness signal that can be switched off, buffered away or
+    # mixed into stderr diagnostics is not a liveness signal.
+    print(
+        f"{CYCLE_COMPLETE_MARKER} cycle_id={cycle.cycle_id} gold={cycle.gold} "
+        f"shadow={cycle.shadow} duration_ms={cycle.duration_ms}",
+        flush=True,
+    )
 
 
 def main() -> None:
     validate_runtime_config(RUNTIME_CONFIG)
+    register_lineage_edges()
     print(f"Iceberg medallion service started (silver mode: {SILVER_MODE})", flush=True)
     catalog = get_catalog()
     metrics = Metrics()
+    telemetry = setup_telemetry("iceberg-medallion")
     while True:
         try:
-            run(catalog, metrics)
+            with telemetry.span("medallion.cycle"):
+                run(catalog, metrics)
+            telemetry.log("medallion cycle completed")
         except Exception as exc:
             print(f"Medallion error: {exc}", file=sys.stderr, flush=True)
+            telemetry.log("medallion cycle failed")
         time.sleep(INTERVAL)
 
 

@@ -16,6 +16,7 @@ services:
     image: postgres:15
     container_name: de-demo-postgres
     hostname: de-demo-postgres
+    mem_limit: 512m
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-app}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
@@ -33,7 +34,7 @@ services:
       - ./db/tasks:/tasks:ro
       - ./db/task_checks:/task_checks:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app} -d ${POSTGRES_DB:-dwh}"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U ${POSTGRES_USER:-app} -d ${POSTGRES_DB:-dwh}"]
       interval: 5s
       timeout: 3s
       retries: 30
@@ -45,6 +46,7 @@ services:
   airflow-db-init:
     image: postgres:15
     container_name: de-demo-airflow-db-init
+    mem_limit: 256m
     environment:
       PGHOST: de-demo-postgres
       PGPORT: "5432"
@@ -68,6 +70,7 @@ services:
     pull_policy: never
     container_name: de-demo-airflow
     hostname: de-demo-airflow
+    mem_limit: 1536m
     depends_on:
       airflow-db-init:
         condition: service_completed_successfully

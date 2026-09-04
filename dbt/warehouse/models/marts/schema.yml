@@ -1,43 +1,64 @@
 version: 2
 
+# Three layers meet in this file:
+#   - `contract.enforced` pins the *shape* (column names and types) at build time;
+#   - `data_tests` assert the *contents* of the built relations;
+#   - fixture-driven unit tests for the transformation logic live in unit_tests.yml.
+# Column-level tests are only asserted where the business genuinely forbids the
+# value: `core.*` is a transactional rebuild with no nullable business keys, no
+# refunds and no reversals, so not_null and non_negative are safe here.
+
 models:
   - name: v_order_items_wide
     description: Stable replacement for marts.v_order_items_wide; dbt owns the view SQL.
     config:
       contract:
         enforced: true
+    data_tests:
+      - composite_unique:
+          arguments:
+            columns: [order_id, order_item_id]
     columns:
       - name: order_id
         data_type: varchar
-        tests: [not_null]
+        data_tests: [not_null]
       - name: order_item_id
         data_type: integer
-        tests: [not_null]
+        data_tests: [not_null]
       - name: order_purchase_date
         data_type: date
+        data_tests: [not_null]
       - name: order_status
         data_type: varchar
+        data_tests: [not_null]
       - name: customer_id
         data_type: varchar
-        tests: [not_null]
+        data_tests: [not_null]
       - name: customer_state
         data_type: varchar
       - name: product_id
         data_type: varchar
-        tests: [not_null]
+        data_tests: [not_null]
       - name: seller_id
         data_type: varchar
-        tests: [not_null]
+        data_tests: [not_null]
       - name: price
         data_type: numeric(12,2)
+        data_tests: [not_null, non_negative]
       - name: freight_value
         data_type: numeric(12,2)
+        data_tests: [not_null, non_negative]
+      # order_payment_value and main_payment_type are intentionally untested for
+      # nullability: the LEFT JOIN must be allowed to leave them NULL for an item
+      # whose header is missing. That semantic is pinned by a unit test instead.
       - name: order_payment_value
         data_type: numeric(12,2)
+        data_tests: [non_negative]
       - name: main_payment_type
         data_type: varchar
       - name: ingest_date
         data_type: date
+        data_tests: [not_null]
 
   - name: v_sales_daily
     description: Stable replacement for marts.v_sales_daily.
@@ -47,31 +68,44 @@ models:
     columns:
       - name: sales_date
         data_type: date
+        data_tests: [not_null, unique]
       - name: orders_cnt
         data_type: bigint
+        data_tests: [not_null, non_negative]
       - name: items_cnt
         data_type: bigint
+        data_tests: [not_null, non_negative]
       - name: gross_sales
         data_type: numeric(12,2)
+        data_tests: [not_null, non_negative]
       - name: freight_sum
         data_type: numeric(12,2)
+        data_tests: [not_null, non_negative]
 
   - name: v_customer_state_daily
     description: Stable replacement for marts.v_customer_state_daily.
     config:
       contract:
         enforced: true
+    data_tests:
+      - composite_unique:
+          arguments:
+            columns: [sales_date, customer_state]
     columns:
       - name: sales_date
         data_type: date
+        data_tests: [not_null]
       - name: customer_state
         data_type: varchar
       - name: orders_cnt
         data_type: bigint
+        data_tests: [not_null, non_negative]
       - name: items_cnt
         data_type: bigint
+        data_tests: [not_null, non_negative]
       - name: gross_sales
         data_type: numeric(12,2)
+        data_tests: [not_null, non_negative]
 
   - name: v_reconcile_sales_daily
     description: Source-to-mart reconciliation view; no rows means the contract passes.
@@ -81,9 +115,16 @@ models:
     columns:
       - name: sales_date
         data_type: date
+        data_tests: [not_null, unique]
+      # The two side totals are COALESCEd to 0, so they are never NULL and never
+      # negative. diff_amount is deliberately allowed to be negative - that is how
+      # a source-only day reports.
       - name: mart_gross_sales
         data_type: numeric(12,2)
+        data_tests: [not_null, non_negative]
       - name: source_gross_sales
         data_type: numeric(12,2)
+        data_tests: [not_null, non_negative]
       - name: diff_amount
         data_type: numeric(12,2)
+        data_tests: [not_null]

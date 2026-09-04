@@ -1,0 +1,106 @@
+# Temporary Milestone 2 harness. This file is not the Milestone 3 profile.
+# It overrides the official OpenMetadata 1.13.3 PostgreSQL quickstart with
+# isolated named state and OpenSearch 3.3.0. Images are immutable manifests.
+services:
+  postgresql:
+    container_name: om-preflight-postgres
+    image: docker.getcollate.io/openmetadata/postgresql@sha256:4b225b4fcc810983c5e4578c690477688beaa587457310a5f4c615700334e321
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "15433:5432"
+    volumes:
+      - om_preflight_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d openmetadata_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  elasticsearch:
+    container_name: om-preflight-opensearch
+    image: opensearchproject/opensearch@sha256:59e9e49ac00f19c2af9094e367c8e6586f7d07e6c06465c3f4c43b40934309f2
+    ports:
+      - "19200:9200"
+    environment:
+      discovery.type: single-node
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      DISABLE_SECURITY_PLUGIN: "true"
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+      compatibility.override_main_response_version: null
+      xpack.security.enabled: null
+    volumes:
+      - om_preflight_search:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  execute-migrate-all:
+    container_name: om-preflight-migrate
+    image: openmetadata/server@sha256:6c878281973d9e2c366e9da4f256a744acf67b1e53195fab67c3191e504e4169
+    environment:
+      DB_SCHEME: postgresql
+      DB_HOST: postgresql
+      DB_PORT: "5432"
+      DB_USER: openmetadata_user
+      DB_USER_PASSWORD: openmetadata_password
+      OM_DATABASE: openmetadata_db
+      SEARCH_TYPE: opensearch
+      ELASTICSEARCH_HOST: elasticsearch
+      ELASTICSEARCH_PORT: "9200"
+      ELASTICSEARCH_SCHEME: http
+      ELASTICSEARCH_USER: ""
+      ELASTICSEARCH_PASSWORD: ""
+      PIPELINE_SERVICE_CLIENT_ENDPOINT: http://ingestion:8080
+      SERVER_HOST_API_URL: http://openmetadata-server:8585/api
+      AUTHENTICATION_PROVIDER: basic
+      AUTHORIZER_CLASS_NAME: org.openmetadata.service.security.DefaultAuthorizer
+      AUTHORIZER_REQUEST_FILTER: org.openmetadata.service.security.JwtFilter
+      AUTHORIZER_ADMIN_PRINCIPALS: "[admin]"
+      AUTHORIZER_INGESTION_PRINCIPALS: "[ingestion-bot]"
+      AUTHORIZER_PRINCIPAL_DOMAIN: open-metadata.org
+      AUTHENTICATION_PUBLIC_KEYS: "[http://localhost:8585/api/v1/system/config/jwks]"
+      OPENMETADATA_HEAP_OPTS: "-Xmx512m -Xms256m"
+
+  openmetadata-server:
+    container_name: om-preflight-server
+    image: openmetadata/server@sha256:6c878281973d9e2c366e9da4f256a744acf67b1e53195fab67c3191e504e4169
+    ports:
+      - "18585:8585"
+      - "18586:8586"
+    environment:
+      DB_SCHEME: postgresql
+      DB_HOST: postgresql
+      DB_PORT: "5432"
+      DB_USER: openmetadata_user
+      DB_USER_PASSWORD: openmetadata_password
+      OM_DATABASE: openmetadata_db
+      SEARCH_TYPE: opensearch
+      ELASTICSEARCH_HOST: elasticsearch
+      ELASTICSEARCH_PORT: "9200"
+      ELASTICSEARCH_SCHEME: http
+      ELASTICSEARCH_USER: ""
+      ELASTICSEARCH_PASSWORD: ""
+      PIPELINE_SERVICE_CLIENT_ENDPOINT: http://ingestion:8080
+      SERVER_HOST_API_URL: http://openmetadata-server:8585/api
+      AUTHENTICATION_PROVIDER: basic
+      AUTHORIZER_CLASS_NAME: org.openmetadata.service.security.DefaultAuthorizer
+      AUTHORIZER_REQUEST_FILTER: org.openmetadata.service.security.JwtFilter
+      AUTHORIZER_ADMIN_PRINCIPALS: "[admin]"
+      AUTHORIZER_INGESTION_PRINCIPALS: "[ingestion-bot]"
+      AUTHORIZER_PRINCIPAL_DOMAIN: open-metadata.org
+      AUTHENTICATION_PUBLIC_KEYS: "[http://localhost:8585/api/v1/system/config/jwks]"
+      OPENMETADATA_HEAP_OPTS: "-Xmx512m -Xms256m"
+
+  ingestion:
+    container_name: om-preflight-ingestion
+    image: openmetadata/ingestion@sha256:fe5effad9dbce98852b2f588905a4a8926c3c03de97fcceac8fe8e3ec927d717
+
+volumes:
+  om_preflight_pg:
+    name: om_preflight_pg
+  om_preflight_search:
+    name: om_preflight_search

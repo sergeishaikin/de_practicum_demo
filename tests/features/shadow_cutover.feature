@@ -63,6 +63,6 @@ Feature: Shadow validation and the metrics source cutover
     Given an incremental business state that agrees with a full rebuild
     And a completed cycle with metrics served from the incremental state
     When the metrics source is rolled back to the full rebuild
-    Then the daily metrics are published again
+    Then the daily metrics still reflect the current business state
     And the incremental business state is not rewritten
     And shadow validation is still in force

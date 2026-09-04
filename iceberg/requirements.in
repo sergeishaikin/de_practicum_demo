@@ -3,3 +3,8 @@ pyiceberg-core==0.7.0
 pyarrow==21.0.0
 psycopg2-binary==2.9.10
 prometheus-client==0.22.1
+openlineage-python==1.52.0
+confluent-kafka==2.15.0
+opentelemetry-api==1.44.0
+opentelemetry-sdk==1.44.0
+opentelemetry-exporter-otlp-proto-grpc==1.44.0

@@ -112,6 +112,53 @@ Table core.order_items {
   Note: 'One row per order item, enriched with order and customer attributes.'
 }
 
+Table staging.stg_core__orders {
+  order_id varchar
+  customer_id varchar
+  customer_state varchar
+  order_status varchar
+  order_purchase_date date
+  payment_value numeric(12,2)
+  main_payment_type varchar
+  max_installments int
+  ingest_date date
+
+  Note: 'dbt staging model over core.orders. Column projection only.'
+}
+
+Table staging.stg_core__order_items {
+  order_id varchar
+  order_item_id int
+  order_purchase_date date
+  order_status varchar
+  customer_id varchar
+  customer_state varchar
+  product_id varchar
+  seller_id varchar
+  price numeric(12,2)
+  freight_value numeric(12,2)
+  ingest_date date
+
+  Note: 'dbt staging model over core.order_items. Column projection only.'
+}
+
+Table staging.stg_staging__orders {
+  order_id varchar
+  order_purchase_timestamp timestamp
+  ingest_date date
+
+  Note: 'dbt staging model over stg.orders. Reconciliation source side.'
+}
+
+Table staging.stg_staging__order_items {
+  order_id varchar
+  order_item_id int
+  price numeric(12,2)
+  ingest_date date
+
+  Note: 'dbt staging model over stg.order_items. Reconciliation source side.'
+}
+
 Table marts.v_order_items_wide {
   order_id varchar
   order_item_id int
@@ -203,9 +250,13 @@ Ref: stg.order_payments.order_id > stg.orders.order_id
 // Core and mart lineage relationships.
 Ref: core.orders.customer_id > stg.customers.customer_id
 Ref: core.order_items.order_id > core.orders.order_id
-Ref: marts.v_order_items_wide.order_id > core.orders.order_id
-Ref: marts.v_order_items_wide.order_item_id > core.order_items.order_item_id
-Ref: marts.v_sales_daily.sales_date > core.order_items.order_purchase_date
-Ref: marts.v_customer_state_daily.sales_date > core.order_items.order_purchase_date
+Ref: staging.stg_core__orders.order_id > core.orders.order_id
+Ref: staging.stg_core__order_items.order_id > core.order_items.order_id
+Ref: staging.stg_staging__orders.order_id > stg.orders.order_id
+Ref: staging.stg_staging__order_items.order_id > stg.order_items.order_id
+Ref: marts.v_order_items_wide.order_id > staging.stg_core__orders.order_id
+Ref: marts.v_order_items_wide.order_item_id > staging.stg_core__order_items.order_item_id
+Ref: marts.v_sales_daily.sales_date > staging.stg_core__order_items.order_purchase_date
+Ref: marts.v_customer_state_daily.sales_date > staging.stg_core__order_items.order_purchase_date
 Ref: marts.v_reconcile_sales_daily.sales_date > marts.v_sales_daily.sales_date
 Ref: marts.v_smoke_last_run.run_id > marts.pipeline_runs.run_id

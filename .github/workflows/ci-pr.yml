@@ -37,13 +37,19 @@ jobs:
       - name: Validate Compose files
         run: >
           docker compose --env-file .env.example
-          -f docker-compose.yml -f docker-compose.extended.yml config --quiet
+          -f docker-compose.yml -f docker-compose.extended.yml --profile '*' config --quiet
       - name: Ruff
         run: |
           uv run --locked ruff check .
           uv run --locked ruff check dags --select AIR3 --preview
       - name: Black
         run: uv run --locked black --check .
+      # Static type check runs beside the other fast gates and before the test
+      # job, so a typing failure is diagnosable without starting any stack.
+      - name: mypy (typed scope declared in pyproject.toml)
+        run: uv run --locked mypy
+      - name: SQLFluff (correctness rules only — see .sqlfluff)
+        run: uv run --locked sqlfluff lint dbt/warehouse/models dbt/warehouse/tests dbt/models
 
   unit:
     name: Unit tests + coverage
@@ -75,9 +81,16 @@ jobs:
       DBT_POSTGRES_DB: dwh
     steps:
       - uses: actions/checkout@v4
+        with:
+          # dbt Doctor's `--diff` resolves the base branch locally, and the
+          # shallow default leaves it without a merge base to compare against.
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version-file: ".python-version"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           version: "0.12.5"
@@ -94,7 +107,7 @@ jobs:
         run: |
           docker compose --env-file .env.example up -d de-demo-postgres
           for i in $(seq 1 30); do
-            docker exec de-demo-postgres pg_isready -U app -d dwh >/dev/null 2>&1 && break
+            docker exec de-demo-postgres pg_isready -h 127.0.0.1 -p 5432 -U app -d dwh >/dev/null 2>&1 && break
             sleep 2
           done
       - name: Seed staging and rebuild core with the production transform
@@ -103,12 +116,74 @@ jobs:
             < tests/fixtures/warehouse/seed_staging.sql
           docker exec -i de-demo-postgres psql -U app -d dwh -v ON_ERROR_STOP=1 \
             < db/pipeline_sql/10_rebuild_core.sql
+      # The four steps below must stay between the seed and the dbt build.
+      # Freshness against a truncated-but-unseeded staging schema errors with a
+      # ~2025-year age (NULL max(loaded_at) maps to year 1), and a backdated
+      # timestamp left behind would poison dbt build, the mart assertions,
+      # replay parity and the mutation gate.
+      - name: Source freshness — one batch yields one loaded_at across all four staging tables
+        run: |
+          violations=$(docker exec -i de-demo-postgres psql -U app -d dwh \
+            -v ON_ERROR_STOP=1 -At -F '|' < tests/fixtures/warehouse/assert_loaded_at_is_one_batch.sql)
+          if [ -n "$violations" ]; then
+            echo "The staging load did not produce one timestamp across all four tables:"
+            echo "$violations"
+            exit 1
+          fi
+      - name: Source freshness — a freshly seeded batch must pass
+        run: |
+          .venv-dbt-warehouse/bin/dbt source freshness --project-dir dbt/warehouse --profiles-dir dbt/warehouse
+      - name: Source freshness — a batch older than error_after must fail closed
+        run: |
+          docker exec -i de-demo-postgres psql -U app -d dwh -v ON_ERROR_STOP=1 \
+            < tests/fixtures/warehouse/backdate_staging_loaded_at.sql
+          # Capture the code rather than swallow it: `|| status=$?` records
+          # dbt's exit status, where an unconditional fallback-to-success would
+          # discard it. (The literal swallowing idiom is deliberately not
+          # written anywhere in these four steps — a contract test forbids it by
+          # substring.) The check below is strict on purpose: an error-level
+          # freshness result must exit exactly 1. Accepting any non-zero code
+          # would also accept exit 2, which is a dbt crash or bad invocation,
+          # and would let a broken command masquerade as a working gate.
+          status=0
+          .venv-dbt-warehouse/bin/dbt source freshness --project-dir dbt/warehouse --profiles-dir dbt/warehouse || status=$?
+          if [ "$status" -eq 0 ]; then
+            echo "dbt source freshness exited 0 on a deliberately stale batch"
+            exit 1
+          fi
+          if [ "$status" -ne 1 ]; then
+            echo "expected exit 1 from an error-level freshness result, got $status"
+            exit 1
+          fi
+      - name: Reset staging load timestamps
+        if: always()
+        run: |
+          docker exec -i de-demo-postgres psql -U app -d dwh -v ON_ERROR_STOP=1 \
+            < tests/fixtures/warehouse/reset_staging_loaded_at.sql
+      # Deleting the manifest first is the point: dbt Doctor's DAG rules read
+      # whatever `target/manifest.json` holds, so a stale artifact left by an
+      # earlier step would gate the wrong graph.
+      - name: Parse warehouse dbt project
+        run: |
+          rm -f dbt/warehouse/target/manifest.json
+          .venv-dbt-warehouse/bin/dbt parse --project-dir dbt/warehouse --profiles-dir dbt/warehouse
+          test -s dbt/warehouse/target/manifest.json
+      # Severity and rule policy come from dbt/warehouse/.dbt-doctor, hence the
+      # working-directory. Pinned to 0.3.4: `@latest` would silently change the
+      # gate. `--score` is deliberately absent - it suppresses the exit code.
+      - name: Run dbt Doctor architecture gate
+        working-directory: dbt/warehouse
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            npx -y dbt-doctor@0.3.4 --offline --manifest target/manifest.json --diff "origin/${{ github.base_ref }}"
+          else
+            npx -y dbt-doctor@0.3.4 --offline --manifest target/manifest.json
+          fi
       - name: Run warehouse dbt build and docs
         run: |
-          .venv-dbt-warehouse/bin/dbt parse --project-dir dbt/warehouse --profiles-dir dbt/warehouse
           .venv-dbt-warehouse/bin/dbt build --project-dir dbt/warehouse --profiles-dir dbt/warehouse
           .venv-dbt-warehouse/bin/dbt docs generate --project-dir dbt/warehouse --profiles-dir dbt/warehouse
-          test -s dbt/warehouse/target/manifest.json
           test -s dbt/warehouse/target/run_results.json
           test -s dbt/warehouse/target/catalog.json
           test -s dbt/warehouse/target/index.html
@@ -121,8 +196,32 @@ jobs:
             echo "$violations"
             exit 1
           fi
+      - name: Assert replay parity — reprocessing the same batch must not change results
+        run: |
+          docker exec -i de-demo-postgres psql -U app -d dwh -v ON_ERROR_STOP=1 \
+            < tests/fixtures/warehouse/replay_snapshot.sql
+          docker exec -i de-demo-postgres psql -U app -d dwh -v ON_ERROR_STOP=1 \
+            < db/pipeline_sql/10_rebuild_core.sql
+          violations=$(docker exec -i de-demo-postgres psql -U app -d dwh \
+            -v ON_ERROR_STOP=1 -At -F '|' < tests/fixtures/warehouse/assert_replay_parity.sql)
+          if [ -n "$violations" ]; then
+            echo "Replaying the same staging batch changed the business result:"
+            echo "$violations"
+            exit 1
+          fi
       - name: Verify repository contracts
         run: uv run --locked pytest -q tests/test_warehouse_dbt.py
+      - name: SQL mutation gate — known-bad SQL must not survive the suite
+        env:
+          DBT_EXECUTABLE: .venv-dbt-warehouse/bin/dbt
+        run: uv run --locked python scripts/mutation_test.py --json mutation-report.json
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-report
+          path: mutation-report.json
+          if-no-files-found: warn
       - name: Upload warehouse dbt artifacts
         uses: actions/upload-artifact@v4
         with:

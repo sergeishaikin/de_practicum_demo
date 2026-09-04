@@ -10,6 +10,7 @@ services:
   minio:
     image: ${MINIO_IMAGE:?MINIO_IMAGE is required}
     container_name: de-demo-minio
+    mem_limit: 1536m
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
@@ -28,6 +29,7 @@ services:
       dockerfile: Dockerfile
     image: de-practicum-demo-spark:4.2.0-h1
     container_name: de-demo-spark-master
+    mem_limit: 512m
     logging: *bounded-logging
     hostname: spark-master
     command:
@@ -56,6 +58,7 @@ services:
       dockerfile: Dockerfile
     image: de-practicum-demo-spark:4.2.0-h1
     container_name: de-demo-spark-worker
+    mem_limit: 3072m
     logging: *bounded-logging
     hostname: spark-worker
     command:
@@ -64,7 +67,7 @@ services:
     environment:
       SPARK_NO_DAEMONIZE: "true"
       SPARK_WORKER_CORES: "4"
-      SPARK_WORKER_MEMORY: 4g
+      SPARK_WORKER_MEMORY: 2g
       # Worker cleanup is already enabled by default in Spark 4.2.0, but its
       # default 7-day appDataTtl never expires anything on a demo-length run.
       # A 15-minute TTL is the guardrail; the real fix is the `local:` JAR
@@ -96,6 +99,8 @@ services:
       dockerfile: Dockerfile
     image: de-practicum-demo-spark:4.2.0-h1
     container_name: de-demo-spark-connect
+    profiles: ["tools"]
+    mem_limit: 1024m
     logging: *bounded-logging
     hostname: spark-connect
     command:
@@ -118,6 +123,8 @@ services:
       - spark.executor.cores=2
       - --conf
       - spark.cores.max=2
+      - --conf
+      - spark.driver.memory=512m
       - --conf
       - spark.executor.memory=1g
     environment:
@@ -148,6 +155,8 @@ services:
       dockerfile: Dockerfile
     image: de-practicum-demo-jupyter:spark420-h1
     container_name: de-demo-jupyter
+    profiles: ["tools"]
+    mem_limit: 1024m
     environment:
       SPARK_MASTER: spark://spark-master:7077
       JAVA_HOME: /usr/lib/jvm/java-21-openjdk-amd64
@@ -181,6 +190,7 @@ services:
     image: ${KAFKA_IMAGE:?KAFKA_IMAGE is required}
     container_name: de-demo-kafka
     hostname: kafka
+    mem_limit: 1280m
     ports:
       - "${KAFKA_HOST_PORT}:9092"
     environment:
@@ -196,6 +206,7 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+      KAFKA_HEAP_OPTS: "-Xms256m -Xmx512m"
       # Keep broker records on a named volume so a container recreation does
       # not silently create a new Kafka offset epoch.  The mount and
       # KAFKA_LOG_DIRS value intentionally point at the same directory.
@@ -216,6 +227,8 @@ services:
   kafka-ui:
     image: ${KAFKA_UI_IMAGE:?KAFKA_UI_IMAGE is required}
     container_name: de-demo-kafka-ui
+    profiles: ["tools"]
+    mem_limit: 512m
     ports:
       - "${KAFKA_UI_HOST_PORT}:8080"
     environment:
@@ -231,6 +244,7 @@ services:
     image: ${ICEBERG_REST_IMAGE:?ICEBERG_REST_IMAGE is required}
     container_name: de-demo-iceberg-rest
     hostname: iceberg-rest
+    mem_limit: 768m
     user: "0:0"
     command:
       - java
@@ -250,6 +264,7 @@ services:
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
       AWS_REGION: us-east-1
+      JAVA_TOOL_OPTIONS: "-Xms128m -Xmx384m"
     ports:
       - "${ICEBERG_REST_PORT}:8181"
     volumes:
@@ -278,6 +293,7 @@ services:
       dockerfile: Dockerfile
     image: de-practicum-demo-iceberg:0.11.1-h1
     container_name: de-demo-iceberg-writer
+    mem_limit: 384m
     logging: *bounded-logging
     working_dir: /app
     command:
@@ -304,9 +320,20 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       METRICS_ENABLED: "1"
       PROMETHEUS_METRICS_PORT: "9101"
+      OTEL_ENABLED: ${OTEL_ENABLED:-0}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
+      OTEL_EXPORTER_OTLP_TIMEOUT: ${OTEL_EXPORTER_OTLP_TIMEOUT:-5}
+      OTEL_SERVICE_NAMESPACE: ${OTEL_SERVICE_NAMESPACE:-de-practicum}
+      OTEL_DEPLOYMENT_ENVIRONMENT: ${OTEL_DEPLOYMENT_ENVIRONMENT:-local}
+      OPENLINEAGE_NAMESPACE: ${OPENLINEAGE_NAMESPACE:-de-practicum}
+      OPENLINEAGE_DISABLED: ${OPENLINEAGE_DISABLED:-}
+      OPENLINEAGE__TRANSPORT__TYPE: ${OPENLINEAGE_TRANSPORT_TYPE:-file}
+      OPENLINEAGE__TRANSPORT__LOG_FILE_PATH: /lineage/events.jsonl
+      OPENLINEAGE__TRANSPORT__APPEND: "true"
     volumes:
       - ./iceberg:/app:ro
       - de_demo_iceberg_writer_state:/state
+      - de_demo_lineage_events:/lineage
     depends_on:
       iceberg-rest:
         condition: service_healthy
@@ -322,6 +349,7 @@ services:
       dockerfile: Dockerfile
     image: de-practicum-demo-iceberg:0.11.1-h1
     container_name: de-demo-iceberg-medallion
+    mem_limit: 2560m
     logging: *bounded-logging
     working_dir: /app
     command:
@@ -343,6 +371,8 @@ services:
       MINIO_BUCKET: de-practicum
       BRONZE_OUTBOX_PREFIX: ${BRONZE_OUTBOX_PREFIX:-streaming/bronze_outbox}
       MEDALLION_PROGRESS_PATH: ${MEDALLION_PROGRESS_PATH:-streaming/medallion/progress.json}
+      MEDALLION_COMPLETION_LEDGER_PREFIX: ${MEDALLION_COMPLETION_LEDGER_PREFIX:-streaming/medallion/completion-ledger}
+      MEDALLION_SHADOW_RECEIPT_PATH: ${MEDALLION_SHADOW_RECEIPT_PATH:-streaming/medallion/shadow-certification.json}
       MAX_COMPLETED_PROGRESS: ${MAX_COMPLETED_PROGRESS:-100}
       S3_ENDPOINT: http://minio:9000
       S3_REGION: us-east-1
@@ -355,10 +385,21 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       METRICS_ENABLED: "1"
       PROMETHEUS_METRICS_PORT: "9102"
+      OTEL_ENABLED: ${OTEL_ENABLED:-0}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
+      OTEL_EXPORTER_OTLP_TIMEOUT: ${OTEL_EXPORTER_OTLP_TIMEOUT:-5}
+      OTEL_SERVICE_NAMESPACE: ${OTEL_SERVICE_NAMESPACE:-de-practicum}
+      OTEL_DEPLOYMENT_ENVIRONMENT: ${OTEL_DEPLOYMENT_ENVIRONMENT:-local}
       QUALITY_VALID_STATUSES: "created,paid,shipped,delivered"
       QUALITY_FAIL_ON_VIOLATIONS: "0"
+      OPENLINEAGE_NAMESPACE: ${OPENLINEAGE_NAMESPACE:-de-practicum}
+      OPENLINEAGE_DISABLED: ${OPENLINEAGE_DISABLED:-}
+      OPENLINEAGE__TRANSPORT__TYPE: ${OPENLINEAGE_TRANSPORT_TYPE:-file}
+      OPENLINEAGE__TRANSPORT__LOG_FILE_PATH: /lineage/events.jsonl
+      OPENLINEAGE__TRANSPORT__APPEND: "true"
     volumes:
       - ./iceberg:/app:ro
+      - de_demo_lineage_events:/lineage
     depends_on:
       iceberg-rest:
         condition: service_healthy
@@ -374,6 +415,8 @@ services:
       dockerfile: Dockerfile
     image: de-practicum-demo-observability:0.22.1-h1
     container_name: de-demo-observability-exporter
+    profiles: ["observability"]
+    mem_limit: 128m
     environment:
       POSTGRES_HOST: de-demo-postgres
       POSTGRES_PORT: "5432"
@@ -382,6 +425,11 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       PROMETHEUS_METRICS_PORT: "9104"
       PROMETHEUS_EXPORTER_POLL_SECONDS: "15"
+      OTEL_ENABLED: ${OTEL_ENABLED:-0}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
+      OTEL_EXPORTER_OTLP_TIMEOUT: ${OTEL_EXPORTER_OTLP_TIMEOUT:-5}
+      OTEL_SERVICE_NAMESPACE: ${OTEL_SERVICE_NAMESPACE:-de-practicum}
+      OTEL_DEPLOYMENT_ENVIRONMENT: ${OTEL_DEPLOYMENT_ENVIRONMENT:-local}
     ports:
       - "${OBSERVABILITY_EXPORTER_HOST_PORT:-19104}:9104"
     depends_on:
@@ -400,9 +448,12 @@ services:
   prometheus:
     image: ${PROMETHEUS_IMAGE:?PROMETHEUS_IMAGE is required}
     container_name: de-demo-prometheus
+    profiles: ["observability"]
+    mem_limit: 256m
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
+      - --enable-feature=exemplar-storage
       - --web.enable-lifecycle
     ports:
       - "${PROMETHEUS_HOST_PORT:-19090}:9090"
@@ -428,9 +479,96 @@ services:
     networks:
       - de_demo_net
 
+  otel-collector:
+    profiles: ["otel"]
+    image: ${OTEL_COLLECTOR_IMAGE:?OTEL_COLLECTOR_IMAGE is required when the otel profile is enabled}
+    container_name: de-demo-otel-collector
+    mem_limit: 256m
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./observability/otel/collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+      - de_demo_otel_storage:/var/lib/otelcol
+    healthcheck:
+      test: ["CMD", "/otelcol-contrib", "validate", "--config=/etc/otelcol-contrib/config.yaml"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - de_demo_net
+
+  tempo-minio:
+    profiles: ["observability-next"]
+    image: ${TEMPO_MINIO_IMAGE:?TEMPO_MINIO_IMAGE is required for the Tempo profile}
+    container_name: de-demo-tempo-minio
+    mem_limit: 256m
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${TEMPO_S3_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${TEMPO_S3_SECRET_KEY}
+    volumes:
+      - de_demo_tempo_minio_data:/data
+    networks:
+      - de_demo_net
+
+  tempo-minio-init:
+    profiles: ["observability-next"]
+    image: ${TEMPO_MINIO_MC_IMAGE:?TEMPO_MINIO_MC_IMAGE is required for the Tempo profile}
+    container_name: de-demo-tempo-minio-init
+    mem_limit: 128m
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        until mc alias set tempo http://tempo-minio:9000
+        "$${TEMPO_S3_ACCESS_KEY}" "$${TEMPO_S3_SECRET_KEY}"; do sleep 1; done;
+        mc mb --ignore-existing "tempo/$${TEMPO_S3_BUCKET}";
+        mc ilm rule add --expire-days 2 --prefix "$${TEMPO_S3_PREFIX}"
+        "tempo/$${TEMPO_S3_BUCKET}";
+    environment:
+      TEMPO_S3_ACCESS_KEY: ${TEMPO_S3_ACCESS_KEY}
+      TEMPO_S3_SECRET_KEY: ${TEMPO_S3_SECRET_KEY}
+      TEMPO_S3_BUCKET: ${TEMPO_S3_BUCKET}
+      TEMPO_S3_PREFIX: ${TEMPO_S3_PREFIX}
+    depends_on:
+      tempo-minio:
+        condition: service_started
+    networks:
+      - de_demo_net
+
+  tempo:
+    profiles: ["observability-next"]
+    image: ${TEMPO_IMAGE:?TEMPO_IMAGE is required for the Tempo profile}
+    container_name: de-demo-tempo
+    command:
+      - -config.file=/etc/tempo/tempo.yaml
+      - -config.expand-env=true
+      - -target=all
+    environment:
+      TEMPO_S3_ENDPOINT: tempo-minio:9000
+      TEMPO_S3_BUCKET: ${TEMPO_S3_BUCKET}
+      TEMPO_S3_PREFIX: ${TEMPO_S3_PREFIX}
+      TEMPO_S3_ACCESS_KEY: ${TEMPO_S3_ACCESS_KEY}
+      TEMPO_S3_SECRET_KEY: ${TEMPO_S3_SECRET_KEY}
+    ports:
+      - "${TEMPO_HOST_PORT:-13200}:3200"
+    volumes:
+      - ./observability/tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - de_demo_tempo_data:/var/tempo
+    depends_on:
+      tempo-minio-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    mem_limit: 768m
+    cpus: 1.0
+    networks:
+      - de_demo_net
+
   grafana:
     image: ${GRAFANA_IMAGE:?GRAFANA_IMAGE is required}
     container_name: de-demo-grafana
+    profiles: ["observability"]
+    mem_limit: 384m
     ports:
       - "${GRAFANA_HOST_PORT:-13001}:3000"
     environment:
@@ -458,6 +596,7 @@ services:
     image: ${TRINO_IMAGE:?TRINO_IMAGE is required}
     container_name: de-demo-trino
     hostname: trino
+    mem_limit: 1536m
     user: "0:0"
     command:
       - bash
@@ -469,6 +608,19 @@ services:
       - "${TRINO_HOST_PORT}:8080"
     volumes:
       - ./trino/etc:/etc/trino
+    # The image health-check parses config.properties textually and can retain
+    # a CR from a Windows checkout in the port value. Keep the readiness probe
+    # independent of repository line endings.
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -fsS http://127.0.0.1:8080/v1/info | grep -q '\"starting\":false'"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
     depends_on:
       iceberg-rest:
         condition: service_healthy
@@ -481,12 +633,15 @@ services:
   metabase:
     image: ${METABASE_IMAGE:?METABASE_IMAGE is required}
     container_name: de-demo-metabase
+    profiles: ["bi"]
+    mem_limit: 1280m
     ports:
       - "${METABASE_HOST_PORT}:3000"
     volumes:
       - de_demo_metabase_data:/metabase-data
     environment:
       MB_DB_FILE: /metabase-data/metabase.db
+      JAVA_TOOL_OPTIONS: "-Xms256m -Xmx768m"
     networks:
       - de_demo_net
 
@@ -496,6 +651,7 @@ services:
       dockerfile: Dockerfile
     image: de-practicum-demo-orders-producer:0.1.0
     container_name: de-demo-orders-producer
+    mem_limit: 128m
     logging: *bounded-logging
     working_dir: /app
     environment:
@@ -517,6 +673,7 @@ services:
       dockerfile: Dockerfile
     image: de-practicum-demo-spark:4.2.0-h1
     container_name: de-demo-orders-streaming
+    mem_limit: 1280m
     logging: *bounded-logging
     hostname: orders-streaming
 
@@ -530,6 +687,7 @@ services:
           --conf spark.driver.bindAddress=0.0.0.0 \
           --conf spark.driver.port=17080 \
           --conf spark.blockManager.port=17081 \
+          --conf spark.driver.memory=512m \
           --conf spark.executor.cores=1 \
           --conf spark.executor.memory=1g \
           --conf spark.hadoop.fs.s3a.endpoint=http://minio:9000 \
@@ -597,6 +755,8 @@ services:
   superset:
     image: ${SUPERSET_IMAGE:?SUPERSET_IMAGE is required}
     container_name: de-demo-superset
+    profiles: ["bi"]
+    mem_limit: 512m
     ports:
       - "18088:8088"
     environment:
@@ -615,6 +775,8 @@ services:
   superset-mcp:
     image: ${SUPERSET_IMAGE:?SUPERSET_IMAGE is required}
     container_name: de-demo-superset-mcp
+    profiles: ["bi"]
+    mem_limit: 512m
 
     command:
       - superset
@@ -656,11 +818,19 @@ volumes:
   de_demo_metabase_data:
   de_demo_superset_home:
   de_demo_iceberg_catalog:
+  # Explicit name: Airflow declares this volume from docker-compose.yml,
+  # which CI starts without this file. Both must resolve to one volume or
+  # the lineage receipt sees only half the emitted events.
+  de_demo_lineage_events:
+    name: de_demo_lineage_events
   de_demo_iceberg_writer_state:
   # Explicit name: the E2E test mounts this by name from a plain `docker run`,
   # so it must not carry the Compose project-name prefix.
   de_demo_prometheus_data:
   de_demo_grafana_data:
+  de_demo_otel_storage:
+  de_demo_tempo_data:
+  de_demo_tempo_minio_data:
 
 networks:
   de_demo_net:

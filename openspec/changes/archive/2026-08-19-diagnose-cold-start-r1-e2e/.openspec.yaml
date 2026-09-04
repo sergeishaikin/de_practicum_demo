@@ -1,0 +1,7 @@
+schema: spec-driven
+created: 2026-08-18
+
+# Diagnostic change: it classifies a failure and changes no behaviour, so it
+# declares no spec delta. A remedy, once classified, is proposed as its own
+# change and carries the requirement changes.
+skip_specs: true

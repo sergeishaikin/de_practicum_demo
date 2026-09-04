@@ -41,7 +41,7 @@ jobs:
         # runner. ci-integration.yml does the same.
         run: docker network create de_demo_net || true
       - name: Build and start full stack
-        run: docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml up -d --build
+        run: docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml --profile '*' up -d --build
       - name: Ensure warehouse bucket
         run: |
           for i in $(seq 1 24); do

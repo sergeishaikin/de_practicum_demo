@@ -46,6 +46,10 @@ The locally-built images are: `de-practicum-demo-airflow:0.1.0` (from `airflow.D
 
 Interactive work happens inside Jupyter (`http://localhost:18888`, token via `docker exec de-demo-jupyter jupyter server list`) or by executing jobs inside the containers. Python sources for the writer, medallion, producer, and Spark jobs are mounted into their containers as read-only volumes, so editing a file on the host takes effect after restarting the service.
 
+The optional OpenMetadata catalog/data UI is documented in
+[`CATALOG.md`](CATALOG.md). It is a separate `metadata` Compose profile and is
+never required by the default H1 stack.
+
 ## Build commands
 
 | Command | Description |
@@ -68,6 +72,69 @@ Equivalent direct Compose form used by the scripts:
 ```powershell
 docker compose --env-file .\.env -f .\docker-compose.yml -f .\docker-compose.extended.yml <command>
 ```
+
+Always pass **both** Compose files. The extended file declares `de_demo_net` as
+`external: true`; the base file alone declares it normally, so starting only
+`docker-compose.yml` against a network that already exists fails with a label
+mismatch.
+
+## Container runtime
+
+`docs/LOCAL-ENVIRONMENT.md` is the contract: what this host guarantees, when the
+agent must start Docker, and the last measured snapshot. This section is only
+how to drive it.
+
+**Host-side tools and the container runtime are separate things.** `uv`, `ruff`,
+`black`, `mypy` and the fast test suite run on the host and need no Docker at
+all. Everything with an `integration`, `iceberg`, `trino`, `e2e` or `airflow`
+marker needs the container runtime. `docker --version` answers the first
+question and not the second.
+
+### Is the engine actually running?
+
+```bash
+docker info --format '{{.ServerVersion}}'
+```
+
+A non-zero exit means the daemon is not responding — usually Docker Desktop is
+stopped, which is a startable state:
+
+```powershell
+Start-Process "C:\Program Files\Docker\Docker\Docker Desktop.exe"
+for ($i = 0; $i -lt 60; $i++) {
+    docker info --format '{{.ServerVersion}}' 2>$null
+    if ($?) { break }
+    Start-Sleep -Seconds 5
+}
+```
+
+### Inspecting what is available
+
+```bash
+# Everything at once, read-only, plus a machine-readable copy:
+uv run python scripts/local_runtime_inventory.py     --json artifacts/local-environment/runtime-inventory.json
+
+# Or piecemeal:
+docker info --format '{{.NCPU}} CPUs / {{.MemTotal}} bytes'
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml config --services
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml config --images
+docker system df
+```
+
+Never maintain a service or image list by hand — Compose can produce both, and a
+hand-written copy drifts from the file it claims to describe.
+
+### Locally built images
+
+Six images are built from this repository rather than pulled. Enumerate them
+mechanically rather than trusting this list to stay current:
+
+```bash
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml config --images   | grep '^de-practicum-demo-'
+```
+
+As last measured: `airflow`, `iceberg`, `jupyter`, `observability`,
+`orders-producer` and `spark`.
 
 ## Code style
 
@@ -95,7 +162,7 @@ The batch pipeline lives in `dags/warehouse_orders.py` and is built on the Airfl
 
 - `load_raw_csv_to_stg` truncates `stg.*` and copies the CSV files from `data/raw/` via `COPY ... FROM stdin`.
 - `validate_staging` parses the four CSVs with Python's `csv` module and requires each non-empty data-row count to exactly match the corresponding staging table before any core/marts mutation.
-- `core.rebuild_core` executes the unchanged `db/pipeline_sql/10_rebuild_core.sql`, which still owns core tables and marts views in one transaction.
+- `core.rebuild_core` executes the unchanged `db/pipeline_sql/10_rebuild_core.sql`, which owns the core tables in one transaction. It does not touch `marts`; dbt owns the mart views (see [W1](warehouse/W1-dbt-ownership.md)).
 - `core.validate_core` only checks queryability and collects row counts. The terminal publisher emits `core.orders`/`core.order_items` events only after all ingestion predecessors succeed.
 - The successful `core.orders` event automatically schedules `warehouse_marts_validation`; no code manually triggers it.
 - `quality.check_payment_reconcile` preserves the `0.01` payment rule. `publication.write_audit` keeps the downstream DagRun ID as `marts.pipeline_runs.run_id` and stores the source event's `source_dag_run.run_id` in nullable `ingestion_run_id`.
@@ -107,7 +174,10 @@ do not claim ownership of external streaming or Iceberg events. The
 
 The base stack is defined in `docker-compose.yml`; the same service is available in `docker-compose.local-airflow.yml` using a pre-built local image (`local/airflow:3.3.1-lab`, `pull_policy: never`) as an offline fallback. The Airflow container uses `airflow standalone`, LocalExecutor with parallelism `4`, and the dedicated `airflow_meta` database in PostgreSQL. The idempotent `airflow-db-init` service provisions the database before Airflow starts, so metadata survives container recreation. Simple Auth Manager runs in all-admin mode with no login prompt, and the named UI is bound only to `127.0.0.1`.
 
-The SQL behind the layers (`stg` → `core` → `marts`) lives in `db/`. PostgreSQL
+The SQL that loads `stg` and rebuilds `core` lives in `db/`. dbt owns the SQL
+above that point: the dbt staging models in `staging.stg_*` and the mart views in
+`marts.v_*` are defined in `dbt/warehouse` (see
+[docs/warehouse/](warehouse/README.md)). PostgreSQL
 runs `db/init/` when its volume is first created. For an existing volume,
 `scripts/bootstrap_stack.py` applies the idempotent warehouse provenance
 migration as well as the Airflow metadata bootstrap; no volume reset is
@@ -133,7 +203,7 @@ Both services share the `iceberg/Dockerfile` image (`python:3.12-slim` with `pyi
 
 - `iceberg/writer/iceberg_writer.py` — polls `s3://de-practicum/streaming/orders_raw`, waits for files to settle, records them in `/state/ingested.json` under a new `load-id`, appends them to `bronze.orders` with the `load-id` in the snapshot summary, then marks the files done. On startup it reconciles `pending` load-ids against the table's snapshot summaries so committed batches are never re-appended. A commit that races another writer/maintenance (`CommitFailedException`) is retried up to `MAX_APPEND_ATTEMPTS`. `SIMULATE_CRASH_AFTER_COMMIT=1` / `SIMULATE_CRASH_BEFORE_COMMIT=1` force a simulated crash for demos.
 - `iceberg/medallion/iceberg_medallion.py` — every `MEDALLION_INTERVAL_SECONDS` it reads all of `bronze.orders`, runs PyArrow quality assertions (`QUALITY_VALID_STATUSES`, null/positive `amount`, non-null `order_id`/`country`/`event_time`), then overwrites `silver.orders_clean` (deduplicated by `order_id`, highest `business_version` wins — transport ordering never decides; see [ADR-0001 D-1a](adr/0001-incremental-silver-and-gold.md)) and `gold.orders_daily_metrics` (per `event_date`/`country`/`status`: `orders_count`, `total_amount`, `avg_amount`, `distinct_customers`). Violations are counted and logged; `QUALITY_FAIL_ON_VIOLATIONS=1` aborts the cycle instead.
-- `iceberg/common/ops.py` — `Metrics.record()` writes one row to `marts.lakehouse_metrics` after each writer batch and each medallion cycle (best-effort; `METRICS_ENABLED=0` disables it). See [CONFIGURATION.md](CONFIGURATION.md).
+- `iceberg/common/ops.py` — `Metrics.record()` writes a single row to `marts.lakehouse_metrics` after each writer batch, and one row per executed phase plus a `cycle` envelope row after each medallion cycle (best-effort; `METRICS_ENABLED=0` disables it). See [CONFIGURATION.md](CONFIGURATION.md).
 
 ### Iceberg maintenance DAG
 
@@ -155,7 +225,7 @@ Trigger a run: `docker exec de-demo-airflow airflow dags trigger lakehouse_maint
 |---|---|
 | `scripts/stack-up.ps1`, `stack-down.ps1`, `stack-build.ps1`, `stack-status.ps1`, `stack-logs.ps1`, `stack-reset.ps1` | Stack lifecycle behind `stack.ps1`. |
 | `scripts/doctor.cmd` / `doctor.sh` | Environment diagnostics (Docker, Compose, CSV files, ports). |
-| `scripts/show_layers.cmd` / `show_layers.sh` | Inspect `stg`/`core`/`marts` layer state. |
+| `scripts/show_layers.cmd` / `show_layers.sh` | Inspect `stg`/`core`/`staging`/`marts` layer state. Needs a completed ingestion run: dbt owns `staging.*` and `marts.v_*`, so they do not exist on a freshly initialised database. |
 | `scripts/run_checks.cmd` / `run_checks.sh` | Run the SQL quality checks in `db/demo_sql/`. |
 | `scripts/build_report.cmd` / `build_report.sh` | Render `reports/demo_quality_report.html`. <!-- VERIFY: reports/demo_quality_report.html is a runtime artifact generated by the script, not committed to the repo --> |
 | `scripts/check_task_sql.cmd` / `check_task_sql.sh` | Grade the SQL exercise (`db/tasks/01_create_payment_type_daily.sql`). |

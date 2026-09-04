@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | **Accepted** — P-0, D-1, D-1a, D-2, D-3, D-4 and PREREQ-1 accepted; **D-3a physical layout tuning deferred** |
+| **Status** | **Accepted** — P-0, D-1, D-1a, D-2, D-3, D-4 and PREREQ-1 accepted; **D-3a physical layout tuning deferred**; **D-4 amended post Phase 4** — see *Decision amendment — post Phase 4 (GLD-01)* at the end of this file |
 | **Date** | 2026-08-08 (revised after SPIKE-1 and SPIKE-2: PyIceberg B2 accepted for Silver execution; layout tuning deferred) |
 | **Deciders** | *(unassigned)* |
 | **Supersedes** | nothing — this is the repository's first ADR |
@@ -465,7 +465,7 @@ version resolution, out-of-order arrival, idempotency — is absorbed by Silver 
 Gold. That is the whole value of the boundary.
 
 
-> **Gold is not made incremental. It is rebuilt in full from persisted Silver on every cycle.**
+> **Gold is not made incremental. It is rebuilt in full from persisted Silver on every cycle in which persisted Silver changed.**
 
 | Reason | Detail |
 |---|---|
@@ -839,3 +839,38 @@ accepted decisions in sections 3 and 5:
   Silver and Gold ownership/read paths to Trino and adding a larger runtime migration surface.
 - **Next step:** execute the dependency-ordered remediation plan. Layout tuning is not on the
   critical path for the first B2 implementation.
+
+---
+
+## Decision amendment — post Phase 4 (GLD-01)
+
+**Supersedes the wording of D-4 only.** The decision and all six reasons in the D-4 table
+stand as ratified; none of them is an argument for rebuilding when nothing changed. The
+blockquote now reads *"rebuilt in full from persisted Silver on every cycle in which
+persisted Silver changed."*
+
+**The invariant D-4 exists to protect is preserved.** Gold state is always the exact full
+rebuild of the current persisted Silver. Gold does not become incremental, partial or
+delta-based; the **Verifiability** reason in particular is untouched, because every rebuild
+that happens is still the same exactly verifiable full rebuild. What changes is narrower: a
+rebuild whose result is provably identical to the Gold state already in the catalog is
+elided. The proof is the identity of the persisted Silver snapshot the current Gold state
+was built from, stamped on the Gold commit as `source-silver-snapshot-id` and read back from
+the current Gold snapshot each cycle. Absent, unparsable or stale provenance rebuilds, so
+the elision fails safe.
+
+**Evidence.** [`artifacts/b2-rollout/06-o1-window.json`](../../artifacts/b2-rollout/06-o1-window.json)
+records five outer cycles at demo volume. Gold cost 4.1–5.6 s on **every** one of them,
+including the four that did no work at all — only one cycle processed anything (1 file, 1
+key, 4,422 bytes planned). A literal reading of *"on every cycle"* therefore priced a
+guaranteed no-op at seconds per cycle, indefinitely. This is a five-cycle sample and
+establishes no scaling relationship; it establishes only that the cost is paid when nothing
+changed.
+
+**Scope boundary.** The amendment covers the persisted-Silver Gold source. Under
+`GOLD_SOURCE=legacy` the Gold input is the in-memory rebuild derived from Bronze, which no
+persisted-Silver stamp describes, and that path is unchanged: it writes every cycle and
+stamps nothing. If implementation pressure ever pushes toward a **partial or delta** Gold —
+aggregating from a Silver delta rather than skipping a provably redundant full rebuild —
+that is outside this amendment and needs a fresh decision, argued against the six reasons
+above rather than around them.

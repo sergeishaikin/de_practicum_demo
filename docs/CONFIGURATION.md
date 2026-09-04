@@ -45,6 +45,36 @@
 | `GRAFANA_IMAGE` | Optional | `grafana/grafana:11.2.0` | Grafana image tag. |
 | `GRAFANA_HOST_PORT` | Optional | `13001` | Grafana host port. |
 
+### Optional observability profile (NG-0.5)
+
+These settings are read from `.env` when the `otel` or
+`observability-next` Compose profiles are enabled. The reference
+`.env.example` pins the Collector, Tempo, and MinIO helper images by digest;
+keep real secrets in the untracked `.env` file.
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `OTEL_COLLECTOR_IMAGE` | Required for `otel` | digest-pinned contrib Collector | Collector image. |
+| `OTEL_ENABLED` | Optional | `0` | Set `1` to enable first-party OTLP instrumentation. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Optional | `http://otel-collector:4317` | Internal OTLP/gRPC endpoint. |
+| `OTEL_EXPORTER_OTLP_TIMEOUT` | Optional | `5` | Export timeout in seconds. |
+| `OTEL_SERVICE_NAMESPACE` | Optional | `de-practicum` | Stable resource namespace. |
+| `OTEL_DEPLOYMENT_ENVIRONMENT` | Optional | `local` | Stable deployment environment attribute. |
+| `TEMPO_IMAGE` | Required for `observability-next` | digest-pinned Tempo 3.0.3 | Monolithic Tempo image. |
+| `TEMPO_HOST_PORT` | Optional | `13200` | Host port for Tempo HTTP/query API. |
+| `TEMPO_S3_BUCKET` | Optional | `tempo-traces` | Dedicated trace bucket. |
+| `TEMPO_S3_PREFIX` | Optional | `ng05/` | Dedicated trace object prefix. |
+| `TEMPO_S3_ACCESS_KEY` | Required for `observability-next` | `tempo-demo` | Trace-store access identity; do not reuse warehouse credentials. |
+| `TEMPO_S3_SECRET_KEY` | Required for `observability-next` | placeholder | Secret for the dedicated trace store. |
+| `TEMPO_MINIO_IMAGE` / `TEMPO_MINIO_MC_IMAGE` | Required for `observability-next` | digest-pinned | Dedicated MinIO and initialization helper images. |
+| `GRAFANA_ADMIN_PASSWORD` | Required for Grafana | placeholder | Local Grafana admin password. |
+
+Enablement is explicit: `--profile otel` starts the Collector, while adding
+`--profile observability-next` starts Tempo and its dedicated MinIO store;
+Grafana is part of the extended stack and uses its provisioned Tempo datasource
+when that backend is running. Prometheus continues its direct scrape path in
+either case.
+
 ### Required beyond `.env.example`
 
 | Variable | Required | Description |
@@ -71,7 +101,7 @@ Iceberg writer (`iceberg/writer/iceberg_writer.py`):
 | `SIMULATE_CRASH_AFTER_COMMIT` / `SIMULATE_CRASH_BEFORE_COMMIT` | `0` | Demo switches that force a simulated crash (`1` enables). |
 | `PROMETHEUS_METRICS_PORT` | unset locally; `9101` in Compose | In-process metrics HTTP port. |
 
-Iceberg medallion (`iceberg/medallion/iceberg_medallion.py`): `BRONZE_NAMESPACE`/`BRONZE_TABLE` (defaults `bronze`/`orders`), `SILVER_NAMESPACE`/`SILVER_TABLE` (defaults `silver`/`orders_clean`), `GOLD_NAMESPACE`/`GOLD_TABLE` (defaults `gold`/`orders_daily_metrics`), `MEDALLION_INTERVAL_SECONDS` (default `60`), `QUALITY_VALID_STATUSES` (default `created,paid,shipped,delivered`, comma-separated allowed `status` values), `QUALITY_FAIL_ON_VIOLATIONS` (default `0`; `1` aborts the cycle when a quality check fails), `PROMETHEUS_METRICS_PORT` (unset locally; `9102` in Compose), plus the shared `ICEBERG_CATALOG_URI`, `ICEBERG_WAREHOUSE`, `S3_ENDPOINT`, `S3_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`.
+Iceberg medallion (`iceberg/medallion/iceberg_medallion.py`): `BRONZE_NAMESPACE`/`BRONZE_TABLE` (defaults `bronze`/`orders`), `SILVER_NAMESPACE`/`SILVER_TABLE` (defaults `silver`/`orders_clean`), `GOLD_NAMESPACE`/`GOLD_TABLE` (defaults `gold`/`orders_daily_metrics`), `MEDALLION_INTERVAL_SECONDS` (default `60`), `QUALITY_VALID_STATUSES` (default `created,paid,shipped,delivered`, comma-separated allowed `status` values), `QUALITY_FAIL_ON_VIOLATIONS` (default `0`; `1` aborts the cycle when a quality check fails), `PROMETHEUS_METRICS_PORT` (unset locally; `9102` in Compose), `MEDALLION_COMPLETION_LEDGER_PREFIX` (default `streaming/medallion/completion-ledger`, the MinIO prefix holding one immutable success receipt per completed Bronze work manifest), `MEDALLION_SHADOW_RECEIPT_PATH` (default `streaming/medallion/shadow-certification.json`, the MinIO object certifying the last passing shadow comparison; it names the Bronze and Silver snapshots, the runtime and the projection contract it validated, and a cycle skips the comparison only while all four still match — a missing, unreadable, malformed or stale certificate always means run the comparison), plus the shared `ICEBERG_CATALOG_URI`, `ICEBERG_WAREHOUSE`, `S3_ENDPOINT`, `S3_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`.
 
 Metrics (`iceberg/common/ops.py`, used by writer and medallion): `METRICS_ENABLED` (default `1`; `0` disables metric writes), `POSTGRES_HOST` (`de-demo-postgres`), `POSTGRES_PORT` (`5432`), `POSTGRES_DB` (`dwh`), `POSTGRES_USER` (`app`), `POSTGRES_PASSWORD` (`app`). Metric writes are best-effort: a Postgres failure is logged and never breaks ingestion.
 

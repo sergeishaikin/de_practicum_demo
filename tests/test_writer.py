@@ -66,6 +66,11 @@ class FakeFS:
 
         return BytesIO(self.metadata[path].encode("utf-8"))
 
+    def open_input_stream(self, path: str):
+        # The writer reads commit logs sequentially; the double mirrors the API
+        # the production code actually calls.
+        return self.open_input_file(path)
+
 
 def spark_metadata(*paths: str) -> str:
     entries = [{"path": path, "action": "add"} for path in paths]

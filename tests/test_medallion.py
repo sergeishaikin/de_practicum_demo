@@ -7,6 +7,7 @@ import pytest
 
 from medallion import iceberg_medallion as m
 from tests.support.fakes import FakeCatalog, FakeMetrics, FakeTable
+from tests.support import medallion_harness as h
 
 TS = datetime(2026, 1, 1, 12, 0, 0)
 EVENT_DATE = date(2026, 1, 1)
@@ -261,13 +262,13 @@ class TestRun:
         gold = catalog.tables["gold.orders_daily_metrics"].df
         assert silver.num_rows == 2
         assert gold.num_rows == 2
-        assert metrics.records[-1]["status"] == "success"
-        assert metrics.records[-1]["source"] == "medallion"
-        assert metrics.records[-1]["bronze_rows"] == 3
-        assert metrics.records[-1]["silver_rows"] == 2
-        assert metrics.records[-1]["gold_rows"] == 2
-        assert metrics.records[-1]["duplicates_removed"] == 1
-        assert metrics.records[-1]["quality_violations"] == 0
+        assert metrics.cycle()["status"] == "success"
+        assert metrics.cycle()["source"] == "medallion"
+        assert metrics.cycle()["bronze_rows"] == 3
+        assert metrics.cycle()["silver_rows"] == 2
+        assert metrics.cycle()["gold_rows"] == 2
+        assert metrics.cycle()["duplicates_removed"] == 1
+        assert metrics.cycle()["quality_violations"] == 0
 
     def test_bronze_missing_skips_cycle(self) -> None:
         metrics = FakeMetrics()
@@ -298,8 +299,8 @@ class TestRun:
         )
         metrics = FakeMetrics()
         m.run(catalog, metrics)
-        assert metrics.records[-1]["status"] == "failed"
-        assert metrics.records[-1]["quality_violations"] == 1
+        assert metrics.cycle()["status"] == "failed"
+        assert metrics.cycle()["quality_violations"] == 1
         assert "silver.orders_clean" not in catalog.tables
 
     def test_violations_recorded_but_proceeds_when_not_fatal(self) -> None:
@@ -328,8 +329,8 @@ class TestRun:
             )
             metrics = FakeMetrics()
             m.run(catalog, metrics)
-            assert metrics.records[-1]["status"] == "success"
-            assert metrics.records[-1]["quality_violations"] == 1
+            assert metrics.cycle()["status"] == "success"
+            assert metrics.cycle()["quality_violations"] == 1
             assert catalog.tables["silver.orders_clean"].df.num_rows == 2
         finally:
             monkeypatch.undo()
@@ -365,3 +366,276 @@ class TestCatalogAndMain:
             m.main()
         assert calls["n"] == 2
         assert "Medallion error: boom" in capsys.readouterr().err
+
+
+def marker_lines(captured: str) -> list[str]:
+    """Every stdout line the cycle-complete marker owns."""
+
+    return [
+        line
+        for line in captured.splitlines()
+        if line.startswith(m.CYCLE_COMPLETE_MARKER)
+    ]
+
+
+def b2_lake(monkeypatch, *, gold_source: str = "legacy", shadow: bool = True):
+    """A b2 deployment whose persisted Silver agrees with the legacy rebuild.
+
+    Shadow comparison is fail-closed, so a cycle only completes when the two
+    projections match; deriving persisted Silver from the same Bronze is the
+    cheapest way to say "this deployment is healthy".
+    """
+
+    bronze_df = bronze_table([("a", "c1", 10.0, "US", "paid", 0, 1, 1)])
+    catalog = FakeCatalog(
+        {
+            "bronze.orders": FakeTable(bronze_df),
+            "silver.orders_clean": FakeTable(m.build_silver(bronze_df)),
+            "gold.orders_daily_metrics": FakeTable(),
+        }
+    )
+    monkeypatch.setattr(m, "run_b2", lambda *args, **kwargs: None)
+    monkeypatch.setattr(m, "GOLD_SOURCE", gold_source)
+    monkeypatch.setattr(m, "SHADOW_COMPARE_ENABLED", shadow)
+    return catalog, FakeMetrics()
+
+
+class TestCycleCompleteMarker:
+    """The per-cycle stdout line the integration harness reads as liveness.
+
+    The format is fixed here for the rest of the phase: a deployment that
+    completed a cycle says so exactly once, and one that did not says nothing.
+    """
+
+    def test_marker_token_is_stable(self) -> None:
+        assert m.CYCLE_COMPLETE_MARKER == "cycle-complete"
+
+    def test_completed_b2_cycle_announces_itself_once(
+        self, monkeypatch, capsys
+    ) -> None:
+        catalog, metrics = b2_lake(monkeypatch)
+
+        m.run(catalog, metrics, "b2")
+
+        lines = marker_lines(capsys.readouterr().out)
+        assert len(lines) == 1
+        fields = lines[0].split()
+        assert fields[0] == m.CYCLE_COMPLETE_MARKER
+        assert [field.split("=", 1)[0] for field in fields[1:]] == [
+            "cycle_id",
+            "gold",
+            "shadow",
+            "duration_ms",
+        ]
+        values = dict(field.split("=", 1) for field in fields[1:])
+        assert values["cycle_id"] == metrics.cycle()["cycle_id"]
+        assert values["gold"] == "rebuilt"
+        assert values["shadow"] == "compared"
+
+    def test_marker_duration_is_the_cycle_records_duration(
+        self, monkeypatch, capsys
+    ) -> None:
+        catalog, metrics = b2_lake(monkeypatch)
+
+        m.run(catalog, metrics, "b2")
+
+        values = dict(
+            field.split("=", 1)
+            for field in marker_lines(capsys.readouterr().out)[0].split()[1:]
+        )
+        assert int(values["duration_ms"]) == metrics.cycle()["duration_ms"]
+
+    def test_shadow_disabled_is_reported_as_disabled(self, monkeypatch, capsys) -> None:
+        catalog, metrics = b2_lake(monkeypatch, shadow=False)
+
+        m.run(catalog, metrics, "b2")
+
+        values = dict(
+            field.split("=", 1)
+            for field in marker_lines(capsys.readouterr().out)[0].split()[1:]
+        )
+        assert values["shadow"] == "disabled"
+
+    def test_completed_legacy_cycle_reports_a_rebuild_without_shadow(
+        self, capsys
+    ) -> None:
+        catalog = FakeCatalog(
+            {
+                "bronze.orders": FakeTable(
+                    bronze_table([("a", "c1", 10.0, "US", "paid", 0, 1)])
+                )
+            }
+        )
+        metrics = FakeMetrics()
+
+        m.run(catalog, metrics)
+
+        values = dict(
+            field.split("=", 1)
+            for field in marker_lines(capsys.readouterr().out)[0].split()[1:]
+        )
+        assert values["gold"] == "rebuilt"
+        assert values["shadow"] == "disabled"
+        assert values["cycle_id"] == metrics.cycle()["cycle_id"]
+        assert int(values["duration_ms"]) == metrics.cycle()["duration_ms"]
+
+    def test_shadow_mismatch_prints_no_marker(self, monkeypatch, capsys) -> None:
+        catalog, metrics = b2_lake(monkeypatch)
+        catalog.tables["silver.orders_clean"].df = m.build_silver(
+            bronze_table([("a", "c1", 99.0, "US", "paid", 0, 1, 1)])
+        )
+
+        with pytest.raises(ValueError, match="Shadow comparison failed"):
+            m.run(catalog, metrics, "b2")
+
+        assert marker_lines(capsys.readouterr().out) == []
+
+    def test_absent_bronze_prints_no_marker(self, capsys) -> None:
+        m.run(FakeCatalog({}), FakeMetrics())
+
+        assert marker_lines(capsys.readouterr().out) == []
+
+
+class FakeProcess:
+    """The slice of ``subprocess.Popen`` a ``CycleWatcher`` actually touches.
+
+    Streams are plain iterables of lines, which is what the watcher's drain
+    loop consumes from a real text-mode pipe as well. `returncode` of ``None``
+    means "still running", matching ``Popen.poll``.
+    """
+
+    def __init__(
+        self,
+        stdout: list[str],
+        stderr: list[str] | None = None,
+        returncode: int | None = None,
+    ) -> None:
+        self.stdout = list(stdout)
+        self.stderr = list(stderr or [])
+        self._returncode = returncode
+
+    def poll(self) -> int | None:
+        return self._returncode
+
+
+def cycle_line(**overrides: str) -> str:
+    fields = {
+        "cycle_id": "ab12",
+        "gold": "rebuilt",
+        "shadow": "compared",
+        "duration_ms": "1234",
+    }
+    fields.update(overrides)
+    return (
+        f"{m.CYCLE_COMPLETE_MARKER} "
+        + " ".join(f"{key}={value}" for key, value in fields.items())
+        + "\n"
+    )
+
+
+class TestParseCycleMarker:
+    """The harness's reader for the marker `run()` prints.
+
+    These prove the parsing contract without a stack. What they deliberately do
+    *not* prove is that a real medallion subprocess emits the marker down a real
+    pipe — that is the live layer's job, and `ci-m5-gates.yml` runs it on the PR.
+    """
+
+    def test_well_formed_line_yields_every_field(self) -> None:
+        assert h.parse_cycle_marker(
+            "cycle-complete cycle_id=ab12 gold=rebuilt "
+            "shadow=compared duration_ms=1234"
+        ) == {
+            "cycle_id": "ab12",
+            "gold": "rebuilt",
+            "shadow": "compared",
+            "duration_ms": 1234,
+        }
+
+    def test_duration_is_coerced_to_an_int(self) -> None:
+        assert h.parse_cycle_marker(cycle_line(duration_ms="0"))["duration_ms"] == 0
+
+    @pytest.mark.parametrize(
+        ("line", "why"),
+        [
+            ("", "an empty line"),
+            ("\n", "a blank line"),
+            ("Gold gold.orders: overwritten with 2 daily metrics", "an ordinary log"),
+            (
+                "Medallion error: cycle-complete cycle_id=ab12 gold=rebuilt "
+                "shadow=compared duration_ms=1234",
+                "a line that only quotes the marker",
+            ),
+            (
+                "cycle-complete cycle_id=ab12 gold rebuilt "
+                "shadow=compared duration_ms=1234",
+                "a field with no value",
+            ),
+            (
+                "cycle-complete cycle_id=ab12 gold=rebuilt shadow=compared",
+                "a missing field",
+            ),
+            (
+                "cycle-complete cycle_id=ab12 gold=rebuilt "
+                "shadow=compared duration_ms=fast",
+                "a non-integer duration",
+            ),
+            (
+                "cycle-complete cycle_id=ab12 gold=rebuilt shadow=compared "
+                "duration_ms=1234 extra=1",
+                "an unknown field",
+            ),
+        ],
+    )
+    def test_anything_else_is_not_a_marker(self, line: str, why: str) -> None:
+        assert h.parse_cycle_marker(line) is None, why
+
+
+class TestCycleWatcher:
+    def test_returns_the_announced_cycle(self) -> None:
+        watcher = h.CycleWatcher(FakeProcess([cycle_line()]))
+        try:
+            assert watcher.wait_for_cycle_complete(timeout=5) == {
+                "cycle_id": "ab12",
+                "gold": "rebuilt",
+                "shadow": "compared",
+                "duration_ms": 1234,
+            }
+        finally:
+            watcher.close()
+
+    def test_silence_raises_with_both_pipes_quoted(self) -> None:
+        watcher = h.CycleWatcher(
+            FakeProcess(
+                ["Bronze table not available yet; skipping cycle\n"],
+                stderr=["Medallion error: boom\n"],
+            )
+        )
+        try:
+            with pytest.raises(AssertionError) as failure:
+                watcher.wait_for_cycle_complete(timeout=0.2)
+        finally:
+            watcher.close()
+        message = str(failure.value)
+        assert "Bronze table not available yet" in message
+        assert "Medallion error: boom" in message
+
+    def test_a_non_matching_decision_does_not_satisfy_the_wait(self) -> None:
+        watcher = h.CycleWatcher(
+            FakeProcess([cycle_line(), cycle_line(cycle_id="cd34", gold="skipped")])
+        )
+        try:
+            marker = watcher.wait_for_cycle_complete(timeout=5, gold="skipped")
+        finally:
+            watcher.close()
+        assert marker["cycle_id"] == "cd34"
+
+    def test_a_dead_deployment_fails_without_waiting_out_the_timeout(self) -> None:
+        watcher = h.CycleWatcher(
+            FakeProcess([], stderr=["Unsupported rollout state\n"], returncode=1)
+        )
+        try:
+            with pytest.raises(AssertionError, match="exited with 1"):
+                watcher.wait_for_cycle_complete(timeout=30)
+        finally:
+            watcher.close()
