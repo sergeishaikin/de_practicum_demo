@@ -186,3 +186,12 @@ Loki was down observed queue capacity 256 and queue size 176 (bounded; no
 overflow counter was required because the near-capacity condition was met),
 while canonical work remained successful. The latency receipt is explicitly a
 single sample (`logql_latency_sample_ms`), not p95.
+
+Exact M2C remote receipts: capability CI run `33884396179` completed
+**SUCCESS** on implementation SHA `3a07da170fb460f5fd2342e63b29786529da013f7`.
+It validated the Collector v0.157.0 configuration, persistent Loki queue,
+near-capacity bounded pressure, hard-restart recovery and all prior M2B
+contracts. Core H1 run `33884414502` also completed **SUCCESS** on the same
+SHA with Loki disabled. The new runtime/config receipts supersede the earlier
+M2B exact-SHA receipts for closure; lifecycle remains `ACTIVE / pending` until
+separately authorised adoption/archive.

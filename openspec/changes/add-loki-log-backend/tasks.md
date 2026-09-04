@@ -43,4 +43,4 @@
 - [x] Demonstrate WAL growth, hard Collector restart and post-restore recovery.
 - [x] Exercise bounded near-capacity queue pressure with canonical work intact.
 - [x] Rename the single LogQL latency receipt honestly (no fake p95 claim).
-- [ ] Run new exact-SHA capability CI and Loki-free H1; keep lifecycle ACTIVE/pending.
+- [x] Run new exact-SHA capability CI and Loki-free H1; keep lifecycle ACTIVE/pending.
