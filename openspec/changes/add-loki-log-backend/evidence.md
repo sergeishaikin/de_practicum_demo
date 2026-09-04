@@ -110,3 +110,9 @@ expiry was not observed in this bounded run. Canonical parity was checked by
 keeping canonical MinIO and the Collector healthy during Loki stop/restart;
 the full business workload parity remains a follow-up acceptance detail, not
 an adoption claim.
+
+Exact implementation-SHA core H1: run `33872953865` **SUCCESS** on
+`55acd9eacc72953e7f9ee5e2bc34ae194d67d327`. Both the fresh-volume full
+verification and NG-0.4 OTel-owned clean phases passed, including deterministic
+E2E, dbt semantic contract, Prometheus/Grafana smoke, Collector outage parity,
+and teardown. H1 ran without the Loki profile, proving profile independence.
