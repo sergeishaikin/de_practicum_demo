@@ -1,8 +1,8 @@
 # NG-0.7 — Grafana Correlation, Operational UI and SLI/SLO Layer
 
-> **Lifecycle:** PLANNED
+> **Lifecycle:** ACTIVE
 > **Disposition:** pending
-> **Execution authorization:** NONE. This file specifies a future bounded change; it does not authorize implementation by itself.
+> **Execution authorization:** `operator:explicit-ng-0.7-milestone-1` (research/design/preflight only; no implementation authorization).
 > **Opens as:** `add-grafana-correlation-slo`
 > **Repository:** `sergeishaikin/de_practicum_demo`
 > **Baseline branch used for analysis:** `test/dbt-extensive-testing`
