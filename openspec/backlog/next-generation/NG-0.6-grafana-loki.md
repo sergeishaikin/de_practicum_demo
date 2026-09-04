@@ -1,18 +1,19 @@
 # NG-0.6 — Grafana Loki Log Backend
 
-> **Lifecycle:** PLANNED
-> **Disposition:** pending
-> **Execution authorization:** NONE. This file specifies a future bounded change; it does not authorize implementation by itself.
+> **Lifecycle:** DONE
+> **Disposition:** ADOPTED
+> **Historical intent:** This item records the pre-adoption contract; it is historical intent, not current behaviour. Current truth is the standing `openspec/specs/loki-log-backend/spec.md` and the archived `add-loki-log-backend` change.
+> **Execution authorization:** `operator:explicit-ng-0.6-milestone-1` opened recovery, design and preflight. Subsequent explicit operator continuations authorised bounded M2 implementation/local acceptance, M2B closure blockers, M2C persistent queue/WAL repair, test-contract repair, and final adoption/archive of this same change. None of these authorisations grants NG-0.7 or any successor item.
 > **Opens as:** `add-loki-log-backend`
 > **Repository:** `sergeishaikin/de_practicum_demo`
-> **Baseline branch used for analysis:** `test/dbt-extensive-testing`
+> **Baseline branch used for analysis:** `test/dbt-extensive-testing` at `07b475fd28a831794d817580c1dee09c56d098b9`; working branch `feature/ng-0.6-loki`.
 > **SDD convention:** implementation SHALL be opened as its own OpenSpec change with `proposal.md`, `design.md`, `tasks.md`, evidence, and the required spec delta before code is applied.
 
 Normative terms `SHALL`, `SHALL NOT`, `SHOULD`, and `MAY` are intentional. A requirement is not complete because a container starts; it is complete only when its acceptance evidence is captured and the relevant live CI gates are green.
 
 ## Freshness of external assumptions
 
-Versions, compatibility matrices, resource requirements, connector capabilities and product limitations recorded in this item are planning assumptions, not frozen truths. They were recorded against the baseline branch named above and are not re-verified while the item sits in the backlog.
+Versions, compatibility matrices, resource requirements, connector capabilities and product limitations recorded in this item are planning assumptions, not frozen truths. They were re-verified for Milestone 1 on 2026-09-04 against the primary sources recorded in the active change evidence.
 
 - **WHEN** this item is promoted to an authorised change
 - **THEN** every externally time-sensitive premise SHALL be re-verified against primary documentation before the design is accepted
@@ -38,7 +39,7 @@ Make first-party service logs centrally searchable and correlatable with trace I
 - No direct Loki exporter if native OTLP is supported by the pinned Loki version.
 - No secrets/full event payloads in logs.
 
-## ADDED Requirements
+## ADDED Requirements (historical change delta)
 
 ### Requirement: Structured logging
 

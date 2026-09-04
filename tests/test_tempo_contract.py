@@ -67,7 +67,8 @@ def test_grafana_and_prometheus_correlation_uids_are_deterministic() -> None:
     assert "tracesToMetrics:" in tempo
     assert "datasourceUid: prometheus" in tempo
     assert "lakehouse_duration_seconds_count" in tempo
-    assert "tracesToLogsV2" not in tempo
+    assert "tracesToLogsV2" in tempo
+    assert "datasourceUid: loki" in tempo
 
 
 def test_tempo_does_not_change_application_otlp_destination() -> None:
