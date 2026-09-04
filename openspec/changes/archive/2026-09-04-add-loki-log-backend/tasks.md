@@ -44,3 +44,20 @@
 - [x] Exercise bounded near-capacity queue pressure with canonical work intact.
 - [x] Rename the single LogQL latency receipt honestly (no fake p95 claim).
 - [x] Run new exact-SHA capability CI and Loki-free H1; keep lifecycle ACTIVE/pending.
+
+## Final adoption and archive (authorised)
+
+- [x] Re-derive the adopted contract into `openspec/specs/loki-log-backend`
+      from the current `main`, rather than merging the divergent closure line.
+- [x] Carry the lifecycle-safe test repair (`de68270`) and drop the closure
+      attempts, reverts and merge commits that preceded it.
+- [x] Reconcile NG-0.6 to `DONE / ADOPTED` while preserving its authorization
+      history and leaving NG-0.7 `PLANNED / pending / none`.
+- [x] Resolve the Tempo capability's forward reference to unauthorised NG-0.6.
+- [x] Archive this completed change under the dated archive path.
+- [x] Produce fresh exact-SHA capability and Loki-free H1 receipts on the new
+      candidate: Loki capability `33912934372` through `workflow_call` with
+      `expected_sha`, H1 `33912936640`, M5 `33912940204`, all **success** on
+      `51ca4ac`.
+- [ ] Record the merge-time receipt against base `main` on the final pull
+      request head.

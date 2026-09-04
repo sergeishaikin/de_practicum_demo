@@ -1,8 +1,9 @@
 # NG-0.6 — Grafana Loki Log Backend
 
-> **Lifecycle:** ACTIVE
-> **Disposition:** pending
-> **Execution authorization:** `operator:explicit-ng-0.6-milestone-1` — recovery, design and preflight only. Implementation remains unauthorised.
+> **Lifecycle:** DONE
+> **Disposition:** ADOPTED
+> **Historical intent:** This item records the pre-adoption contract; it is historical intent, not current behaviour. Current truth is the standing `openspec/specs/loki-log-backend/spec.md` and the archived `add-loki-log-backend` change.
+> **Execution authorization:** `operator:explicit-ng-0.6-milestone-1` opened recovery, design and preflight. Subsequent explicit operator continuations authorised bounded M2 implementation/local acceptance, M2B closure blockers, M2C persistent queue/WAL repair, test-contract repair, and final adoption/archive of this same change. None of these authorisations grants NG-0.7 or any successor item.
 > **Opens as:** `add-loki-log-backend`
 > **Repository:** `sergeishaikin/de_practicum_demo`
 > **Baseline branch used for analysis:** `test/dbt-extensive-testing` at `07b475fd28a831794d817580c1dee09c56d098b9`; working branch `feature/ng-0.6-loki`.
@@ -38,7 +39,7 @@ Make first-party service logs centrally searchable and correlatable with trace I
 - No direct Loki exporter if native OTLP is supported by the pinned Loki version.
 - No secrets/full event payloads in logs.
 
-## ADDED Requirements
+## ADDED Requirements (historical change delta)
 
 ### Requirement: Structured logging
 

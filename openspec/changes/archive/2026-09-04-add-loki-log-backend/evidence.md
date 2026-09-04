@@ -195,3 +195,119 @@ contracts. Core H1 run `33884414502` also completed **SUCCESS** on the same
 SHA with Loki disabled. The new runtime/config receipts supersede the earlier
 M2B exact-SHA receipts for closure; lifecycle remains `ACTIVE / pending` until
 separately authorised adoption/archive.
+
+## Failed closure attempts and the lifecycle-safe test repair
+
+Closure was attempted twice on `feature/ng-0.6-loki` and reverted both times.
+
+The first attempt, `2e1005b`, was reverted as `1013876`. It failed for a real
+reason: capability run `33888257726` and Core CI run `33888257735`, both
+`pull_request` events on head `2e1005b`, ended in **failure**.
+`tests/test_loki_contract.py` read
+`openspec/changes/add-loki-log-backend/design.md` — a path the archive move
+intentionally removes — producing `FileNotFoundError`. The Loki runtime and the
+focused contracts were otherwise green, so the defect was in the test's
+lifecycle assumption, not in the capability.
+
+The repair, carried into this change from `de68270`, makes the test resolve the
+scope contract by lifecycle: the standing specification once adoption has
+happened, the active change design before it. Both states have focused
+coverage. It changes no runtime, Compose, Collector, Grafana, workflow,
+dependency or logging-scope behaviour.
+
+The second attempt, `7d70f28`, was reverted as `f2bfb92`. A third, `9eb4356`,
+was made on the same branch and merged into `test/dbt-extensive-testing` rather
+than `main`.
+
+## Why this closure was re-derived rather than merged
+
+The three previous attempts and their receipts stayed on
+`test/dbt-extensive-testing`, which diverged from `main`: at the point this
+change was opened `main` was 7 commits ahead and 11 behind, with neither an
+ancestor of the other. That line carries the Loki closure but not the adopted
+`development-workflow` capability; merging it into `main` would have removed
+the capability, its archived change, its fitness functions and the workflow
+conversions — 1,887 deletions.
+
+The receipts produced on that line are therefore recorded as history and are
+**not** cited as adoption evidence:
+
+| Run | Event | Head | Why not adoption evidence |
+| --- | --- | --- | --- |
+| `33902240453` H1 | `workflow_dispatch` | `9eb4356` | exact-SHA receipt for a commit not on `main`, whose tree lacks the adopted capability |
+| `33903489346` Loki capability | `workflow_dispatch` | `9eb4356` | same |
+| `33903909875` M5 gates | `workflow_dispatch` | `9eb4356` | same |
+| `33904147775` Core CI | `pull_request` | `9eb4356` | base was `test/dbt-extensive-testing` via closed PR #9, merge SHA `912dc9f` — not the integration target |
+| `33908268598` H1 | `workflow_dispatch` | `d031679` | legacy line, pre-conformance gate definitions |
+
+This is the requirement the `development-workflow` capability states: a receipt
+cited as evidence that a change is ready to integrate must have been produced
+against the branch the change actually integrates into. Every run above is
+genuine and green; none of them answers that question.
+
+Only `de68270`'s test repair was carried. The two closure attempts, their two
+reverts, the redundant `71b1bc3` documentation commit with its revert
+`a3eea07`, and the two merge commits `7f8a814` and `d031679` were dropped. The
+`71b1bc3` sentence was checked rather than assumed redundant: every token the
+repaired test asserts — `Kafka producer`, `Spark streaming jobs`,
+`Airflow DAG code`, `first adopted wave` — is already present in the standing
+specification candidate through other wording.
+
+The 117-line standing-spec candidate from `9eb4356` was reconciled against the
+active 103-line delta and current `main`. Requirement count and semantics were
+preserved; four requirement titles contain editorial reconciliation only —
+`First-party structured records` → `…and bounded scope`, `Native OTLP route` →
+`Native OTLP ingestion`, `Fail-open observability` → `Fail-open persistent
+buffering`, `Capability evidence` → `…and profile independence`. Nothing in it
+was adopted on `main` before this change; until the protected merge lands it is
+a proposed integration state, not a standing capability.
+
+## Final closure receipts
+
+Receipts are separated by what they can answer. Conflating the three classes is
+how the earlier closure came to cite a green run that proved nothing about the
+integration it was offered for.
+
+### Class 1 — historical evidence, explicitly not adoption evidence
+
+The five runs produced on `feature/ng-0.6-loki` and `test/dbt-extensive-testing`,
+tabulated above (`33902240453`, `33903489346`, `33903909875`, `33904147775`,
+`33908268598`), plus the two diagnostic failures `33888257726` and
+`33888257735` that exposed the test-lifecycle defect. All are genuine. None was
+produced against `main`, and none is cited here as a reason to adopt.
+
+### Class 2 — capability evidence on the adoption candidate
+
+Candidate **X = `51ca4acdb1e174ad17097fe6c7fd14bbec5a686d`**, branched from
+`main` at `acbce84a1eeb2c98b628b44172c9bb12dcd98209`.
+
+| Gate | Invocation | Run | Jobs | Result |
+| --- | --- | --- | --- | --- |
+| NG-0.6 Loki capability | `workflow_call` via `ci-capability-dispatch`, `expected_sha` = X | `33912934372` | preflight `101153390074`; capability `101153426177` | **success** |
+| H1 clean reproducible stack (Loki-free core) | `workflow_dispatch`, exact SHA | `33912936640` | `101153399517` fresh volumes; `101153399069` NG-0.4 OTel phases | **success** |
+| M5 architecture gates | `workflow_dispatch`, exact SHA | `33912940204` | `101153410957` | **success** |
+
+Every run's `head_sha` is X. The capability gate was reached through
+composition: the dispatcher's preflight asserted operator intent equalled the
+resolved ref before the callee started, and the callee's own
+`Verify exact implementation SHA` step compares its checkout `HEAD` against
+`GITHUB_SHA`. `NG-0.5 Tempo capability (called)` was `skipped`, as the selected
+capability was `ng06-loki`.
+
+H1 was dispatched explicitly rather than left to the pull request: nothing this
+change touches matches `ci-h1-clean.yml`'s path filter, so it would not have
+fired, and the change's own `Capability evidence` requirement obliges a
+Loki-free core H1. Reducing acceptance to whatever the pull request happens to
+trigger would have silently dropped it.
+
+### Class 3 — merge-time authority
+
+Recorded from the pull request; see the table below once the final head is
+known. The merge candidate's required checks against base `main` are the
+blocking gate. This evidence file is the audit trail of what was verified and
+against what; it is not the mechanism that permits the merge.
+
+Commit Y changes only evidence prose, so the Class 2 gates are not re-run on
+it. X remains the verified capability candidate, and Y takes its authority from
+the required checks on the final pull request head. That is where the recursion
+of "recording a receipt moves the head" terminates.
