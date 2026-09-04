@@ -233,3 +233,95 @@ def test_self_reference_detector_reports_a_synthetic_violation(
     assert "ci-example.yml" in capabilities
     paths = _triggers(capabilities["ci-example.yml"])["pull_request"]["paths"]
     assert ".github/workflows/ci-example.yml" not in paths
+
+
+DISPATCHER = "ci-capability-dispatch.yml"
+
+
+def _local_reusable_targets(directory: Path = WORKFLOWS) -> dict[str, set[str]]:
+    """Map each workflow to the local reusable workflows its jobs call."""
+
+    calls: dict[str, set[str]] = {}
+    for name, doc in _workflows(directory).items():
+        targets = {
+            str(job["uses"]).split("/")[-1]
+            for job in (doc.get("jobs") or {}).values()
+            if isinstance(job, dict) and str(job.get("uses", "")).startswith("./")
+        }
+        if targets:
+            calls[name] = targets
+    return calls
+
+
+@pytest.mark.architecture
+def test_dispatcher_is_not_a_capability_workflow() -> None:
+    """Pin the classification instead of relying on it being incidental.
+
+    The dispatcher owns invocation semantics, not verification. If it ever
+    acquired a path-filtered `pull_request` trigger it would be classified as a
+    capability gate, and the `workflow_call` and self-reference rules would
+    start applying to a file they were never written for.
+    """
+
+    assert DISPATCHER not in _capability_workflows()
+    assert (WORKFLOWS / DISPATCHER).exists()
+
+
+@pytest.mark.architecture
+def test_reusable_targets_exist_and_declare_workflow_call() -> None:
+    """A `uses:` pointing at a missing or non-callable workflow fails at run time.
+
+    Static resolution here means a renamed capability workflow breaks the unit
+    test job on every pull request, rather than breaking a dispatch that
+    somebody runs weeks later expecting a receipt.
+    """
+
+    broken: dict[str, list[str]] = {}
+    for caller, targets in _local_reusable_targets().items():
+        for target in sorted(targets):
+            path = WORKFLOWS / target
+            if not path.exists():
+                broken.setdefault(caller, []).append(f"{target}: missing")
+            elif "workflow_call" not in _triggers(_load(path)):
+                broken.setdefault(caller, []).append(f"{target}: no workflow_call")
+    assert broken == {}
+
+
+@pytest.mark.architecture
+def test_dispatcher_capability_options_map_to_called_workflows() -> None:
+    """Every offered choice must actually dispatch something.
+
+    Without this, renaming a job or an option leaves a selectable capability
+    that silently runs nothing and still reports success.
+    """
+
+    doc = _load(WORKFLOWS / DISPATCHER)
+    options = set(
+        _triggers(doc)["workflow_dispatch"]["inputs"]["capability"]["options"]
+    )
+    jobs = doc["jobs"]
+    for option in sorted(options):
+        assert option in jobs, f"capability option '{option}' has no job"
+        assert str(jobs[option].get("uses", "")).startswith(
+            "./.github/workflows/"
+        ), f"capability option '{option}' does not call a local workflow"
+    assert options, "dispatcher offers no capabilities"
+
+
+@pytest.mark.architecture
+def test_dispatcher_requires_a_full_expected_sha() -> None:
+    """Exact-SHA verification must name the SHA, not whatever a ref resolves to.
+
+    `workflow_dispatch` runs against a ref. Without a required expected SHA the
+    receipt says only "whatever that ref pointed at when someone clicked", which
+    is precisely the ambiguity an exact-SHA receipt is supposed to remove.
+    """
+
+    inputs = _triggers(_load(WORKFLOWS / DISPATCHER))["workflow_dispatch"]["inputs"]
+    assert inputs["expected_sha"]["required"] is True
+    assert inputs["expected_sha"]["type"] == "string"
+
+    preflight = _load(WORKFLOWS / DISPATCHER)["jobs"]["preflight"]
+    body = yaml.safe_dump(preflight)
+    assert "[0-9a-f]{40}" in body, "preflight does not check the SHA's shape"
+    assert "github.sha" in body, "preflight does not compare against the resolved ref"

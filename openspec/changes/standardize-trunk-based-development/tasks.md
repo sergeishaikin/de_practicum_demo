@@ -45,15 +45,24 @@
 - [x] Pin the branch-deletion rule in the capability: deletion is a consequence
       of successful integration, never a cause of evidence loss; claims are
       anchored to immutable identity before any branch is deleted.
-- [ ] Apply `main` protection: no direct push, no force push, no deletion,
+- [x] Apply `main` protection: no direct push, no force push, no deletion,
       required status checks, `strict: true`, required conversation
       resolution, `enforce_admins: true`.
-- [ ] Require only the four always-running `ci-pr.yml` contexts. Path-filtered
+- [x] Require only the four always-running `ci-pr.yml` contexts. Path-filtered
       gates SHALL NOT be required checks until the aggregating gate job exists,
       because a required context that never reports leaves the pull request
       permanently unmergeable.
-- [ ] Disable merge-commit and rebase merging; leave squash merging enabled.
-- [ ] Enable `delete_branch_on_merge`.
+- [x] Disable merge-commit and rebase merging; leave squash merging enabled.
+- [x] Enable `delete_branch_on_merge`.
+- [x] Add `ci-capability-dispatch.yml`, a permanent manual orchestrator that
+      invokes a capability gate through `uses:` and owns the exact-SHA target
+      contract, so the `workflow_call` path can be proved without opening a
+      pull request nobody intends to merge.
+- [ ] Prove `workflow_call` behaviourally, not by declaration: dispatch the
+      orchestrator with an `expected_sha`, and show the caller's resolved SHA
+      and the callee's `git rev-parse HEAD` are that same commit. A green
+      `pull_request` run proves only that the declaration parses and the
+      pull-request path still works.
 - [ ] Prove the lifecycle end to end on a canary branch: base SHA, head SHA,
       pull request number, required check names, all required checks green on
       the merge candidate, merge SHA, `main` verification run id, and source
