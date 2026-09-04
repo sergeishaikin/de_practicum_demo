@@ -45,6 +45,13 @@ REQUIRED_CONTAINERS = (
 )
 REQUIRED_STATS_FIELDS = ("Name", "CPUPerc", "MemUsage")
 
+# The gold snapshot renders every SQL NULL as this one sentinel. Anything else
+# that reads as "no value" is a second spelling of the same thing and is
+# rejected; none of them can be a legitimate value in this fixture, whose
+# columns are dates, country and status codes, and formatted numbers.
+NULL_SENTINEL = "<null>"
+NON_CANONICAL_NULLS = frozenset({"", "null", "NULL", "Null", "None", "nil", "NaN"})
+
 
 def canonical_json(payload: object) -> str:
     return json.dumps(payload, sort_keys=True, separators=(",", ":"))
@@ -128,8 +135,42 @@ def check_phase(phase: str, receipt: dict, errors: list[str]) -> None:
         fail("observed_gold_snapshot is absent or empty")
     elif digest(snapshot) != receipt.get("observed_gold_sha256"):
         fail("observed_gold_sha256 does not match observed_gold_snapshot")
+    else:
+        check_gold_snapshot_canonical(phase, snapshot, errors)
 
     check_resources(phase, receipt, errors)
+
+
+def check_gold_snapshot_canonical(
+    phase: str, snapshot: list, errors: list[str]
+) -> None:
+    """One SQL NULL must have exactly one spelling in a payload that gets hashed.
+
+    Trino's `format` renders a NULL argument as the string "null", so the natural
+    `coalesce(format(...), '<null>')` never fires and a numeric NULL arrives
+    spelled differently from every other NULL in the same row. That is
+    deterministic, so it does not corrupt a digest - but it makes two runs
+    comparable only by accident, and it is invisible unless somebody reads the
+    artifact. Checking it here means the next regression fails the gate rather
+    than waiting to be noticed.
+    """
+    for index, row in enumerate(snapshot):
+        if not isinstance(row, list) or not row:
+            errors.append(
+                f"[{phase}] gold snapshot row {index} is not a non-empty list"
+            )
+            continue
+        for column, cell in enumerate(row):
+            if not isinstance(cell, str):
+                errors.append(
+                    f"[{phase}] gold snapshot row {index} column {column} is "
+                    f"{type(cell).__name__}, not a rendered string: {cell!r}"
+                )
+            elif cell in NON_CANONICAL_NULLS:
+                errors.append(
+                    f"[{phase}] gold snapshot row {index} column {column} spells "
+                    f"NULL as {cell!r}; the canonical sentinel is {NULL_SENTINEL!r}"
+                )
 
 
 def check_resources(phase: str, receipt: dict, errors: list[str]) -> None:

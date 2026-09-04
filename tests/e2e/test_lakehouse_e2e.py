@@ -969,16 +969,35 @@ OBSERVED_EVIDENCE_ENV = "E2E_OBSERVED_EVIDENCE_PATH"
 # Trino produced. `<null>` is a sentinel: coalescing before the sort makes the
 # ordering total, which an ORDER BY over real NULLs would not guarantee across
 # engine versions.
-GOLD_SNAPSHOT_SQL = """
+NULL_SENTINEL = "<null>"
+
+# Every column is canonicalised the same way: test the column for NULL first,
+# then render it. The obvious `coalesce(format('%.6f', x), '<null>')` is wrong
+# and silently so - Trino's `format` follows Java's Formatter and renders a NULL
+# argument as the *string* "null", so coalesce sees a non-NULL value and never
+# fires. That shipped once: the first hardened run recorded
+# ('2026-08-07','FR','paid','1','null','null','1') beside rows whose NULL country
+# had correctly become '<null>', i.e. two spellings of one SQL NULL inside a
+# payload whose whole purpose is to be canonical before hashing. Using one
+# explicit form for all seven columns removes the need to know which Trino
+# functions propagate NULL and which swallow it.
+GOLD_SNAPSHOT_SQL = f"""
 SELECT
-  coalesce(CAST(event_date AS varchar), '<null>') AS event_date,
-  coalesce(country, '<null>') AS country,
-  coalesce(status, '<null>') AS status,
-  coalesce(CAST(orders_count AS varchar), '<null>') AS orders_count,
-  coalesce(format('%.6f', total_amount), '<null>') AS total_amount,
-  coalesce(format('%.6f', avg_amount), '<null>') AS avg_amount,
-  coalesce(CAST(distinct_customers AS varchar), '<null>') AS distinct_customers
-FROM iceberg.{ns}.orders_daily_metrics
+  CASE WHEN event_date IS NULL THEN '{NULL_SENTINEL}'
+       ELSE CAST(event_date AS varchar) END AS event_date,
+  CASE WHEN country IS NULL THEN '{NULL_SENTINEL}'
+       ELSE country END AS country,
+  CASE WHEN status IS NULL THEN '{NULL_SENTINEL}'
+       ELSE status END AS status,
+  CASE WHEN orders_count IS NULL THEN '{NULL_SENTINEL}'
+       ELSE CAST(orders_count AS varchar) END AS orders_count,
+  CASE WHEN total_amount IS NULL THEN '{NULL_SENTINEL}'
+       ELSE format('%.6f', total_amount) END AS total_amount,
+  CASE WHEN avg_amount IS NULL THEN '{NULL_SENTINEL}'
+       ELSE format('%.6f', avg_amount) END AS avg_amount,
+  CASE WHEN distinct_customers IS NULL THEN '{NULL_SENTINEL}'
+       ELSE CAST(distinct_customers AS varchar) END AS distinct_customers
+FROM iceberg.{{ns}}.orders_daily_metrics
 ORDER BY 1, 2, 3
 """
 

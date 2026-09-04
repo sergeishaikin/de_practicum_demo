@@ -575,3 +575,67 @@ def test_every_phase_artifact_is_named_in_the_bundle_gate() -> None:
     ):
         assert artifact in gate["run"], artifact
     assert upload["with"]["if-no-files-found"] == "error"
+
+
+# --------------------------------------------------------------------------- #
+# One SQL NULL, one spelling. The first hardened H1 run recorded a numeric NULL
+# as "null" beside a country NULL rendered "<null>", because Trino's `format`
+# returns the string "null" for a NULL argument and the wrapping `coalesce`
+# therefore never fired.
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("spelling", ["null", "NULL", "None", "", "NaN", "nil"])
+def test_non_canonical_null_spelling_in_gold_is_rejected(
+    tmp_path: Path, spelling: str
+) -> None:
+    receipts = default_bundle()
+    mutated = [list(row) for row in GOLD]
+    mutated[0][4] = spelling  # total_amount, the column that actually regressed
+    for phase in validator.PHASES:
+        receipts[phase] = make_receipt(phase, gold=mutated)
+    assert run(tmp_path, receipts) == 1
+
+
+def test_the_canonical_null_sentinel_is_accepted(tmp_path: Path) -> None:
+    """The check must reject other spellings without rejecting the real one."""
+    receipts = default_bundle()
+    mutated = [list(row) for row in GOLD]
+    mutated[0][1] = validator.NULL_SENTINEL  # country
+    mutated[0][4] = validator.NULL_SENTINEL  # total_amount
+    for phase in validator.PHASES:
+        receipts[phase] = make_receipt(phase, gold=mutated)
+    assert run(tmp_path, receipts) == 0
+
+
+def test_unrendered_gold_cells_are_rejected(tmp_path: Path) -> None:
+    """A JSON null or a number would hash differently than a rendered string."""
+    receipts = default_bundle()
+    mutated = [list(row) for row in GOLD]
+    mutated[0][3] = 10
+    for phase in validator.PHASES:
+        receipts[phase] = make_receipt(phase, gold=mutated)
+    assert run(tmp_path, receipts) == 1
+
+
+def test_gold_snapshot_sql_tests_for_null_before_rendering() -> None:
+    """`coalesce(format(...), ...)` is the shape that shipped the defect.
+
+    Pinned by substring: the bug is invisible in review precisely because the
+    coalesce looks like it handles the NULL, so a future simplification back to
+    it must fail here rather than in an artifact nobody opens.
+    """
+    source = (ROOT / "tests" / "e2e" / "test_lakehouse_e2e.py").read_text(
+        encoding="utf-8"
+    )
+    start = source.index("GOLD_SNAPSHOT_SQL")
+    sql = source[start : source.index('"""', source.index('"""', start) + 3)]
+    assert "coalesce(format(" not in sql
+    for column in (
+        "event_date",
+        "country",
+        "status",
+        "orders_count",
+        "total_amount",
+        "avg_amount",
+        "distinct_customers",
+    ):
+        assert f"CASE WHEN {column} IS NULL" in sql, column

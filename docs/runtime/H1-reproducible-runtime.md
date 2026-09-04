@@ -114,6 +114,16 @@ canonically formatted — and hashes it. Row counts and summed revenue are
 satisfied by many different tables; the rows are what cross-phase equality has
 to mean.
 
+Every SQL NULL in that snapshot has exactly one spelling, `<null>`, and each
+column is rendered by testing for NULL *before* formatting. The obvious
+`coalesce(format('%.6f', x), '<null>')` is wrong and silently so: Trino's
+`format` follows Java's Formatter and renders a NULL argument as the string
+`"null"`, so the coalesce never fires. That shipped once — the first hardened
+run recorded a numeric NULL as `"null"` in the same row where a NULL country had
+correctly become `"<null>"` — and the validator now rejects any non-canonical
+spelling, so the next regression fails the gate instead of waiting to be noticed
+in an artifact nobody opens.
+
 An earlier version of this job computed its parity digest from
 `expected_pipeline(build_fixture())`, a pure function of the checked-out test
 source. All three digests were therefore identical by construction, the
