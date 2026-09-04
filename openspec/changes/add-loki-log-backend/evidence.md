@@ -195,14 +195,3 @@ contracts. Core H1 run `33884414502` also completed **SUCCESS** on the same
 SHA with Loki disabled. The new runtime/config receipts supersede the earlier
 M2B exact-SHA receipts for closure; lifecycle remains `ACTIVE / pending` until
 separately authorised adoption/archive.
-
-## Final adoption and archive reconciliation
-
-The accepted runtime SHA remains `3a07da170fb460f5fd2342e63b29786529da013f`.
-The standing contract is `openspec/specs/loki-log-backend/spec.md`, and this
-change is archived at
-`openspec/changes/archive/2026-09-04-add-loki-log-backend/`. NG-0.6 is now
-`DONE / ADOPTED`; NG-0.7 remains `PLANNED / pending` with authorization
-`none`. The original M1 provenance and subsequent explicit M2, M2B, M2C and
-final adoption authorizations are retained in the backlog history; no grant
-IDs are inferred.

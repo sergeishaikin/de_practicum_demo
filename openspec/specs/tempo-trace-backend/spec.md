@@ -84,14 +84,13 @@ canonical processing SHALL remain authoritative during the outage.
 
 Prometheus application metrics and PostgreSQL durable metrics remain the
 authoritative operational and business metric paths. Metrics-generator and
-spanmetrics are disabled. Trace-to-logs compatibility SHALL be provided by the
-separately adopted Loki log-backend contract when that optional capability is
-enabled; Tempo remains the trace authority and does not introduce a competing
-log backend.
+spanmetrics are disabled. Trace-to-logs compatibility SHALL remain a prepared
+design boundary only; no runtime traces-to-logs mapping is provisioned until
+separately authorised NG-0.6. Loki and any NG-0.6 behavior SHALL require a
+separate authorised change.
 
 #### Scenario: A log backend is proposed
 
 - **WHEN** trace-to-logs navigation is extended to Loki
 - **THEN** it remains outside this capability
-- **AND** the adopted Loki log-backend contract supplies the log query and
-  navigation surface when enabled
+- **AND** NG-0.6 authorization is required before implementation

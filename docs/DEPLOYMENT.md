@@ -81,6 +81,6 @@ stack itself:
 - Logs: `.\stack.ps1 logs -Service <name>`.
 - Diagnostics: `scripts\doctor.cmd` (environment) and `scripts\run_checks.cmd` (SQL quality gates).
 - Pipeline audit: `marts.pipeline_runs.run_id` records each downstream warehouse validation DagRun, while nullable `ingestion_run_id` records its source ingestion DagRun.
-- UIs and APIs: Spark Master UI (`http://localhost:18080`), Kafka UI (`http://localhost:18090`), MinIO console (`http://localhost:19001`), Trino (`http://localhost:18082`), Prometheus (`http://localhost:19090`), Grafana (`http://localhost:13001`), Tempo (`http://localhost:13200`), and Loki (`http://localhost:13100`). Tempo and Loki are available only with the optional `observability-next` profile; their Grafana datasources are provisioned continuously and become functional when the respective backends are running.
+- UIs and APIs: Spark Master UI (`http://localhost:18080`), Kafka UI (`http://localhost:18090`), MinIO console (`http://localhost:19001`), Trino (`http://localhost:18082`), Prometheus (`http://localhost:19090`), Grafana (`http://localhost:13001`), and Tempo (`http://localhost:13200`). Tempo is available only with the optional profile; trace-to-logs/Loki is not provisioned until NG-0.6.
 
 <!-- VERIFY: the host ports above are the defaults from .env.example; they change if *_HOST_PORT variables are overridden in .env -->
