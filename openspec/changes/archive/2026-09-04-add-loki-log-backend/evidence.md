@@ -208,3 +208,24 @@ prefer the standing spec after adoption and fall back to the active design
 before adoption, with focused coverage for both lifecycle states. No runtime,
 Compose, Collector, Grafana, workflow, dependency, or logging-scope changes
 are made by this repair.
+
+## Final closure receipts
+
+Implementation SHA: `3a07da170fb460f5fd2342e63b29786529da013f`.
+Test-repair SHA: `de68270ad3bb5c993af5e35479115cf8aae1d733`.
+Closure SHA: `9eb4356247d58f6acc98b5f8f2d290b3a727b15d`.
+
+- H1 clean reproducible stack: run `33902240453`, exact head SHA
+  `9eb4356247d58f6acc98b5f8f2d290b3a727b15d`, **SUCCESS**. Both jobs passed:
+  OTel clean phases and fresh-volume full verification. Jobs ran
+  17:45:18–17:58:54 UTC.
+- NG-0.6 Loki capability: run `33903489346`, exact closure SHA above,
+  **SUCCESS**.
+- M5 architecture gates: run `33903909875`, exact closure SHA above,
+  **SUCCESS**.
+- Core CI: run `33904147775`, source head closure SHA above, PR merge SHA
+  `912dc9f3d404ec4d796fd459ed90cc1f09a41f3f`, **SUCCESS**; all four jobs
+  passed. This is PR-merge verification, not an exact-head Core run.
+
+S1 dbt and Metadata workflows were not applicable to this docs/governance-only
+closure path; no S1/metadata source paths changed.
