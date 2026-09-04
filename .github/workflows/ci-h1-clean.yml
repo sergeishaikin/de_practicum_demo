@@ -264,7 +264,7 @@ jobs:
           uv run --locked python scripts/validate_runtime_config.py --env-file .env --profile clean
           docker network create de_demo_net || true
           docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml \
-            --profile otel config >/tmp/h1-otel-compose.yml
+            --profile otel --profile observability config >/tmp/h1-otel-compose.yml
           set -a
           source .env
           set +a
@@ -284,7 +284,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          compose=(docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml --profile otel)
+          compose=(docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml --profile otel --profile observability)
 
           wal_bytes() {
             local volume
@@ -422,9 +422,9 @@ jobs:
         if: failure()
         run: |
           docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml \
-            --profile otel ps > otel-compose-ps.txt 2>&1 || true
+            --profile otel --profile observability ps > otel-compose-ps.txt 2>&1 || true
           docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml \
-            --profile otel logs --no-color > otel-compose.log 2>&1 || true
+            --profile otel --profile observability logs --no-color > otel-compose.log 2>&1 || true
       - name: Upload OTel acceptance evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -441,4 +441,4 @@ jobs:
             otel-compose.log
       - name: Destroy OTel acceptance stack
         if: always()
-        run: docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml --profile otel down --volumes --remove-orphans
+        run: docker compose --env-file .env -f docker-compose.yml -f docker-compose.extended.yml --profile otel --profile observability down --volumes --remove-orphans

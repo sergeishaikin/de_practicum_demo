@@ -67,6 +67,9 @@ def test_pipeline_runs_provenance_migration_is_idempotent_and_additive() -> None
     )
     assert schema == "YES|1|1|1"
 
+    # dbt is now the sole owner of the mart views. The bootstrap migration is
+    # intentionally additive and must not recreate a competing core -> marts
+    # architecture before the warehouse dbt build has run.
     marts_relations = _psql(
         """
         select relname || ':' || relkind::text
@@ -77,9 +80,4 @@ def test_pipeline_runs_provenance_migration_is_idempotent_and_additive() -> None
         order by relname;
         """
     )
-    assert marts_relations.splitlines() == [
-        "v_customer_state_daily:v",
-        "v_order_items_wide:v",
-        "v_reconcile_sales_daily:v",
-        "v_sales_daily:v",
-    ]
+    assert marts_relations.splitlines() == []
