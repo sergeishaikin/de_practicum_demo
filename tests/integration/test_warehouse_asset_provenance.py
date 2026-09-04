@@ -68,12 +68,27 @@ def test_pipeline_runs_provenance_migration_is_idempotent_and_additive() -> None
     assert schema == "YES|1|1|1"
 
     # `marts` is co-owned: `db/init` owns the audit objects, dbt owns the four
-    # `v_*` views. "Additive" therefore means the migration left the *bootstrap*
-    # objects intact - the mart views are not in scope here and do not exist yet
-    # on a clean stack, because only `dbt build` creates them.
-    # The ownership boundary itself is pinned by
-    # `test_bootstrap_sql_does_not_define_the_mart_views` and, at runtime, by the
-    # catalog assertions in the Metadata profile workflow.
+    # `v_*` views. Both halves are asserted, because they fail differently. A
+    # bootstrap copy of a mart view breaks the negative half; a migration that
+    # drops an audit object breaks the positive one.
+
+    # dbt owns these views. They must not exist before dbt has materialized them.
+    # `test_bootstrap_sql_does_not_define_the_mart_views` pins the same boundary
+    # statically, but it reads `db/init/003` only. This check reads the schema, so
+    # it also catches a mart view created by any other init script.
+    mart_relations = _psql(
+        """
+        select relname || ':' || relkind::text
+        from pg_class c join pg_namespace n on n.oid=c.relnamespace
+        where n.nspname='marts'
+          and relname in ('v_order_items_wide','v_sales_daily',
+                          'v_customer_state_daily','v_reconcile_sales_daily')
+        order by relname;
+        """
+    )
+    assert mart_relations.splitlines() == []
+
+    # `db/init` still owns these bootstrap objects; the migration stays additive.
     bootstrap_relations = _psql(
         """
         select relname || ':' || relkind::text
