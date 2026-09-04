@@ -144,15 +144,71 @@ As last measured: `airflow`, `iceberg`, `jupyter`, `observability`,
 
 ## Branch conventions
 
-No explicit convention is documented (`CONTRIBUTING.md` and `.github/PULL_REQUEST_TEMPLATE.md` do not exist). The repository's recent history uses topic branches prefixed with `feature/`, e.g. `feature/extended-local-stack`. Follow that pattern (`feature/<short-name>`) unless a convention is added.
+The normative contract is
+[`openspec/specs/development-workflow/spec.md`](../openspec/specs/development-workflow/spec.md).
+This section is a contributor-facing summary of it; where the two disagree, the
+spec wins.
+
+`main` is the sole permanent integration branch. There is no `develop`, and no
+standing `integration/*`, `test/*`, `staging/*` or `release/*` lane — a branch
+named with one of those words is permitted only when it carries one bounded
+change and is deleted on integration.
+
+- Branch from the **current** `main`. Do not branch from another unmerged
+  working branch, from a legacy integration baseline, or from a branch that has
+  already merged.
+- One branch carries one bounded change — one authorised OpenSpec change, or
+  one independently releasable fix. If describing the branch requires a list of
+  unrelated decisions, it has breached this and is decomposed.
+- Keep divergence from `main` small. Beyond three calendar days is a warning;
+  beyond seven requires a recorded rationale in the change. Elapsed time is not
+  an automatic failure — it is the visible symptom of the real invariant, which
+  is small divergence.
+- Once a branch has integrated, it is closed to further governed work. Adoption,
+  archival and closure of the same change branch again from the current `main`.
+- Integrated branches are deleted automatically. Retaining one deliberately
+  requires a recorded reason; the current exceptions are listed in the spec's
+  **Recorded exceptions** table.
+
+Naming is not constrained by the spec. Existing history uses `feature/<name>`
+for capability work, `docs/<name>` for documentation, and `chore/<name>` for
+maintenance.
+
+Before your first commit, confirm the base is right:
+
+```bash
+git fetch origin
+git rev-parse --short main
+git merge-base --is-ancestor main HEAD && echo "branch is current with main"
+```
+
+The repository is normally checked out as several linked worktrees under the
+container directory. `git worktree list` shows which branch each one is on — an
+existing worktree is not evidence that its branch is a valid base for new work.
 
 ## PR process
 
-No pull-request template or review workflow is defined. The default process applies:
+A pull request means its head is **proposed for integration into its base**.
+Normal pull requests target `main`.
 
-1. Fork the repository and create a topic branch.
-2. Make the change; verify the relevant pipeline still runs (see [TESTING.md](TESTING.md)).
-3. Open a pull request describing what changed and how it was verified.
+1. Branch from the current `main` (see above).
+2. Make the change; run the completion gate and the change-specific checks in
+   the **Verification contract** section of
+   [`AGENTS.md`](../AGENTS.md), and see [TESTING.md](TESTING.md) for the
+   command detail.
+3. Open a pull request against `main` describing what changed and how it was
+   verified. Record the base branch and its SHA alongside the head SHA when
+   citing a CI run as evidence — a `pull_request` run verifies the merge of
+   head into base, so a receipt that names only the head is incomplete.
+4. Merge is blocked until required status checks pass and review conversations
+   are resolved. `main` rejects direct pushes, force pushes and deletion.
+5. Integration squashes to one durable logical change. The branch is deleted
+   automatically; anchor any evidence to commit SHA, workflow run id, artifact
+   digest and pull request number rather than to the branch name.
+
+Do **not** open a pull request purely to obtain a CI execution context. To
+verify an exact SHA with nothing to integrate, dispatch
+`.github/workflows/ci-capability-dispatch.yml` with the SHA instead.
 
 ## Component deep dives
 

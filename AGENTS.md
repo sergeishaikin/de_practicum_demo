@@ -80,6 +80,45 @@ procedure and the last measured snapshot of this machine.
   documentation. Prefer deterministic, idempotent tests over live-state tests
   unless a live integration is the requirement being verified.
 
+## Development workflow
+
+`openspec/specs/development-workflow/spec.md` is the canonical integration
+contract. `main` is the sole permanent development and integration branch.
+
+For every governed change:
+
+- Create the implementation branch from the current `main`.
+- Do not create a new change from another working, integration, test, staging,
+  release, or already-merged feature branch.
+- One branch carries one bounded OpenSpec change or one independently
+  releasable fix.
+- Normal pull requests target `main`.
+- A pull request represents proposed integration. Do not open one only to
+  obtain a CI execution context; use `workflow_dispatch` through
+  `ci-capability-dispatch.yml` with the exact SHA instead.
+- Keep divergence from `main` small. Beyond three calendar days is a warning
+  and beyond seven requires a recorded rationale, but elapsed time is only the
+  visible symptom — conceptual divergence is the governing invariant, and a
+  branch that no longer reviews as one change is decomposed regardless of age.
+- After a branch has integrated, do not continue governed work on it.
+  Successor work — including adoption, archival and closure of the same
+  change — starts again from the current `main`.
+- Integrated branches are deleted. Anchor evidence to immutable identity —
+  commit SHA, workflow run id, artifact digest, pull request number, archived
+  OpenSpec change — rather than to a branch continuing to exist.
+- Do not use environment branches (`dev`, `test`, `staging`, `prod`) or
+  permanent integration lanes.
+
+Before starting implementation, verify the current branch's ancestry against
+`main`. If the working branch did not originate from an appropriate current
+`main` baseline, stop and re-derive the work onto a compliant branch rather
+than extending the stale baseline.
+
+Recorded exceptions are defined only in the **Recorded exceptions** table of
+`openspec/specs/development-workflow/spec.md`. Do not infer a new exception
+from existing branch topology: an existing worktree or branch is not evidence
+that it is a valid base for new work.
+
 ## Verification contract
 
 This section is the canonical repository policy for deciding when a change is
@@ -186,9 +225,17 @@ refuses names outside the vocabulary, and that friction is deliberate.
 ## Planning methodology
 
 Work is planned as OpenSpec changes under `openspec/`. `openspec/specs/` holds
-the standing capabilities — `engineering-governance` (how work is authorised and
-fenced) and `verification-contract` (what counts as verified, alongside the
-canonical commands in this file). `openspec/changes/` holds proposals in flight.
+the standing capabilities. Three of them govern how work happens and are read
+together:
+
+- `engineering-governance` — how work is authorised and fenced.
+- `development-workflow` — how authorised work branches and integrates.
+- `verification-contract` — what counts as verified, alongside the canonical
+  commands in this file.
+
+The remaining specs under `openspec/specs/` describe platform capabilities
+rather than process; enumerate the directory rather than trusting a list here
+to stay current. `openspec/changes/` holds proposals in flight.
 
 `openspec/backlog/` holds work that is specified but **not authorised** — see
 `openspec/backlog/README.md`. A backlog item is not an authorisation to execute

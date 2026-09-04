@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository location
 
-The git repository root is the nested `de_practicum_demo/` directory (it holds `.git`, `README.md`, `AGENTS.md`). The outer `c:\Code\de_practicum_demo` is only a container folder. Run all commands from the inner directory.
+The git repository root is the nested `de_practicum_demo/` directory (it holds `.git`, `README.md`, `AGENTS.md`). The outer `c:\Code\de_practicum_demo` is only a container folder.
+
+That container also holds **linked worktrees** for in-flight branches, and the nested `de_practicum_demo/` directory is one checkout among several — it is not guaranteed to be on `main`. Run `git worktree list` and confirm which branch the current directory is on before running anything that depends on the baseline. Do not assume the inner directory is a valid base for new work; see **Git and integration workflow** below.
 
 ## Commands
 
@@ -165,3 +167,28 @@ Persisted Silver must never become the Gold source with shadow validation off. I
 - Behavior changes must land with focused tests plus updates to `README.md` and the relevant `docs/` file — those are the project contract.
 - Planning lives in `openspec/` (see the Planning methodology section of `AGENTS.md`): `openspec/specs/` for standing capabilities, `openspec/changes/` for proposals in flight, `openspec/backlog/` for specified but **unauthorised** work. A backlog item authorises nothing and is not evidence of current behaviour — starting one means opening the change its index row names. The NG-0.1 … NG-2.2 next-generation package lives in `openspec/backlog/next-generation/`.
 - `.planning/` holds the frozen GSD execution record (`STATE.md`, `ROADMAP.md`, phase plans) for Phases 1-4. It is historical evidence, not a work queue; unexecuted obligations and their OpenSpec successors are mapped in `.planning/STATE.md`. Generated audit reports under `.architecture-audit/` and `docs/architecture-audit/` are evidence, not contracts.
+
+### Git and integration workflow
+
+Follow the canonical **Development workflow** in `AGENTS.md` and
+`openspec/specs/development-workflow/spec.md`; do not maintain a separate
+branching policy here.
+
+Before beginning governed implementation:
+
+1. Resolve the current `main` SHA (`git rev-parse --short main`, after
+   `git fetch origin`).
+2. Verify the working branch's ancestry and base
+   (`git merge-base --is-ancestor main HEAD`).
+3. A new change must originate from the current `main`, not from an
+   integration, test, legacy, or already-merged feature branch.
+4. If the current worktree is on a stale branch or on one of the recorded
+   exception branches, do not continue the new change there. Re-derive it from
+   the current `main`.
+5. Normal pull requests target `main`. A pull request is not a CI trigger
+   mechanism — use `ci-capability-dispatch.yml` with the exact SHA.
+6. Never continue successor work on a branch after it has integrated.
+
+Seeing an existing worktree or branch is not evidence that it is a valid base
+for new work. Check ancestry against `main` before the first implementation
+commit.
