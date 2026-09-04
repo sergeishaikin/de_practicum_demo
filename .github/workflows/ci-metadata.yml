@@ -203,6 +203,72 @@ jobs:
           print("metadata bootstrap API checks passed")
           PY
 
+      - name: Verify the dbt staging layer reached PostgreSQL and the catalog
+        run: |
+          set -a
+          . ./.env
+          set +a
+          # (1) The reader identity, not `app`. The dbt views were created after
+          # create-reader.sql ran, so reaching them exercises the default
+          # privileges rather than the one-off GRANT.
+          privilege=$(docker exec -e PGPASSWORD="$METADATA_SOURCE_READER_PASSWORD" de-demo-postgres \
+            psql -U "$METADATA_SOURCE_READER_USER" -d "$POSTGRES_DB" -At -v ON_ERROR_STOP=1 \
+            -c "select has_schema_privilege(current_user, 'staging', 'USAGE')")
+          test "$privilege" = "t" || { echo "metadata reader has no USAGE on staging"; exit 1; }
+          for relation in stg_core__orders stg_core__order_items stg_staging__orders stg_staging__order_items; do
+            docker exec -e PGPASSWORD="$METADATA_SOURCE_READER_PASSWORD" de-demo-postgres \
+              psql -U "$METADATA_SOURCE_READER_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 \
+              -c "select 1 from staging.$relation limit 0" >/dev/null
+          done
+          echo "metadata reader can read every dbt staging relation"
+
+      - name: Verify the catalog indexed the dbt staging layer
+        run: |
+          docker exec de-metadata-ingestion python - <<'PY'
+          import base64
+          import json
+          import os
+          from urllib.parse import quote
+          from urllib.request import Request, urlopen
+
+          api = "http://metadata-server:8585/api"
+          body = json.dumps({
+              "email": os.environ["METADATA_ADMIN_EMAIL"],
+              "password": base64.b64encode(os.environ["METADATA_ADMIN_PASSWORD"].encode()).decode(),
+          }).encode()
+          with urlopen(Request(f"{api}/v1/users/login", data=body, headers={"Content-Type": "application/json"})) as response:
+              token = json.load(response)["accessToken"]
+          headers = {"Authorization": f"Bearer {token}"}
+
+          def get(path):
+              with urlopen(Request(f"{api}{path}", headers=headers)) as response:
+                  return json.load(response)
+
+          # The original defect was silent incompleteness: a green workflow while
+          # the whole dbt staging layer was missing from the catalog. Asserting the
+          # entities exist is what makes that failure loud.
+          staging = [
+              "stg_core__orders",
+              "stg_core__order_items",
+              "stg_staging__orders",
+              "stg_staging__order_items",
+          ]
+          for name in staging:
+              fqn = f"warehouse_postgres.dwh.staging.{name}"
+              table = get(f"/v1/tables/name/{quote(fqn, safe='')}")
+              assert table.get("columns"), f"{fqn} indexed without columns"
+              print(f"indexed {fqn} ({len(table['columns'])} columns)")
+
+          # And that dbt lineage was stitched onto those entities, so the mart is
+          # reachable from the staging model rather than from the raw source.
+          fqn = "warehouse_postgres.dwh.staging.stg_core__order_items"
+          lineage = get(f"/v1/lineage/table/name/{quote(fqn, safe='')}?upstreamDepth=2&downstreamDepth=2")
+          reachable = json.dumps(lineage)
+          for expected in ("core.order_items", "marts.v_sales_daily"):
+              assert expected in reachable, f"{expected} missing from lineage of {fqn}"
+          print("dbt staging lineage reaches core and marts")
+          PY
+
       - name: Publish isolated OpenLineage fixture event
         run: |
           docker exec -i de-metadata-ingestion python - <<'PY'

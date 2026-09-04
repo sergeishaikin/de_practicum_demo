@@ -540,3 +540,25 @@ def test_the_staging_boundary_is_documented() -> None:
     assert "W4-dbt-architecture-gate.md" in w1
 
     assert "W4-dbt-architecture-gate.md" in read("docs/TESTING.md")
+
+
+def test_bootstrap_sql_does_not_define_the_mart_views() -> None:
+    """dbt owns `marts.v_*`; `db/init/` owns the schemas and the core tables.
+
+    A bootstrap copy of the mart SQL would give the database two architectures -
+    `core -> marts` before dbt has run and `core -> staging -> marts` after it -
+    and no gate could see the copy, because it lives outside the dbt project.
+    That is exactly the state this assertion exists to prevent returning.
+    """
+
+    bootstrap = read("db/init/003_core_marts_objects.sql").lower()
+    assert "create or replace view marts." not in bootstrap
+    assert "create view marts." not in bootstrap
+
+    # The positive half: bootstrap still owns the core tables.
+    for table in ("core.orders", "core.order_items"):
+        assert f"create table if not exists {table}" in bootstrap
+
+    # And the namespace dbt writes into is created before any reader is granted
+    # on it, which reader provisioning depends on.
+    assert "create schema if not exists staging;" in read("db/init/001_schemas.sql")

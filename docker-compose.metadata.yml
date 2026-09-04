@@ -297,6 +297,11 @@ services:
       - ./dbt/warehouse:/opt/metadata-dbt/warehouse:ro
       - ./dbt/warehouse/profiles.yml.example:/opt/metadata-profile/profiles.yml:ro
     depends_on:
+      # Deliberately after the reader. The relations are then created by `app`
+      # *after* the grants ran, so reaching them proves the ALTER DEFAULT
+      # PRIVILEGES half of create-reader.sql, not just the one-off GRANT.
+      metadata-source-reader:
+        condition: service_completed_successfully
       de-demo-postgres:
         condition: service_healthy
     networks: [de_demo_net]
