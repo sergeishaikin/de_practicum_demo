@@ -29,9 +29,9 @@
       `standardize-trunk-based-development` change and name where it landed, so
       no obligation stays hidden in an archived checklist.
 - [x] Run the completion gate.
-- [ ] Open the pull request against `main`; record head SHA, base branch, base
-      SHA and every required check's run id.
-- [ ] Adopt and archive this change once it has integrated.
+- [x] Open the pull request against `main`; record head SHA, base branch, base
+      SHA and every required check's run id. PR #17, merge `156d320e`.
+- [x] Adopt and archive this change once it has integrated.
 
 ## Explicitly out of scope
 
