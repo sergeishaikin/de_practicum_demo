@@ -74,6 +74,20 @@ The repair is recorded by immutable identity as the incident that motivated
 this change. It produced no commit on this branch and is not claimed as this
 change's work.
 
+## Carried-forward branch, by immutable identity
+
+| | |
+|---|---|
+| Branch | `governance/branch-closure-rule` (remote only) |
+| Commit | `2af84fdfc023e0dcfcbba55d731416c7f1ae7d26` |
+| Parent | `d031679` — the legacy baseline; `main` is not an ancestor |
+| Files | `AGENTS.md` (+29), `CLAUDE.md` (+1) |
+| Disposition | not merged; semantics re-derived onto `main` as the **Closure includes branch and worktree cleanup** requirement |
+
+Verified with `git merge-base --is-ancestor main 2af84fd`, which reports that
+`main` is **not** an ancestor. The branch is deleted in the cleanup step; this
+row is its durable anchor.
+
 ## Completion gate
 
 Run on this branch against `main` at `978863d`.

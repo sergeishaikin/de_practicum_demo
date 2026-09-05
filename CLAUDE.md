@@ -192,3 +192,12 @@ Before beginning governed implementation:
 Seeing an existing worktree or branch is not evidence that it is a valid base
 for new work. Check ancestry against `main` before the first implementation
 commit.
+
+Cleanup is part of Definition of Done. After work integrates and receipts are
+recorded, verify the commit is an ancestor of `main`, close any validation-only
+pull request, remove the dedicated worktree, and delete the local and remote
+branches. Prefer an immutable tag over an active-looking branch for historical
+evidence. Never force-remove a dirty worktree — inspect and preserve or discard
+each uncommitted change explicitly, and leave unrelated dirty worktrees alone.
+Do not start the next item until cleanup is done unless the exception is
+recorded.

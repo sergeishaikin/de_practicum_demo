@@ -115,3 +115,23 @@ would then have to name it or drift around it. And the audience that caused
 this defect — agents reading `AGENTS.md` and `CLAUDE.md` — would not read it.
 Adding a document for a human convention while the agent instructions stayed
 silent would repeat the mistake in a new file.
+
+## The stale `governance/branch-closure-rule` branch
+
+`2af84fdf docs(governance): require branch and worktree closure` sits on
+`governance/branch-closure-rule`, whose parent is `d031679` — the same legacy
+baseline that produced the NG-0.7 incident. `main` is not an ancestor of it, so
+the branch cannot be merged without dragging the legacy baseline behind it, and
+its two edited files are the same two this change rewrites.
+
+Its content is nonetheless correct and covers something the capability does not.
+The requirement **Integrated branches are deleted automatically** states the
+obligation but not its timing, and says nothing about worktrees. So the useful
+semantics are re-derived here as a requirement rather than carried by merge:
+cleanup is part of Definition of Done, a dirty worktree is never force-removed,
+an immutable tag is preferred to a branch retained as a pointer, and the handoff
+states cleanup status.
+
+The branch is deleted rather than merged. Its commit stays reachable by SHA in
+this design and in `evidence.md`, which is what the capability's own evidence
+requirement asks for.

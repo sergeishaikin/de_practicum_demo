@@ -42,12 +42,20 @@ and the documents did not carry the rule.
 Require the integration contract to be stated where authors read it, and bring
 the three documents into conformance.
 
-Add one requirement to `development-workflow`: the contract SHALL be stated in
-the repository's contributor- and agent-facing instruction documents, which
-SHALL cite the canonical spec and SHALL NOT carry claims the contract has
+Add two requirements to `development-workflow`. The first: the contract SHALL be
+stated in the repository's contributor- and agent-facing instruction documents,
+which SHALL cite the canonical spec and SHALL NOT carry claims the contract has
 falsified. Extend `tests/test_development_workflow_contract.py` — which already
 holds this capability's fitness functions — to check propagation as well as CI
 topology.
+
+The second closes an adjacent gap found while carrying forward the stale
+`governance/branch-closure-rule` branch: cleanup SHALL be part of Definition of
+Done. The existing **Integrated branches are deleted automatically** requirement
+says branches are deleted but not when the obligation falls due, and says
+nothing about the worktrees that accumulate alongside them. It also lacked the
+safety rule that a dirty worktree is never force-removed, and the preference for
+an immutable tag over a branch that reads as active.
 
 ## Non-goals
 

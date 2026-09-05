@@ -119,6 +119,30 @@ Recorded exceptions are defined only in the **Recorded exceptions** table of
 from existing branch topology: an existing worktree or branch is not evidence
 that it is a valid base for new work.
 
+### Branch and worktree closure
+
+Cleanup is part of the Definition of Done. A change is not closed merely
+because implementation, verification, adoption or integration passed.
+
+After the change has integrated into `main` and its receipts are recorded:
+
+- Verify the final implementation commit is an ancestor of `main`.
+- Close any pull request that was opened only for validation or integration.
+- Remove the dedicated worktree for the completed change.
+- Delete the local feature, closure and integration branches for that work.
+- Delete the remote branch by default. Where a long-lived historical pointer is
+  genuinely needed, prefer an immutable tag over a branch that reads as active.
+- Record any deliberately retained branch as an explicit exception, with its
+  reason and the condition that ends it.
+
+Never remove or force-clean a dirty worktree. Inspect and classify every
+uncommitted change first, then commit, move, preserve or explicitly discard it.
+Leave unrelated dirty worktrees untouched.
+
+Do not start the next authorised item until closure cleanup for the completed
+item is done, unless the exception is recorded. The handoff report states the
+branch and worktree cleanup status.
+
 ## Verification contract
 
 This section is the canonical repository policy for deciding when a change is

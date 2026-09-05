@@ -25,6 +25,14 @@
 - [x] Replace `docs/DEVELOPMENT.md`'s **Branch conventions** and **PR process**
       sections with a contributor-facing summary and a link to the canonical
       spec.
+- [x] Inspect `2af84fdf` on the stale `governance/branch-closure-rule` branch,
+      which was cut from `d031679` and is not mergeable. Carry forward only the
+      branch/worktree Definition-of-Done semantics not already covered by
+      **Integrated branches are deleted automatically** — worktree removal,
+      the dirty-worktree safety rule, tag-over-branch for historical pointers,
+      cleanup-before-next-item, and cleanup status in the handoff — as a second
+      capability requirement plus its `AGENTS.md` and `CLAUDE.md` statements.
+      Do not merge the branch.
 - [x] Extend `tests/test_development_workflow_contract.py` with the
       propagation rules, matching on normalised text, and pair each new
       detector with a synthetic-violation test so no absence rule can pass
