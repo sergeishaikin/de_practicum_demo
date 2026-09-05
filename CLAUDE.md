@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 The git repository root is the nested `de_practicum_demo/` directory (it holds `.git`, `README.md`, `AGENTS.md`). The outer `c:\Code\de_practicum_demo` is only a container folder.
 
-That container also holds **linked worktrees** for in-flight branches, and the nested `de_practicum_demo/` directory is one checkout among several — it is not guaranteed to be on `main`. Run `git worktree list` and confirm which branch the current directory is on before running anything that depends on the baseline. Do not assume the inner directory is a valid base for new work; see **Git and integration workflow** below.
+That container **may** also hold linked worktrees for in-flight branches, in which case the nested `de_practicum_demo/` directory is one checkout among several and is not guaranteed to be on `main`. Run `git worktree list` and confirm which branch the current directory is on before running anything that depends on the baseline — do not assume the inner directory is a valid base for new work; see **Git and integration workflow** below. As of the parking recorded in [`docs/PARKED-STATE.md`](docs/PARKED-STATE.md) there is exactly one worktree, the repository root, on `main`.
 
 ## Commands
 
