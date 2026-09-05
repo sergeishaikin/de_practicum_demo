@@ -105,12 +105,38 @@ No Compose, runtime or dependency surface changed, so the change-specific gates
 for those surfaces do not apply. No live-stack check was skipped, because none
 is applicable to this change.
 
-## Pending
+## Merge-time authority
 
-- Pull request against `main`: head SHA, base branch, base SHA and required
-  check run ids to be recorded here once opened. A `pull_request` run verifies
-  the merge of head into base, so the base is recorded alongside the head —
-  the requirement this capability added after a receipt was cited without one.
-- Promotion of the capability delta into
-  `openspec/specs/development-workflow/spec.md` and archival of this change,
-  after integration.
+Pull request **#15**, `Propagate the development-workflow contract into the
+documents authors read`.
+
+| | |
+|---|---|
+| Head | `docs/align-development-workflow-contract` @ `d3099ab18989dec0347e55b17052323b4ffc8417` |
+| Base | `main` @ `b0102e06`'s first parent — `978863de8bfacba35678e28dc04bd7e216f7a6c7` |
+| Merge commit | `b0102e06a4897a545bdf5c1b194b17b1698de6fc` |
+| Merged | 2026-09-05T09:06:44Z, squash |
+| Branch after merge | deleted automatically (`delete_branch_on_merge=true`, verified by `git ls-remote`) |
+
+Required checks on the merge candidate, all `success`, workflow runs
+`33956907703` (CI) and `33956907677` (M5 architecture gates):
+
+| Check | Job |
+|---|---|
+| Lint + compose validation | `101281770873` |
+| Unit tests + coverage | `101281770887` |
+| Warehouse dbt contract + artifacts | `101281770851` |
+| Airflow DAG validation | `101281770731` |
+| PR M3/M4 recovery and cutover gates | `101281770450` |
+
+`gh pr view 15` reported `mergeable=MERGEABLE`, `mergeStateStatus=CLEAN` before
+the merge. The base is recorded alongside the head because this capability
+requires it — the requirement added after a receipt was cited without one.
+
+## Post-integration verification
+
+- `main` at `b0102e06`; the propagation detector run against it reports `clean`.
+- `AGENTS.md`, `CLAUDE.md` and `docs/DEVELOPMENT.md` on `main` carry the
+  contract; `AGENTS.md` carries the closure section.
+- Worktree `docs-workflow-align` removed and local branch deleted after the
+  clean-status check, per the closure requirement this change added.
