@@ -59,8 +59,31 @@ non-vacuity floor of 5, so the clean result is not an empty scan.
 | `openspec validate --specs` | 8 passed |
 | `openspec validate --changes` | 1 passed |
 
-## Pending
+## Merge-time authority
 
-- Pull request against `main`: head SHA, base branch, base SHA and required
-  check run ids, recorded here once opened.
-- Adoption and archival after integration.
+Pull request **#17**, `Close NG-0.6 governance and land the evidence-shape
+checker`.
+
+| | |
+| --- | --- |
+| Head | `governance/close-ng-0.6` @ `3450fa1487f904d2ac7d719d8ed366d606f75e05` |
+| Base branch | `main` |
+| Base SHA | `249e0bc4b3b16dfe716130ac10069be1b1b9c14a` |
+| Merge commit | `156d320eef5f16e7470ce445b2955b4764e1f0b9` |
+| Merged | 2026-09-05T09:27:14Z, squash |
+| Branch after merge | deleted automatically |
+
+Workflow runs on that head, both `pull_request` events, base `main@249e0bc4`:
+
+| Workflow | Run | Conclusion |
+| --- | --- | --- |
+| CI | `33957848958` | success |
+| M5 architecture gates | `33957848966` | success |
+
+Required check jobs: Lint + compose validation `101284313604`, Unit tests +
+coverage `101284313595`, Warehouse dbt contract + artifacts `101284313582`,
+Airflow DAG validation `101284313608`, PR M3/M4 recovery and cutover gates
+`101284313497`. `gh pr view 17` reported `mergeStateStatus=CLEAN` before merge.
+
+This section is written in the shape the change itself introduced, and is
+checked by the rule it added.
