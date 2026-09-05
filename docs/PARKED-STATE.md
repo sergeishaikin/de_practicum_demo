@@ -12,7 +12,7 @@ what was deliberately left undone, and where to find the work that was parked.
 
 | Property | State |
 |---|---|
-| `main` | `770a9018c93ad37304f5bc202809d5a612eda09f` |
+| `main` | `f0636ca375fc6cf23cb6ab782fd66b7acc48af75` — the merge of PR #20, which is this file |
 | Remote branches | `main` only |
 | Open pull requests | none |
 | Active OpenSpec changes | none — `openspec/changes/` holds `.gitkeep` and `archive/` |
@@ -24,8 +24,8 @@ what was deliberately left undone, and where to find the work that was parked.
 
 ## What was closed
 
-Five pull requests, each branched from the then-current `main`, verified against
-it, squash-merged and auto-deleted.
+Seven pull requests, each branched from the then-current `main`, verified
+against it, squash-merged and auto-deleted.
 
 | PR | Merge | What it closed |
 |---|---|---|
@@ -34,6 +34,8 @@ it, squash-merged and auto-deleted.
 | #17 | `156d320e` | Closed NG-0.6 governance: re-anchored every `pull_request` citation to base branch and base SHA, replaced the merge-time placeholder, rewrote the exceptions table as history, and landed the deferred evidence-shape checker with no exemption list |
 | #18 | `ee60a49f` | Archived that closure with its own merge-time receipt |
 | #19 | `770a9018` | Rebuilt the README architecture around the platform's real planes, corrected the Iceberg relationship, documented all six Compose profiles, and added the medallion rollout modes |
+| #20 | `f0636ca3` | Recorded this parked state, archived the documentation change, and parked NG-0.7 against its tag |
+| #21 | see `git log` | Corrected two statements that this file's own merge and the worktree consolidation made stale |
 
 ## Durable anchors
 
