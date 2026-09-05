@@ -21,7 +21,8 @@ Every value in `design.md`'s evidence table was measured directly. The two
 load-bearing ones:
 
 - Run `33890376252`: `event: pull_request`, `headSha:
-  de68270ad3bb5c993af5e35479115cf8aae1d733`, `conclusion: success`,
+  de68270ad3bb5c993af5e35479115cf8aae1d733`, base
+  `test/dbt-extensive-testing@9d62da49` (PR #6), `conclusion: success`,
   `workflowName: CI`. The pull request supplying its merge commit was #6, whose
   base was `test/dbt-extensive-testing` at `9d62da4`, fifteen commits behind
   `main`. The run passed; it is not evidence about `main`.

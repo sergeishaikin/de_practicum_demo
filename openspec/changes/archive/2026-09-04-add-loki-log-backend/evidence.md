@@ -202,7 +202,8 @@ Closure was attempted twice on `feature/ng-0.6-loki` and reverted both times.
 
 The first attempt, `2e1005b`, was reverted as `1013876`. It failed for a real
 reason: capability run `33888257726` and Core CI run `33888257735`, both
-`pull_request` events on head `2e1005b`, ended in **failure**.
+`pull_request` events on head `2e1005b`, base
+`test/dbt-extensive-testing@9d62da49` via closed PR #5, ended in **failure**.
 `tests/test_loki_contract.py` read
 `openspec/changes/add-loki-log-backend/design.md` — a path the archive move
 intentionally removes — producing `FileNotFoundError`. The Loki runtime and the
@@ -237,7 +238,7 @@ The receipts produced on that line are therefore recorded as history and are
 | `33902240453` H1 | `workflow_dispatch` | `9eb4356` | exact-SHA receipt for a commit not on `main`, whose tree lacks the adopted capability |
 | `33903489346` Loki capability | `workflow_dispatch` | `9eb4356` | same |
 | `33903909875` M5 gates | `workflow_dispatch` | `9eb4356` | same |
-| `33904147775` Core CI | `pull_request` | `9eb4356` | base was `test/dbt-extensive-testing` via closed PR #9, merge SHA `912dc9f` — not the integration target |
+| `33904147775` Core CI | `pull_request` | `9eb4356` | base `test/dbt-extensive-testing@9d62da49` via closed PR #9, merge SHA `912dc9f` — not the integration target |
 | `33908268598` H1 | `workflow_dispatch` | `d031679` | legacy line, pre-conformance gate definitions |
 
 This is the requirement the `development-workflow` capability states: a receipt
@@ -302,12 +303,41 @@ trigger would have silently dropped it.
 
 ### Class 3 — merge-time authority
 
-Recorded from the pull request; see the table below once the final head is
-known. The merge candidate's required checks against base `main` are the
-blocking gate. This evidence file is the audit trail of what was verified and
-against what; it is not the mechanism that permits the merge.
+Pull request **#14**, `Adopt NG-0.6 Loki capability, re-derived from main`.
 
-Commit Y changes only evidence prose, so the Class 2 gates are not re-run on
-it. X remains the verified capability candidate, and Y takes its authority from
-the required checks on the final pull request head. That is where the recursion
-of "recording a receipt moves the head" terminates.
+| | |
+| --- | --- |
+| Head | `feat/ng-0.6-adoption` @ **Y** = `d8ab3115e859ea4f373b83a2b1c3aea3fe9d8fa9` |
+| Base | base `main@acbce84a` — `acbce84a1eeb2c98b628b44172c9bb12dcd98209` |
+| Merge commit | `978863de8bfacba35678e28dc04bd7e216f7a6c7` |
+| Merged | 2026-09-04T20:05:46Z, squash |
+| Branch after merge | deleted automatically |
+
+Workflow runs on Y, all `pull_request`, all **success**, base
+`main@acbce84a`:
+
+| Workflow | Run | Conclusion |
+| --- | --- | --- |
+| CI | `33914145058` | success |
+| M5 architecture gates | `33914145097` | success |
+| NG-0.6 Loki capability | `33914145320` | success |
+
+Required check jobs on Y: Lint + compose validation `101157291884`, Unit tests
++ coverage `101157291827`, Warehouse dbt contract + artifacts `101157291773`,
+Airflow DAG validation `101157291535`, PR M3/M4 recovery and cutover gates
+`101157290906`, capability `101157291888`.
+
+Commit Y changes only evidence prose relative to X, so the Class 2 gates were
+not re-run on it. X remains the verified capability candidate, and Y takes its
+authority from the required checks on the final pull request head. That is
+where the recursion of "recording a receipt moves the head" terminates.
+
+This is the receipt the whole `development-workflow` capability was written to
+require: a green run whose base is the branch the change actually integrates
+into, recorded by branch **and** SHA so a reader can tell what was merged
+without reconstructing the pull request. Contrast the Class 1 table above,
+where every run is equally green and none of them answers that question.
+
+NG-0.6's lifecycle is `DONE / ADOPTED` in the backlog register as of
+2026-09-04; the `ACTIVE / pending` statements earlier in this file describe the
+state at the time each section was written and are not the current state.

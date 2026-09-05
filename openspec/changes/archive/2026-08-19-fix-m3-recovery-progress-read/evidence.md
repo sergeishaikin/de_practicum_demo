@@ -119,6 +119,10 @@ All on `b14dcc2`, with no push between them, so all three ran identical code.
 | 32295351837 | `workflow_dispatch` | **success** |
 | 32295354813 | `workflow_dispatch` | **success** |
 
+The `pull_request` run above was produced on head `b14dcc24` of
+`test/dbt-extensive-testing` against base `main@33316ece` (PR #1). The two
+`workflow_dispatch` runs are exact-SHA receipts and have no base.
+
 The other three workflows on the same SHA also passed: CI (32295339034), M5
 architecture gates (32295338997), S1 dbt semantic lineage (32295338954).
 

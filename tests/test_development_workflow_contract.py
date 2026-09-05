@@ -12,6 +12,7 @@ stopped working.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -472,3 +473,158 @@ def test_propagation_detector_reports_a_missing_document(tmp_path: Path) -> None
     failures = _propagation_failures(tmp_path)
     assert set(failures) == set(PROPAGATION_TARGETS)
     assert all(problems == ["missing"] for problems in failures.values())
+
+
+# --------------------------------------------------------------------------
+# Evidence shape
+#
+# A `pull_request` run verifies the merge of head into *base*. When the base is
+# not the integration target, the run is evidence about a merge that will never
+# happen — which is how a green receipt came to be cited as NG-0.6 adoption
+# evidence while its base was a legacy branch fifteen commits behind `main`.
+#
+# This rule was deferred by `standardize-trunk-based-development` because the
+# only non-conforming file was the one the rule was written for, and it was
+# frozen. Writing the checker then would have meant exempting it, which encodes
+# the defect as permitted. NG-0.6 has since integrated (PR #14) and every
+# citation has been re-anchored, so the rule lands with no exemption list.
+# --------------------------------------------------------------------------
+
+EVIDENCE_GLOB = "openspec/changes/**/evidence.md"
+
+_RUN_ID = re.compile(r"\b\d{8,}\b")
+
+# `pull_request` in an event-label position. Prose that merely discusses the
+# trigger — "the `pull_request` paths filter is evaluated against the whole
+# diff" — names no run and must not be read as a citation.
+_PR_EVENT = re.compile(
+    r"events?\s*[:=]?\s*pull_request|pull_request\s+events?\b|pull_request\s+run\b",
+    re.I,
+)
+
+# Canonical inline form: `base main@978863de`.
+_BASE_INLINE = re.compile(r"base\s*[:=]?\s*([A-Za-z][\w./-]*)@([0-9a-f]{7,40})", re.I)
+
+# Tabulated form: a "Base branch" row and a "Base SHA" row in the same section.
+_BASE_BRANCH_ROW = re.compile(r"base\s+branch\s*\|\s*([A-Za-z][\w./-]*)", re.I)
+_BASE_SHA_ROW = re.compile(r"base\s+sha\s*\|\s*([0-9a-f]{7,40})", re.I)
+
+
+def _normalise_markdown(raw: str) -> str:
+    return raw.replace("`", "").replace("*", "")
+
+
+def _sections(text: str) -> list[tuple[str, str]]:
+    """Split a markdown document into (heading, body) sections.
+
+    The section is the unit because that is how this repository writes
+    evidence: a heading introduces one receipt, and the base may legitimately
+    be stated in a summary table above the run table rather than repeated in
+    every row.
+    """
+
+    sections: list[tuple[str, str]] = []
+    heading, buf = "(preamble)", []
+    for line in text.splitlines():
+        if line.startswith("#"):
+            sections.append((heading, "\n".join(buf)))
+            heading, buf = line.lstrip("# ").strip(), []
+        else:
+            buf.append(line)
+    sections.append((heading, "\n".join(buf)))
+    return sections
+
+
+def _cites_a_pull_request_run(body: str) -> bool:
+    for line in body.splitlines():
+        if (
+            line.strip().startswith("|")
+            and "pull_request" in line
+            and _RUN_ID.search(line)
+        ):
+            return True
+    return bool(_PR_EVENT.search(body) and _RUN_ID.search(body))
+
+
+def _records_its_base(body: str) -> bool:
+    if _BASE_INLINE.search(body):
+        return True
+    return bool(_BASE_BRANCH_ROW.search(body) and _BASE_SHA_ROW.search(body))
+
+
+def _evidence_sections(root: Path) -> list[tuple[str, str, str]]:
+    found = []
+    for path in sorted(root.glob(EVIDENCE_GLOB)):
+        rel = path.relative_to(root).as_posix()
+        text = _normalise_markdown(path.read_text(encoding="utf-8"))
+        found.extend((rel, heading, body) for heading, body in _sections(text))
+    return found
+
+
+def _evidence_shape_failures(root: Path = ROOT) -> dict[str, list[str]]:
+    failures: dict[str, list[str]] = {}
+    for rel, heading, body in _evidence_sections(root):
+        if _cites_a_pull_request_run(body) and not _records_its_base(body):
+            failures.setdefault(rel, []).append(heading)
+    return failures
+
+
+@pytest.mark.architecture
+def test_evidence_citing_a_pull_request_run_records_its_base() -> None:
+    assert _evidence_shape_failures() == {}
+
+
+@pytest.mark.architecture
+def test_evidence_shape_rule_has_citations_to_check() -> None:
+    """Guard against the rule passing because it found nothing to inspect."""
+
+    citing = [
+        (rel, heading)
+        for rel, heading, body in _evidence_sections(ROOT)
+        if _cites_a_pull_request_run(body)
+    ]
+    assert len(citing) >= 5, f"detector found only {len(citing)} citations"
+
+
+@pytest.mark.architecture
+def test_evidence_shape_detector_reports_a_synthetic_violation() -> None:
+    """Prove the rule is not passing because the detector went blind."""
+
+    missing = _normalise_markdown(
+        "Run `33901538965`, event `pull_request`, head `03416c6c`."
+    )
+    assert _cites_a_pull_request_run(missing)
+    assert not _records_its_base(missing)
+
+    assert _records_its_base(_normalise_markdown(missing + " Base `main@e697f305`."))
+
+    tabulated = _normalise_markdown(
+        "| Base branch | `main` |\n"
+        "| Base SHA | `e697f30525ada` |\n"
+        "\n"
+        "| Workflow | Event | Run id |\n"
+        "| --- | --- | --- |\n"
+        "| CI | `pull_request` | `33901538965` |\n"
+    )
+    assert _cites_a_pull_request_run(tabulated)
+    assert _records_its_base(tabulated)
+
+
+@pytest.mark.architecture
+def test_evidence_shape_detector_ignores_prose_about_the_trigger() -> None:
+    """`pull_request` discussed as a concept is not a receipt.
+
+    Without this the rule would demand a base SHA from a paragraph explaining
+    how path filters are evaluated, and the only way to satisfy it would be to
+    write a false one.
+    """
+
+    prose = (
+        "ci-h1-clean.yml does not list its own path in the pull_request paths "
+        "filter, but the workflow still runs on every push to this PR. The "
+        "workflow_dispatch run started on that assumption (32193725758) was "
+        "cancelled as a duplicate."
+    )
+    assert _RUN_ID.search(prose)
+    assert "pull_request" in prose
+    assert not _cites_a_pull_request_run(prose)
