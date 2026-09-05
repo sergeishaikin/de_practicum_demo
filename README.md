@@ -4,74 +4,139 @@ A Docker Compose-based local data platform for batch processing, streaming, orch
 
 ## Architecture
 
-```text
-                                  ┌─────────────────┐
-                                  │     Airflow     │
-                                  │ localhost:18085 │
-                                  └────────┬────────┘
-                                           │
-                                           ▼
-┌──────────────────┐   Spark Connect   ┌───────────────────┐
-│     Jupyter      │ ─────────────────▶│  Spark Connect    │
-│ localhost:18888  │   sc://...:15002  │ localhost:15002   │
-└────────┬─────────┘                   └─────────┬─────────┘
-         │ Classic Spark                          │
-         ▼                                        ▼
-┌──────────────────┐                   ┌───────────────────┐
-│   Spark Master   │──────────────────▶│   Spark Worker    │
-│ localhost:18080  │                   │ localhost:18081   │
-└────────┬─────────┘                   └───────────────────┘
-         │
-          ├──────────────────────────────┐
-          │                              │
-          ▼                              ▼
-┌──────────────────┐          ┌──────────────────┐
-│    PostgreSQL    │          │      MinIO       │
-│ localhost:15432  │          │ API: 19000       │
-└────────┬─────────┘          │ Console: 19001   │
-         │                    └────────┬─────────┘
-         ▼                             │
-┌──────────────────┐                   ▼
-│     Metabase     │          ┌──────────────────┐
-│ localhost:13000  │          │   Iceberg REST   │
-└──────────────────┘          │    Catalog       │
-                              │ localhost:18181  │
-                              └────────┬─────────┘
-                                       │
-                                       ▼
-                              ┌──────────────────┐
-                              │      Trino       │
-                              │ localhost:18082  │
-                              └──────────────────┘
+The platform is four planes plus a developer-tools plane. They share MinIO and
+PostgreSQL but are otherwise independent: the streaming lakehouse and the batch
+warehouse do not call each other, and neither depends on the optional planes.
 
-┌──────────────────┐          ┌──────────────────┐
-│      Kafka       │─────────▶│     Kafka UI     │
-│ localhost:19092  │          │ localhost:18090  │
-└────────┬─────────┘          └──────────────────┘
-         │
-         ▼
-Spark Structured Streaming (Spark 4.2)
-         │
-         ▼
-     Landing (raw Parquet in MinIO)
-         │
-         ▼
-Iceberg writer (PyIceberg -> REST Catalog)
+Only the **core** services start by default. Everything marked *optional* below
+belongs to a Compose profile — see [Resource profiles](#resource-profiles).
+
+### Streaming lakehouse (core)
+
+```text
+ orders-producer
+      │
+      ▼
+   Kafka  (19092)
+      │
+      ▼
+ Spark Structured Streaming (Spark 4.2)
+      │
+      ├──────────────► marts.streaming_orders  (PostgreSQL upsert)
+      ▼
+ Landing — raw Parquet in MinIO
+   s3://de-practicum/streaming/orders_raw
+      │
+      ▼
+ iceberg-writer  (PyIceberg, 10s poll)
+      │
+      ▼
+ bronze.orders
+      │
+      ▼
+ iceberg-medallion  (60s)
+      ├──► silver.orders_clean
+      └──► gold.orders_daily_metrics
+                    │
+                    ▼
+                  Trino  (18082)
 ```
 
-### Optional observability plane
+Spark writes Iceberg *indirectly*. There is no `iceberg-spark-runtime-4.2` JAR,
+so Spark lands raw Parquet and PyIceberg ingests it; the rationale is under
+[Iceberg](#iceberg).
 
-The adopted observability profiles are opt-in. First-party traces and logs flow
-over OTLP to the OpenTelemetry Collector. Traces are routed through
-`telemetry-backend` to Tempo; logs are routed through the Collector's native
-OTLP HTTP exporter to Loki when NG-0.6 is enabled. Existing application
-Prometheus metrics remain directly scraped by Prometheus; Grafana links bounded
-Prometheus exemplars to Tempo and provides trace-to-logs navigation through
-Loki. This does not replace the existing Prometheus/Grafana path, stdout, or
-PostgreSQL metric authority.
+### Batch warehouse (core)
 
-The complete NG-0.5 trace capability requires both `--profile otel` and
-`--profile observability-next`.
+```text
+ data/raw/*.csv
+      │
+      ▼
+ Airflow  (18085)
+      │
+      ├── warehouse_orders_ingestion ──► PostgreSQL  stg ──► core
+      │                                        │
+      │                                   core.orders Asset
+      │                                        │
+      ├── warehouse_marts_validation ◄─────────┘
+      │        │
+      │        └──► dbt (warehouse_transform) ──► marts views + audit
+      │
+      └── lakehouse_maintenance ──► Trino ALTER TABLE … EXECUTE
+                                    {optimize, expire_snapshots,
+                                     remove_orphan_files}
+```
+
+Airflow talks to PostgreSQL and Trino. It does **not** drive Spark: no DAG in
+`dags/` references Spark or Spark Connect.
+
+### Iceberg catalog and query (core)
+
+The REST catalog holds *metadata*; MinIO holds the *data files*. The catalog is
+not a stage in the data path — both the writer and Trino consult it, then read
+and write table data in MinIO directly.
+
+```text
+                    Iceberg REST Catalog  (18181)
+                    catalog state in SQLite
+                              ▲
+              ┌───────────────┴───────────────┐
+              │        table metadata          │
+     PyIceberg writer                       Trino
+     iceberg-medallion                        │
+              │                               │
+              └───────────► MinIO ◄───────────┘
+                      s3://de-practicum/warehouse
+                        Iceberg data files
+```
+
+### Governance (optional — `metadata`)
+
+```text
+ iceberg-writer / iceberg-medallion / dbt
+        │  OpenLineage events
+        ▼
+   OpenMetadata
+```
+
+Emitted for `landing → bronze`, `bronze → silver` and `silver → gold`. The
+`Kafka → landing` edge is a documented gap, not an emitted edge; see
+[`docs/LINEAGE.md`](docs/LINEAGE.md).
+
+### Observability (optional — `observability`, `otel`, `observability-next`)
+
+```text
+ application metrics ──────────────► Prometheus ──┐
+                                                  ├──► Grafana  (13001)
+ first-party OTLP                                 │
+        │                                         │
+        ▼                                         │
+ OpenTelemetry Collector  (otel)                  │
+        ├── traces ──► telemetry-backend ──► Tempo (13200) ──┤
+        └── logs ─────────────────────────► Loki  (13100) ──┘
+```
+
+Prometheus scrapes application metrics directly and is unaffected by the OTLP
+path. Grafana links bounded Prometheus exemplars to Tempo and offers
+trace-to-logs navigation through Loki.
+
+### Developer tools (optional — `tools`, `bi`)
+
+```text
+ Jupyter (18888) ──sc://…:15002──► Spark Connect (15002) ──► Spark Master (18080)
+ Kafka UI (18090) ───────────────► Kafka
+ Metabase (13000) / Superset (18088) ──► PostgreSQL, Trino
+```
+
+Spark Connect is an interactive development endpoint in the `tools` profile. It
+is not part of the core runtime and nothing in the core pipeline depends on it.
+
+Traces are routed through `telemetry-backend` to Tempo; logs go through the
+Collector's native OTLP HTTP exporter to Loki. The complete trace capability
+therefore needs **both** `--profile otel` and `--profile observability-next` —
+one supplies the Collector, the other the backends. This plane adds to the
+existing Prometheus/Grafana path, stdout logging and PostgreSQL metric
+authority; it replaces none of them.
 
 ## Components and URLs
 
@@ -169,13 +234,22 @@ Build and start:
 observability are opt-in so that the normal development graph stays within a
 12 GB WSL budget:
 
-| Profile | Services |
-|---|---|
-| default | PostgreSQL, Airflow, MinIO, Spark master/worker, Kafka, Iceberg, Trino, producer, streaming job |
-| `tools` | Spark Connect, JupyterLab, Kafka UI |
-| `bi` | Metabase, Superset, Superset MCP |
-| `observability` | runtime exporter, Prometheus, Grafana |
-| `metadata` | OpenMetadata server, ingestion worker, PostgreSQL, OpenSearch, and bounded bootstrap jobs |
+Compose declares six profiles. `default` is not a profile — it is what starts
+when none is named.
+
+| Profile | Services | Notes |
+|---|---|---|
+| default | PostgreSQL, Airflow, MinIO, Spark master/worker, Kafka, Iceberg REST + writer + medallion, Trino, producer, streaming job | Starts with `stack.ps1 up` |
+| `tools` | Spark Connect, JupyterLab, Kafka UI | Interactive development only; nothing in the core pipeline depends on it |
+| `bi` | Metabase, Superset, Superset MCP | |
+| `observability` | runtime exporter, Prometheus, Grafana | Metrics path; independent of the OTLP path below |
+| `otel` | OpenTelemetry Collector, `telemetry-backend` | Supplies the OTLP pipeline |
+| `observability-next` | Tempo, Loki and their supporting jobs | Trace and log backends; needs `otel` to receive anything |
+| `metadata` | OpenMetadata server, ingestion worker, PostgreSQL, OpenSearch, and bounded bootstrap jobs | Also needs `-f docker-compose.metadata.yml` |
+
+Full tracing and log correlation requires `--profile otel` **and**
+`--profile observability-next` together. Enabling one alone starts a Collector
+with nowhere to export, or backends with nothing arriving.
 
 Add one optional profile to the running core stack:
 
@@ -242,15 +316,48 @@ Internal S3 endpoint: `http://minio:9000`
 
 ## Iceberg
 
-The lakehouse uses an Iceberg REST catalog backed by MinIO:
+The lakehouse uses an Iceberg REST catalog whose **catalog state lives in SQLite** and whose **warehouse data lives in MinIO**. The two are separate stores, and the catalog is not a stage in the data path — see
+[Iceberg catalog and query](#iceberg-catalog-and-query-core).
 
 - REST catalog: `http://localhost:18181` (`iceberg-rest` service, SQLite metadata in the `de_demo_iceberg_catalog` volume)
 - Warehouse: `s3://de-practicum/warehouse`
 - Writer: `iceberg-writer` service runs `iceberg/writer/iceberg_writer.py`, which polls the landing bucket (`s3://de-practicum/streaming/orders_raw`) and appends new Parquet files into `bronze.orders` via PyIceberg. Ingested file paths are tracked in the `de_demo_iceberg_writer_state` volume.
-- Medallion: `iceberg-medallion` service runs `iceberg/medallion/iceberg_medallion.py`, which rebuilds `silver.orders_clean` (deduplicated by `order_id`, highest `business_version` wins) and `gold.orders_daily_metrics` (per-day, per-country, per-status aggregates) from bronze every 60 seconds.
+- Medallion: `iceberg-medallion` service runs `iceberg/medallion/iceberg_medallion.py` every 60 seconds (`MEDALLION_INTERVAL_SECONDS`). It derives `silver.orders_clean` (deduplicated by `order_id`, highest `business_version` wins) and `gold.orders_daily_metrics` (per-day, per-country, per-status aggregates). **How it derives them depends on the rollout mode** — see *Medallion rollout modes* below. The shipped default is a full rebuild from bronze each cycle; the incremental B2 path is implemented and accepted but opt-in.
 - Metrics: the writer contributes a single observability row per batch and the medallion contributes a row per phase plus a `cycle` envelope row to `marts.lakehouse_metrics` in PostgreSQL (see *Observability metrics* below).
 - Maintenance: the Airflow DAG `lakehouse_maintenance` runs snapshot expiry, orphan-file cleanup, and compaction through Trino (see *Iceberg maintenance* below).
 - Trino: `http://localhost:18082` with the `iceberg` catalog. `trino/etc/catalog/iceberg.properties` is generated at container startup from `iceberg.properties.template` using `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` (see `trino/etc/start-trino.sh`), so credentials are never hardcoded in the repo.
+
+### Medallion rollout modes
+
+The medallion has two Silver implementations and they are selected by
+environment. Three variables form a **validated** state machine in
+`iceberg/common/cutover.py` (`RUNTIME_ROLLOUT_MATRIX`), enforced at startup by
+`validate_runtime_config()`; any other combination raises rather than starting.
+
+| `SILVER_MODE` | `GOLD_SOURCE` | `SHADOW_COMPARE` | Rollout | What runs |
+|---|---|---|---|---|
+| `legacy` | `legacy` | `0` | **legacy** — *the shipped default* | Silver and Gold rebuilt in full from bronze every cycle |
+| `b2` | `legacy` | `0` | rollback | Incremental Silver written, Gold still rebuilt from the legacy path |
+| `b2` | `legacy` | `1` | shadow | Incremental Silver plus a legacy candidate compared against it |
+| `b2` | `persisted_silver` | `1` | cutover | Gold sourced from persisted Silver, shadow validation on |
+
+`.env.example` and `docker-compose.extended.yml` both ship
+`SILVER_MODE=legacy`, `GOLD_SOURCE=legacy`, `SHADOW_COMPARE=0`, so a stack
+started from the committed configuration performs a **full rebuild every 60
+seconds**. Persisted Silver may never become the Gold source with shadow
+validation off — that combination is absent from the matrix by design.
+
+In `b2` rollouts the cycle is incremental: an affected-key scan selects only the
+bronze work that changed, Silver is written with a filtered overwrite, a durable
+shadow certificate can skip re-comparison, and Gold is left in place when its
+provenance already names the current persisted Silver snapshot. Those are the
+paths that populate `files_planned`, `snapshot_delta`, `shadow_skipped` and
+`gold_skipped` in *Observability metrics* below — columns that stay empty under
+the default legacy mode.
+
+The design and its accepted decisions are in
+[ADR-0001](docs/adr/0001-incremental-silver-and-gold.md); the rollout outcome is
+recorded in [`artifacts/b2-rollout/07-rollout-result.md`](artifacts/b2-rollout/07-rollout-result.md).
 
 ### Naming: landing vs bronze vs silver vs gold
 

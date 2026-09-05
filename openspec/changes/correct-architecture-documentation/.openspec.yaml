@@ -1,0 +1,9 @@
+schema: spec-driven
+created: 2026-09-05
+
+# This change adds and modifies no requirement. It brings `README.md` and
+# `docs/ARCHITECTURE.md` back into agreement with the runtime they describe,
+# which is already required by the **Documentation** section of `AGENTS.md`:
+# "README.md and the relevant files under docs/ are the project contract …
+# Keep them aligned with behavior changes."
+skip_specs: true
