@@ -5,10 +5,31 @@
 > **Execution authorization:** NONE. This file specifies a future bounded change; it does not authorize implementation by itself.
 > **Opens as:** `add-grafana-correlation-slo`
 > **Repository:** `sergeishaikin/de_practicum_demo`
-> **Baseline branch used for analysis:** `test/dbt-extensive-testing`
+> **Baseline used for analysis:** tag `ng-0.6-evidence-baseline` (`d031679`) — formerly the branch `test/dbt-extensive-testing`, deleted 2026-09-05
 > **SDD convention:** implementation SHALL be opened as its own OpenSpec change with `proposal.md`, `design.md`, `tasks.md`, evidence, and the required spec delta before code is applied.
 
 Normative terms `SHALL`, `SHALL NOT`, `SHOULD`, and `MAY` are intentional. A requirement is not complete because a container starts; it is complete only when its acceptance evidence is captured and the relevant live CI gates are green.
+
+## Prior work — Milestone 1 was written, then parked
+
+Milestone 1 of `add-grafana-correlation-slo` was authorised and completed on
+2026-09-04: proposal, design, evidence, tasks and a bounded
+`grafana-correlation-slo` spec delta. Milestone 2 implementation was never
+authorised, and the change's own `tasks.md` records that.
+
+The work was parked on 2026-09-05 rather than continued. It is preserved at tag
+**`ng-0.7-m1-research`** (`cc2c16d`), which is the sole commit of the deleted
+`feature/ng-0.7-grafana-correlation` branch. Recover it with
+`git show ng-0.7-m1-research` or `git checkout -b <name> ng-0.7-m1-research`.
+
+Two things this deliberately does **not** mean. It is not adoption: nothing from
+that milestone reached `openspec/specs/`, and this item's lifecycle is `PLANNED`
+with authorisation `NONE`, which is its true state. And it is not a promotion
+shortcut: picking NG-0.7 up means opening `add-grafana-correlation-slo` afresh
+under its own authorisation, re-verifying the external premises named below —
+the parked M1 was written against a baseline that is now four merges behind
+`main`, so its inventory of dashboards, datasources and provisioning is a
+starting point to re-check, not a finding to carry forward.
 
 ## Freshness of external assumptions
 

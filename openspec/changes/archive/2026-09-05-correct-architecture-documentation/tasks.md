@@ -25,9 +25,9 @@
 - [x] Add the profile-table fitness check and measure its non-vacuity against
       the README on `origin/main`.
 - [x] Run the completion gate.
-- [ ] Open the pull request against `main`, and record head, base branch, base
-      SHA and every required check run id.
-- [ ] Archive this change once integrated.
+- [x] Open the pull request against `main`, and record head, base branch, base
+      SHA and every required check run id. PR #19, merge `770a9018`.
+- [x] Archive this change once integrated.
 
 ## Explicitly out of scope
 

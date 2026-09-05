@@ -276,6 +276,12 @@ and do not run GSD phase orchestration.
 
 ## Documentation
 
+[`docs/PARKED-STATE.md`](docs/PARKED-STATE.md) records the state this
+repository was deliberately left in, what was closed, and every item that was
+knowingly left undone with its reason. Read it before starting work; it is the
+one place a deferred obligation is recorded rather than buried in an archived
+task checklist.
+
 `README.md` and the relevant files under `docs/` are the project contract for
 setup, architecture, configuration, deployment, and testing. Keep them aligned
 with behavior changes. Generated audit reports and analysis artifacts are

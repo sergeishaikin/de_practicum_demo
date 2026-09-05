@@ -60,8 +60,45 @@ stale document.
 | `uv run --locked pytest` | 624 passed, 1 skipped, 81 deselected |
 | `pytest tests --cov=iceberg --cov-fail-under=90` | Required coverage reached, 92.62% |
 
-## Pending
+## Merge-time authority
 
-- Pull request against `main`: head, base branch, base SHA and required check
-  run ids, recorded here once opened.
-- Archival after integration.
+Pull request **#19**, `Rebuild the README architecture around the platform's
+real planes`.
+
+| | |
+| --- | --- |
+| Head | `docs/architecture-correctness` @ `c12954821e87e4a2ccddbb7e135bfdd392204f4b` |
+| Base branch | `main` |
+| Base SHA | `ee60a49fe4a5c739112ae4d6ff25ec26c7fa43b3` |
+| Merge commit | `770a9018c93ad37304f5bc202809d5a612eda09f` |
+| Merged | 2026-09-05T09:49:09Z, squash |
+| Branch after merge | deleted automatically |
+
+Workflow runs on that head, both `pull_request` events, base `main@ee60a49f`:
+
+| Workflow | Run | Conclusion |
+| --- | --- | --- |
+| CI | `33958820725` | success |
+| M5 architecture gates | `33958820689` | success |
+
+Required check jobs: Lint + compose validation `101286932919`, Unit tests +
+coverage `101286932916`, Warehouse dbt contract + artifacts `101286932855`,
+Airflow DAG validation `101286932900`, PR M3/M4 recovery and cutover gates
+`101286932614`. `mergeStateStatus=CLEAN` before merge.
+
+## A recovery worth recording
+
+The first attempt to open this pull request failed with `No commits between
+main and docs/architecture-correctness`. The branch had been created in one
+worktree while the edits were made in another, so the commit landed on the
+previous change's branch and the pushed branch was empty.
+
+Recovered by rebasing the commit `--onto origin/main`, freeing the branch name
+from the worktree holding it, renaming, and pushing — `c129548`, one commit
+ahead of `main`, ancestry re-verified. No work was lost and nothing was
+force-pushed over.
+
+This is the failure mode the **Closure includes branch and worktree cleanup**
+requirement exists to reduce, encountered while carrying it out: several live
+worktrees make "which branch am I on" a question that must be answered rather
+than assumed.
