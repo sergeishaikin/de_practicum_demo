@@ -12,7 +12,7 @@ what was deliberately left undone, and where to find the work that was parked.
 
 | Property | State |
 |---|---|
-| `main` | `f0636ca375fc6cf23cb6ab782fd66b7acc48af75` — the merge of PR #20, which is this file |
+| `main` | the merge of PR #22, the last of the parking sequence. Resolve it with `git rev-parse origin/main` — this row deliberately names no SHA, because a record of the parked state cannot contain the SHA of its own merge |
 | Remote branches | `main` only |
 | Open pull requests | none |
 | Active OpenSpec changes | none — `openspec/changes/` holds `.gitkeep` and `archive/` |
@@ -24,8 +24,13 @@ what was deliberately left undone, and where to find the work that was parked.
 
 ## What was closed
 
-Seven pull requests, each branched from the then-current `main`, verified
+Eight pull requests, each branched from the then-current `main`, verified
 against it, squash-merged and auto-deleted.
+
+Every row but the last names the commit its merge produced. The last cannot:
+a change that records its own merge SHA would have to be amended after
+merging, which moves the SHA again. The recursion terminates by naming the
+pull request instead of the commit, and `git log` supplies the rest.
 
 | PR | Merge | What it closed |
 |---|---|---|
@@ -35,7 +40,8 @@ against it, squash-merged and auto-deleted.
 | #18 | `ee60a49f` | Archived that closure with its own merge-time receipt |
 | #19 | `770a9018` | Rebuilt the README architecture around the platform's real planes, corrected the Iceberg relationship, documented all six Compose profiles, and added the medallion rollout modes |
 | #20 | `f0636ca3` | Recorded this parked state, archived the documentation change, and parked NG-0.7 against its tag |
-| #21 | see `git log` | Corrected two statements that this file's own merge and the worktree consolidation made stale |
+| #21 | `17b8581b` | Corrected two statements that #20's own merge and the worktree consolidation made stale |
+| #22 | *this change* | Terminated the SHA recursion above, and recorded the final verification |
 
 ## Durable anchors
 
@@ -119,6 +125,31 @@ The container folder holds `h1-artifacts`, `ng05-ci-artifact` and `scratch` from
 earlier sessions. They are not tracked, not referenced by any evidence, and were
 left untouched — they are local working data, and deleting another session's
 files is not cleanup.
+
+## Final verification
+
+Run on `main` after the last merge and after the worktrees were consolidated.
+
+| Check | Result |
+|---|---|
+| `ruff` / `black` / `mypy` | clean · 111 files · 10 source files |
+| `pytest` | 624 passed, 1 skipped, 81 deselected |
+| `iceberg` coverage gate | 92.62%, floor 90% |
+| `openspec validate --specs` | 8 passed |
+| `openspec validate --changes` | no active changes to validate |
+| CI on the final SHA (`push`) | success — all four required checks |
+| Integration, live Iceberg/Trino stack (`push`) | success |
+| Local branches | `main` only |
+| Local worktrees | one, the repository root, on `main` |
+| Remote branches | `main` only |
+| Tags | `ng-0.6-evidence-baseline`, `ng-0.7-m1-research` — both resolve |
+| Open pull requests | none |
+| Backlog `ACTIVE` rows | none |
+
+The fitness functions that hold this state in place, all green: propagation of
+the integration contract into the instruction documents, the evidence-shape rule
+over every archived receipt, and the profile table matching what Compose
+declares.
 
 ## Resuming
 
