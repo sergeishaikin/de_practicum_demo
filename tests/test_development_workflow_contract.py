@@ -325,3 +325,150 @@ def test_dispatcher_requires_a_full_expected_sha() -> None:
     body = yaml.safe_dump(preflight)
     assert "[0-9a-f]{40}" in body, "preflight does not check the SHA's shape"
     assert "github.sha" in body, "preflight does not compare against the resolved ref"
+
+
+# --------------------------------------------------------------------------
+# Documentation propagation
+#
+# The CI rules above check that the contract is enforced. These check that it
+# is *discoverable*: the contract was adopted into `openspec/specs/` while the
+# contributor guide still said no branch convention existed and neither
+# instruction file mentioned branching at all, so an agent could obey OpenSpec
+# authorisation and verification and still branch a new change off a legacy
+# integration baseline. Enforcement in CI does not help before the first
+# commit; only the documents an author reads do.
+# --------------------------------------------------------------------------
+
+CANONICAL_SPEC = "openspec/specs/development-workflow/spec.md"
+
+# Documents that must carry the contract, and why each one.
+PROPAGATION_TARGETS = {
+    "AGENTS.md": "authoritative repository instruction file",
+    "CLAUDE.md": "agent operating instructions",
+    "docs/DEVELOPMENT.md": "contributor-facing development guide",
+}
+
+# The two rules that decide branch topology before any work happens. Matched
+# against normalised text so markdown emphasis and code spans do not decide
+# whether a policy is considered stated.
+REQUIRED_CLAIMS = {
+    "branches originate from current main": "from the current main",
+    "pull requests target main": "target main",
+}
+
+# Claims that were true before the contract was adopted and are false after.
+STALE_CLAIMS = (
+    "no explicit convention is documented",
+    "no pull-request template or review workflow is defined",
+    "no convention exists",
+)
+
+
+def _normalise(raw: str) -> str:
+    """Strip markdown emphasis and code spans, then flatten whitespace.
+
+    Without this the rules would be asserting a particular way of writing the
+    policy rather than the policy, and reflowing a paragraph would fail a gate.
+    """
+
+    stripped = raw.replace("*", "").replace("`", "").replace("**", "")
+    return " ".join(stripped.split()).lower()
+
+
+def _propagation_failures(root: Path = ROOT) -> dict[str, list[str]]:
+    failures: dict[str, list[str]] = {}
+    for relative in PROPAGATION_TARGETS:
+        path = root / relative
+        if not path.exists():
+            failures[relative] = ["missing"]
+            continue
+        body = _normalise(path.read_text(encoding="utf-8"))
+        problems = []
+        if CANONICAL_SPEC not in body:
+            problems.append(f"does not cite {CANONICAL_SPEC}")
+        for label, phrase in REQUIRED_CLAIMS.items():
+            if phrase not in body:
+                problems.append(f"does not state that {label}")
+        for stale in STALE_CLAIMS:
+            if stale in body:
+                problems.append(f"still claims: {stale!r}")
+        if problems:
+            failures[relative] = problems
+    return failures
+
+
+@pytest.mark.architecture
+def test_the_canonical_spec_is_where_every_document_points() -> None:
+    """A dangling pointer is worse than no pointer: it looks answered."""
+
+    spec = ROOT / CANONICAL_SPEC
+    assert spec.exists(), f"{CANONICAL_SPEC} does not exist"
+    body = spec.read_text(encoding="utf-8")
+    assert "## Recorded exceptions" in body, (
+        "three documents send readers to the Recorded exceptions table; "
+        "it must exist in the spec"
+    )
+
+
+@pytest.mark.architecture
+def test_the_integration_contract_reached_the_documents_authors_read() -> None:
+    assert _propagation_failures() == {}
+
+
+@pytest.mark.architecture
+def test_agents_md_lists_development_workflow_as_a_standing_capability() -> None:
+    """The policy specs are read together; naming two of three hides the third.
+
+    `AGENTS.md` enumerated `engineering-governance` and `verification-contract`
+    and stopped there, which described authorisation and verification as the
+    whole of the process contract.
+    """
+
+    body = _normalise((ROOT / "AGENTS.md").read_text(encoding="utf-8"))
+    for capability in (
+        "engineering-governance",
+        "development-workflow",
+        "verification-contract",
+    ):
+        assert capability in body, f"AGENTS.md does not name {capability}"
+
+
+@pytest.mark.architecture
+def test_propagation_detector_reports_a_synthetic_violation(
+    tmp_path: Path,
+) -> None:
+    """Prove the rules above are not passing because the detector went blind."""
+
+    (tmp_path / "docs").mkdir(parents=True)
+    compliant = (
+        f"See {CANONICAL_SPEC}. Branch from the current `main`; "
+        "pull requests target `main`."
+    )
+    (tmp_path / "AGENTS.md").write_text(compliant, encoding="utf-8")
+    # Cites the spec and targets `main`, but omits where branches originate.
+    (tmp_path / "CLAUDE.md").write_text(
+        f"See {CANONICAL_SPEC}. Pull requests target `main`.",
+        encoding="utf-8",
+    )
+    # States both rules but carries the pre-contract claim as well.
+    (tmp_path / "docs/DEVELOPMENT.md").write_text(
+        compliant + " No explicit convention is documented.",
+        encoding="utf-8",
+    )
+
+    failures = _propagation_failures(tmp_path)
+    assert "AGENTS.md" not in failures
+    assert failures["CLAUDE.md"] == [
+        "does not state that branches originate from current main"
+    ]
+    assert failures["docs/DEVELOPMENT.md"] == [
+        "still claims: 'no explicit convention is documented'"
+    ]
+
+
+def test_propagation_detector_reports_a_missing_document(tmp_path: Path) -> None:
+    """A deleted or renamed target must fail loudly rather than vacuously pass."""
+
+    failures = _propagation_failures(tmp_path)
+    assert set(failures) == set(PROPAGATION_TARGETS)
+    assert all(problems == ["missing"] for problems in failures.values())
