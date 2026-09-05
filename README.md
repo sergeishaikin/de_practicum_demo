@@ -2,6 +2,12 @@
 
 A Docker Compose-based local data platform for batch processing, streaming, orchestration, object storage, analytics, and interactive development.
 
+> **This repository is parked.** `main` is authoritative, no change is in
+> flight, and no branch is outstanding. Read
+> [`docs/PARKED-STATE.md`](docs/PARKED-STATE.md) before resuming work — it
+> records what was closed, what was deliberately left undone and why, and where
+> the parked NG-0.7 research lives.
+
 ## Architecture
 
 The platform is four planes plus a developer-tools plane. They share MinIO and
