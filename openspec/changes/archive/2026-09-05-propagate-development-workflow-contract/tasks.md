@@ -41,11 +41,13 @@
       tree and recording every finding it reports.
 - [x] Run the completion gate: `ruff check .`, `black --check .`, `mypy`,
       `pytest`, and the `iceberg` coverage gate.
-- [ ] Open the pull request against `main`, and record head SHA, base branch,
-      base SHA and every required check's run id in `evidence.md`.
-- [ ] Promote the capability delta into
+- [x] Open the pull request against `main`, and record head SHA, base branch,
+      base SHA and every required check's run id in `evidence.md`. PR #15,
+      merged `b0102e06`.
+- [x] Promote the capability delta into
       `openspec/specs/development-workflow/spec.md` and archive this change,
       once the pull request has integrated.
+- [x] Remove the change's worktree and delete its local and remote branches.
 
 ## Explicitly out of scope
 
