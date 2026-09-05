@@ -88,9 +88,12 @@
       1: `engineering-governance` requires a standing capability to describe
       present behaviour, and until this milestone lands the repository
       knowingly violates it.
-- [ ] Add the deferred evidence-shape fitness function: evidence citing a
-      `pull_request` run records its base branch and base SHA. **Blocked on
-      NG-0.6, not on effort.** The receipt format is now settled by this
+- [x] Add the deferred evidence-shape fitness function: evidence citing a
+      `pull_request` run records its base branch and base SHA. **Landed
+      2026-09-05 in `close-ng-0.6-governance`**, once NG-0.6 integrated as
+      PR #14 and every citation was re-anchored, so the checker carries no
+      exemption list. The reasoning that deferred it, unchanged:
+      **Blocked on NG-0.6, not on effort.** The receipt format is now settled by this
       change's own Milestone 2 records, but the only other evidence file on
       `main` that cites `pull_request` runs is
       `openspec/changes/add-loki-log-backend/evidence.md`, which records no

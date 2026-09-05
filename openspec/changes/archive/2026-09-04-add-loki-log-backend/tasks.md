@@ -59,5 +59,8 @@
       candidate: Loki capability `33912934372` through `workflow_call` with
       `expected_sha`, H1 `33912936640`, M5 `33912940204`, all **success** on
       `51ca4ac`.
-- [ ] Record the merge-time receipt against base `main` on the final pull
-      request head.
+- [x] Record the merge-time receipt against base `main` on the final pull
+      request head. PR #14: head `d8ab3115`, base `main@acbce84a`, merge
+      `978863de`, runs `33914145058` CI, `33914145097` M5, `33914145320`
+      Loki capability, all **success**. Recorded in `evidence.md` Class 3 by
+      `close-ng-0.6-governance` on 2026-09-05.

@@ -1,0 +1,11 @@
+schema: spec-driven
+created: 2026-09-05
+
+# This change adds and modifies no requirement, so it carries no delta.
+#
+# It implements an existing one — `An adoption receipt proves the candidate
+# against its real integration base`, whose text already requires that evidence
+# citing a `pull_request` run records the base branch and its SHA — and it
+# rewrites the `Recorded exceptions` section of the same spec, which is prose
+# about the repository's current state rather than a requirement.
+skip_specs: true

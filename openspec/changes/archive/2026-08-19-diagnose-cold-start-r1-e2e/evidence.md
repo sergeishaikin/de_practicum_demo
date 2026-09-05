@@ -2,7 +2,7 @@
 
 ## The observed run
 
-Run `32193696670`, event `pull_request`, SHA `399957b`, fresh volumes.
+Run `32193696670`, event `pull_request`, head `399957b` on `test/dbt-extensive-testing`, base `main@33316ece` (PR #1), fresh volumes.
 
 **`Deterministic E2E` passed.** The failure did not reproduce.
 

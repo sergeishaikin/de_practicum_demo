@@ -489,15 +489,20 @@ condition that produced this capability's two recorded exceptions.
 
 ## Recorded exceptions
 
-Two branches are deliberately retained against the requirement that integrated
-branches are deleted. Each is recorded here with the reason and the condition
-that ends it, so neither is read as an oversight or as a tacit relaxation of
-the requirement.
+**There are currently none.**
 
-| Branch | Reason retained | What ends the exception |
+Two branches were retained against the requirement that integrated branches are
+deleted. Both exceptions were consequences of the same unresolved change, and
+both closed with it on 2026-09-05. They are recorded here as history so that a
+reader of an older receipt can tell what the branches were and why they existed
+— not as standing permission to retain branches.
+
+| Branch | Reason retained | How the exception closed |
 | --- | --- | --- |
-| `feature/ng-0.6-loki` | NG-0.6 adoption is unresolved and under active work. It is a merged head that continued to receive work, which the "merged head is closed" requirement forbids; it is retained because deciding its fate is NG-0.6's business, not branch hygiene's. | NG-0.6 resolves through a change branched from current `main`, its receipt is produced against `main`, and the work integrates. |
-| `test/dbt-extensive-testing` | It is the base of pull requests #5, #6 and #7, whose receipts are cited in NG-0.6 evidence that records no base of its own. Deleting it would orphan the only context that makes those receipts interpretable. | NG-0.6 evidence is re-anchored to immutable identity, after which the branch anchors nothing. |
+| `feature/ng-0.6-loki` | NG-0.6 adoption was unresolved and under active work. It was a merged head that continued to receive work, which the "merged head is closed" requirement forbids; it was retained because deciding its fate was NG-0.6's business, not branch hygiene's. | NG-0.6 was re-derived from `main` as `feat/ng-0.6-adoption`, verified against base `main@acbce84a`, and integrated by PR #14 as merge `978863de`. The branch was then deleted. |
+| `test/dbt-extensive-testing` | It was the base of pull requests #5, #6 and #7, whose receipts were cited in NG-0.6 evidence that recorded no base of its own. Deleting it would have orphaned the only context that made those receipts interpretable. | Every affected receipt now records its base branch and base SHA — `test/dbt-extensive-testing@9d62da49` for #5, #6, #7 and #9 — so the receipts are interpretable without the branch. Enforced by `test_evidence_citing_a_pull_request_run_records_its_base`. The branch was then deleted. |
 
-Both exceptions are consequences of the same unresolved change, and both close
-with it. Neither is a standing permission to retain branches.
+Both branches are absent from `origin`. The commits they carried remain
+reachable by SHA through the pull requests, workflow runs and archived OpenSpec
+changes that name them, which is what **Evidence refers to immutable identity**
+requires. Retaining a branch as the anchor is what that requirement forbids.
