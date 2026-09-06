@@ -122,3 +122,8 @@ when someone remembers the script.
   governance and an evaluated incident agent. Start at the index; it carries the
   execution order, the dependency graph, the cross-cutting invariants and the
   status/authorisation table.
+- [`catalog-control-plane/`](catalog-control-plane/00-INDEX.md) — the NG-3.1 …
+  NG-3.6 package derived from the metastore/catalog gap analysis: catalog
+  control-plane evaluation, RBAC/access audit, scoped credential vending,
+  executable Iceberg semantics, write-audit-publish and the Kafka-to-landing
+  lineage gap. All items are planned and unauthorised until explicitly promoted.
