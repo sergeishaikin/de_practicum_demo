@@ -122,3 +122,8 @@ when someone remembers the script.
   governance and an evaluated incident agent. Start at the index; it carries the
   execution order, the dependency graph, the cross-cutting invariants and the
   status/authorisation table.
+- [`docker-platform/`](docker-platform/00-INDEX.md) — the NG-4.1 … NG-4.6
+  package derived from the Docker/container gap analysis: readiness semantics,
+  runtime-secret containment, least-privilege runtime hardening, bounded Docker
+  logging, image supply-chain assurance and a measured BuildKit cache experiment.
+  All items are planned and unauthorised until explicitly promoted.
